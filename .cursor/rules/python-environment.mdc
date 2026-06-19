@@ -1,0 +1,25 @@
+---
+description: OGC 2026 conda 환경(ogc-2026)에서 Python 실행
+alwaysApply: true
+---
+
+# Python 환경 (ogc-2026)
+
+이 프로젝트는 Miniforge conda 환경 `ogc-2026`을 사용합니다.
+
+- Python: `/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python`
+- pip: `/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m pip`
+
+## 터미널/셸 명령 규칙
+
+- `python`, `pip` 단독 사용 금지. 위 절대 경로를 사용하거나, 같은 명령 안에서 `conda activate ogc-2026` 후 실행.
+- 예: `conda activate ogc-2026 && python alg_tester/alg_tester_app.py`
+- 예: `/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m pip install <package>`
+
+## 앱 실행
+
+```bash
+conda activate ogc-2026
+cd alg_tester
+python alg_tester_app.py
+```
