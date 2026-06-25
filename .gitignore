@@ -1,2 +1,11 @@
 .DS_Store
 gurobi.lic
+.vscode/
+__pycache__/
+*.pyc
+*.pdf
+*.zip
+data/
+alg_tester/settings.json
+alg_tester/example/train*/
+alg_tester/example/*.zip

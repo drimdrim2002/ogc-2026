@@ -1,6 +1,0 @@
-{
-  "python.defaultInterpreterPath": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
-  "python.condaPath": "/opt/homebrew/Caskroom/miniforge/base/bin/conda",
-  "python.terminal.activateEnvironment": true,
-  "python.condaEnvironmentPath": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026"
-}
