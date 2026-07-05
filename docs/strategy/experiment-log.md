@@ -89,6 +89,26 @@ Rationale:
 
 ## Experiment Entries
 
+### 2026-07-06: M1 Submission Safety Entry Point Guard
+
+Experiment:
+
+- Hardened `baseline/myalgorithm.py::algorithm()` as a safety shell around `baseline_greedy.greedyalgorithm()`.
+- Added focused unittest coverage in `baseline/tests/test_submission_safety.py`.
+
+Evidence:
+
+- `conda run -n ogc2026 python -m unittest baseline.tests.test_submission_safety` passed.
+- `conda run -n ogc2026 python -m unittest discover -s baseline/tests -p 'test_*.py'` passed.
+- `conda run -n ogc2026 python baseline/run_myalgorithm.py ../alg_tester/example/example_B2_b10.json --timelimit 0` returned `Feasible : True (stage=5)`.
+- `conda run -n ogc2026 python baseline/run_myalgorithm.py ../alg_tester/example/example_B2_b10.json --timelimit 0.001` returned `Feasible : True (stage=5)`.
+- `conda run -n ogc2026 python baseline/benchmark_instances.py --root . --limit 1 --run-baseline --timelimit 0.001` returned feasible `true` and stage `5`.
+
+Decision:
+
+- M1 entry point safety guard is accepted for valid official challenge instances.
+- Malformed or impossible `prob_info` objects may fail clearly, but `algorithm()` must not silently return unvalidated output.
+
 ### 2026-07-06: M1 Submission Safety Analysis Plan
 
 Experiment:
