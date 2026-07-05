@@ -1,17 +1,45 @@
 # myalgorithm.py
-# This is a template for the custom algorithm.
+# Submission entry point for the custom algorithm.
+
+
+def _is_feasible_solution(prob_info, solution):
+    """Return True only when the official checker accepts the solution."""
+    try:
+        from utils import check_feasibility
+
+        result = check_feasibility(prob_info, solution)
+    except Exception:
+        return False
+    return bool(result.get("feasible"))
+
+
+def _verified_serial_fallback(prob_info):
+    """Build and verify the conservative serial fallback solution."""
+    import baseline_greedy
+
+    solution = baseline_greedy._serial_fallback_solution(prob_info, verify=True)
+    if not _is_feasible_solution(prob_info, solution):
+        raise RuntimeError("serial fallback did not pass check_feasibility")
+    return solution
 
 
 def algorithm(prob_info, timelimit=60):
     """
-    This is a template for the custom algorithm.
-    The function signature must not be changed or removed, but you can define extra functions or modules that are used in this function.
-    The `prob_info` is a dictionary containing the problem information, and `timelimit` is the time limit for the algorithm in seconds.
-    The function should return a solution in the format specified in the problem statement.
-    Please refer to baseline_greedy.py for an example implementation of a simple greedy algorithm. You can use it as a starting point or reference for your own algorithm.
-    """
+    Return a validated feasible solution for valid official challenge instances.
 
-    # You can import other modules or define extra functions here.
+    The public signature is part of the challenge contract and must stay stable.
+    The delegated greedy solver may raise, time out internally, or return an
+    invalid candidate. This entry point only returns candidates that pass the
+    official checker; otherwise it returns the verified serial fallback.
+    """
     import baseline_greedy
 
-    return baseline_greedy.greedyalgorithm(prob_info, timelimit)
+    try:
+        candidate = baseline_greedy.greedyalgorithm(prob_info, timelimit)
+    except Exception:
+        return _verified_serial_fallback(prob_info)
+
+    if _is_feasible_solution(prob_info, candidate):
+        return candidate
+
+    return _verified_serial_fallback(prob_info)
