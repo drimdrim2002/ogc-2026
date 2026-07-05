@@ -72,6 +72,32 @@ import time
 from utils import Bay, Block, check_entry, check_exit, check_collisions, _resolve_layers, _bounding_box
 
 
+class _TimeBudgetExpired(RuntimeError):
+    """Raised internally when the greedy search should stop and fall back."""
+
+    def __init__(self, assignments: dict[int, dict] | None = None):
+        super().__init__("time budget expired")
+        self.assignments = assignments
+
+
+def _check_deadline(deadline: float | None) -> None:
+    if deadline is not None and time.time() >= deadline:
+        raise _TimeBudgetExpired()
+
+
+def _check_deadline_with_assignments(
+    deadline: float | None,
+    assignments: dict[int, dict],
+) -> None:
+    try:
+        _check_deadline(deadline)
+    except _TimeBudgetExpired as exc:
+        partial = dict(assignments)
+        if exc.assignments:
+            partial.update(exc.assignments)
+        raise _TimeBudgetExpired(partial) from exc
+
+
 # -----------------------------------------------------------------------------
 # Helpers: block bounding box (anchored, per orientation)
 # -----------------------------------------------------------------------------
@@ -183,7 +209,8 @@ def _find_earliest_slot(new_blk: Block,
                         placed_in_bay: list[Block],
                         schedule_in_bay: list[tuple[int, int]],
                         r_time: int,
-                        proc: int) -> tuple[int | None, int | None]:
+                        proc: int,
+                        deadline: float | None = None) -> tuple[int | None, int | None]:
     """
     Return the earliest (entry, exit_t) time slot >= r_time at which new_blk
     can be crane-placed into bay without violating Stage-2 (entry) or Stage-3
@@ -217,6 +244,7 @@ def _find_earliest_slot(new_blk: Block,
     candidate_entries = sorted({r_time} | {e for _, e in schedule_in_bay})
 
     for entry_candidate in candidate_entries:
+        _check_deadline(deadline)
         entry  = max(r_time, entry_candidate)
         exit_t = entry + proc
 
@@ -297,6 +325,251 @@ def _empty_bay_entry(schedule_in_bay: list[tuple[int, int]],
     return entry
 
 
+def _serial_fallback_assignments(prob_info: dict) -> dict[int, dict]:
+    """Build a conservative solution by running at most one block per bay at a time."""
+    bays = [Bay.from_dict(data, idx) for idx, data in enumerate(prob_info["bays"])]
+    blocks_data = prob_info["blocks"]
+    bay_schedule: list[list[tuple[int, int]]] = [[] for _ in bays]
+    assignments: dict[int, dict] = {}
+
+    block_order = sorted(
+        range(len(blocks_data)),
+        key=lambda idx: (
+            blocks_data[idx]["release_time"],
+            blocks_data[idx]["due_date"],
+            blocks_data[idx]["processing_time"],
+            idx,
+        ),
+    )
+
+    for bi in block_order:
+        block = blocks_data[bi]
+        prefs = block["bay_preferences"]
+        placement = None
+        for bay_id in sorted(range(len(bays)), key=lambda idx: prefs[idx], reverse=True):
+            bay = bays[bay_id]
+            for orient_idx in range(len(block["shape"])):
+                width, height = _block_size(block, orient_idx)
+                if width > bay.width + 1e-6 or height > bay.height + 1e-6:
+                    continue
+                bbox = _block_bbox(block, orient_idx)
+                x = max(0, math.ceil(-bbox[0]))
+                y = max(0, math.ceil(-bbox[1]))
+                placed_block = Block(block_id=bi, block_data=block, x=x, y=y, orient_idx=orient_idx)
+                if not bay.contains_block(placed_block):
+                    continue
+                entry = _empty_bay_entry(
+                    bay_schedule[bay_id],
+                    block["release_time"],
+                    block["processing_time"],
+                )
+                placement = (bay_id, x, y, orient_idx, entry, entry + block["processing_time"])
+                break
+            if placement is not None:
+                break
+
+        if placement is None:
+            raise ValueError(f"block {bi} does not fit in any bay/orientation")
+
+        bay_id, x, y, orient_idx, entry, exit_t = placement
+        bay_schedule[bay_id].append((entry, exit_t))
+        assignments[bi] = {
+            "block_id": bi,
+            "bay_id": bay_id,
+            "x": int(x),
+            "y": int(y),
+            "orient_idx": orient_idx,
+            "entry_time": int(entry),
+            "exit_time": int(exit_t),
+        }
+
+    return assignments
+
+
+def _complete_with_serial_fallback(
+    prob_info: dict,
+    assignments: dict[int, dict],
+    verify: bool = True,
+) -> dict:
+    """
+    Preserve already-built assignments and serially fill only missing blocks.
+
+    Existing assignments are treated as fixed bay occupancy.  Missing blocks are
+    then placed in empty windows, so the completion path keeps useful greedy
+    work while retaining the serial fallback's feasibility guard.
+    """
+    bays = [Bay.from_dict(data, idx) for idx, data in enumerate(prob_info["bays"])]
+    blocks_data = prob_info["blocks"]
+    ordered_assignments: list[tuple[int, dict]] = []
+
+    try:
+        for raw_block_id, raw_assignment in assignments.items():
+            block_id = int(raw_block_id)
+            assignment = dict(raw_assignment)
+            assignment["block_id"] = int(assignment.get("block_id", block_id))
+            if assignment["block_id"] != block_id:
+                raise ValueError("assignment key and block_id differ")
+            assignment["bay_id"] = int(assignment["bay_id"])
+            assignment["x"] = int(assignment["x"])
+            assignment["y"] = int(assignment["y"])
+            assignment["orient_idx"] = int(assignment["orient_idx"])
+            assignment["entry_time"] = int(assignment["entry_time"])
+            assignment["exit_time"] = int(assignment["exit_time"])
+            if not (0 <= block_id < len(blocks_data)):
+                raise ValueError("block_id out of range")
+            if not (0 <= assignment["bay_id"] < len(bays)):
+                raise ValueError("bay_id out of range")
+            ordered_assignments.append((block_id, assignment))
+    except (KeyError, TypeError, ValueError, IndexError):
+        return _serial_fallback_solution(prob_info, verify=verify)
+
+    def build_solution(prefix_len: int) -> dict | None:
+        completed: dict[int, dict] = {
+            block_id: dict(assignment)
+            for block_id, assignment in ordered_assignments[:prefix_len]
+        }
+        bay_schedule: list[list[tuple[int, int]]] = [[] for _ in bays]
+
+        for assignment in completed.values():
+            bay_schedule[assignment["bay_id"]].append((
+                assignment["entry_time"],
+                assignment["exit_time"],
+            ))
+
+        block_order = sorted(
+            (idx for idx in range(len(blocks_data)) if idx not in completed),
+            key=lambda idx: (
+                blocks_data[idx]["release_time"],
+                blocks_data[idx]["due_date"],
+                blocks_data[idx]["processing_time"],
+                idx,
+            ),
+        )
+
+        for bi in block_order:
+            block = blocks_data[bi]
+            prefs = block["bay_preferences"]
+            placement = None
+            for bay_id in sorted(range(len(bays)), key=lambda idx: prefs[idx], reverse=True):
+                bay = bays[bay_id]
+                for orient_idx in range(len(block["shape"])):
+                    width, height = _block_size(block, orient_idx)
+                    if width > bay.width + 1e-6 or height > bay.height + 1e-6:
+                        continue
+                    bbox = _block_bbox(block, orient_idx)
+                    x = max(0, math.ceil(-bbox[0]))
+                    y = max(0, math.ceil(-bbox[1]))
+                    placed_block = Block(
+                        block_id=bi,
+                        block_data=block,
+                        x=x,
+                        y=y,
+                        orient_idx=orient_idx,
+                    )
+                    if not bay.contains_block(placed_block):
+                        continue
+                    entry = _empty_bay_entry(
+                        bay_schedule[bay_id],
+                        block["release_time"],
+                        block["processing_time"],
+                    )
+                    placement = (
+                        bay_id,
+                        x,
+                        y,
+                        orient_idx,
+                        entry,
+                        entry + block["processing_time"],
+                    )
+                    break
+                if placement is not None:
+                    break
+
+            if placement is None:
+                return None
+
+            bay_id, x, y, orient_idx, entry, exit_t = placement
+            bay_schedule[bay_id].append((entry, exit_t))
+            completed[bi] = {
+                "block_id": bi,
+                "bay_id": bay_id,
+                "x": int(x),
+                "y": int(y),
+                "orient_idx": orient_idx,
+                "entry_time": int(entry),
+                "exit_time": int(exit_t),
+            }
+
+        return {"operations": _build_operations(list(completed.values()))}
+
+    full_solution = build_solution(len(ordered_assignments))
+    if full_solution is None:
+        return _serial_fallback_solution(prob_info, verify=verify)
+    if not verify:
+        return full_solution
+
+    from utils import check_feasibility
+
+    serial_solution = _serial_fallback_solution(prob_info, verify=True)
+    serial_result = check_feasibility(prob_info, serial_solution)
+    full_result = check_feasibility(prob_info, full_solution)
+    if full_result["feasible"]:
+        if full_result["objective"] <= serial_result["objective"]:
+            return full_solution
+        print("[Greedy] Partial completion feasible but worse than serial fallback; "
+              "using serial fallback")
+        return serial_solution
+
+    best_solution = serial_solution
+    best_objective = serial_result["objective"]
+    best_prefix_len = 0
+    max_feasible_prefix = 0
+    lo = 0
+    hi = len(ordered_assignments) - 1
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        candidate = build_solution(mid)
+        if candidate is None:
+            hi = mid - 1
+            continue
+
+        result = check_feasibility(prob_info, candidate)
+        if result["feasible"]:
+            max_feasible_prefix = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    for prefix_len in range(1, max_feasible_prefix + 1):
+        candidate = build_solution(prefix_len)
+        if candidate is None:
+            continue
+        result = check_feasibility(prob_info, candidate)
+        if result["feasible"] and result["objective"] < best_objective:
+            best_solution = candidate
+            best_objective = result["objective"]
+            best_prefix_len = prefix_len
+
+    if best_prefix_len < len(ordered_assignments):
+        print(
+            f"[Greedy] Partial completion kept {best_prefix_len}/"
+            f"{len(ordered_assignments)} assignments after feasibility trim"
+        )
+    return best_solution
+
+
+def _serial_fallback_solution(prob_info: dict, verify: bool = True) -> dict:
+    assignments = _serial_fallback_assignments(prob_info)
+    solution = {"operations": _build_operations(list(assignments.values()))}
+    if verify:
+        from utils import check_feasibility
+
+        result = check_feasibility(prob_info, solution)
+        if not result["feasible"]:
+            raise ValueError(f"serial fallback infeasible: {result['violations'][:5]}")
+    return solution
+
+
 # -----------------------------------------------------------------------------
 # Main algorithm
 # -----------------------------------------------------------------------------
@@ -328,6 +601,7 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         check_feasibility -> re-place violating blocks.
     """
     t_start = time.time()
+    deadline = t_start + max(0.0, timelimit) * 0.95
 
     bays_data   = prob_info["bays"]
     blocks_data = prob_info["blocks"]
@@ -359,12 +633,22 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     bay_schedule: list[list[tuple[int, int]]]   = [[] for _ in range(n_bays)]
     bay_loads:    list[float]                   = [0.0] * n_bays
 
-    assignments = _place_blocks(
-        sorted_indices, blocks_data, bays,
-        bay_placed, bay_schedule, bay_loads,
-        w1, w2, w3, forced_ids=set(),
-        t_start=t_start, log_interval=max(1, n_blocks // 10),
-    )
+    try:
+        assignments = _place_blocks(
+            sorted_indices, blocks_data, bays,
+            bay_placed, bay_schedule, bay_loads,
+            w1, w2, w3, forced_ids=set(),
+            t_start=t_start, log_interval=max(1, n_blocks // 10),
+            deadline=deadline,
+        )
+    except _TimeBudgetExpired as exc:
+        partial = exc.assignments or {}
+        if partial:
+            print(f"[Greedy] Phase 1 deadline reached; serially completing "
+                  f"{len(partial)}/{n_blocks} greedy assignments")
+            return _complete_with_serial_fallback(prob_info, partial)
+        print("[Greedy] Phase 1 deadline reached; returning verified serial fallback")
+        return _serial_fallback_solution(prob_info)
 
     elapsed_p1 = time.time() - t_start
     loads_str = "  ".join(f"bay{i}={round(bay_loads[i])}" for i in range(n_bays))
@@ -375,9 +659,18 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     print(f"[Greedy] {'-' * 56}")
     print(f"[Greedy] Phase 2 : repair  mode={repair_mode}")
     sol = {"operations": _build_operations(list(assignments.values()))}
-    assignments = _repair(prob_info, sol, assignments, bays, blocks_data,
-                          w1, w2, w3, t_start, timelimit,
-                          repair_mode=repair_mode)
+    try:
+        assignments = _repair(prob_info, sol, assignments, bays, blocks_data,
+                              w1, w2, w3, t_start, timelimit,
+                              repair_mode=repair_mode, deadline=deadline)
+    except _TimeBudgetExpired as exc:
+        partial = exc.assignments or assignments
+        if partial:
+            print(f"[Greedy] Repair deadline reached; serially completing "
+                  f"{len(partial)}/{n_blocks} assignments")
+            return _complete_with_serial_fallback(prob_info, partial)
+        print("[Greedy] Repair deadline reached; returning verified serial fallback")
+        return _serial_fallback_solution(prob_info)
 
     elapsed_total = time.time() - t_start
     final_sol = {"operations": _build_operations(list(assignments.values()))}
@@ -396,6 +689,8 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         print(f"[Greedy] INFEASIBLE stage={final_result['stage']}")
         for v in final_result["violations"][:5]:
             print(f"[Greedy]   {v}")
+        print("[Greedy] Returning verified serial fallback")
+        return _serial_fallback_solution(prob_info)
 
     return final_sol
 
@@ -482,6 +777,7 @@ def _place_blocks(
     prev_assignments: dict[int, dict] | None = None,
     t_start: float | None = None,
     log_interval: int = 0,
+    deadline: float | None = None,
 ) -> dict[int, dict]:
     """
     Shared placement kernel used by both Phase 1 and _repair (greedy mode).
@@ -535,6 +831,7 @@ def _place_blocks(
     bay_weights  = [_avg_area / a for a in _bay_areas]
 
     for rank, bi in enumerate(block_ids):
+        _check_deadline_with_assignments(deadline, result)
         blk_data = blocks_data[bi]
         r_time   = blk_data["release_time"]
         due      = blk_data["due_date"]
@@ -557,11 +854,14 @@ def _place_blocks(
                 prev_blk = Block(block_id=bi, block_data=blk_data,
                                  x=px, y=py, orient_idx=poi)
                 if bays[pb_id].contains_block(prev_blk):
-                    entry, exit_t = _find_earliest_slot(
-                        prev_blk, bays[pb_id],
-                        bay_placed[pb_id], bay_schedule[pb_id],
-                        r_time, proc
-                    )
+                    try:
+                        entry, exit_t = _find_earliest_slot(
+                            prev_blk, bays[pb_id],
+                            bay_placed[pb_id], bay_schedule[pb_id],
+                            r_time, proc, deadline=deadline
+                        )
+                    except _TimeBudgetExpired as exc:
+                        raise _TimeBudgetExpired(dict(result)) from exc
                     if entry is not None:
                         tardiness = max(0.0, exit_t - due)
                         p_bb = _block_bbox(blk_data, poi)
@@ -575,11 +875,13 @@ def _place_blocks(
             # -- Full search (Phase-1 style) -----------------------------------
             bay_order = sorted(range(n_bays), key=lambda j: prefs[j], reverse=True)
             for bay_id in bay_order:
+                _check_deadline_with_assignments(deadline, result)
                 bay             = bays[bay_id]
                 placed_in_bay   = bay_placed[bay_id]
                 schedule_in_bay = bay_schedule[bay_id]
 
                 for oi in range(n_orient):
+                    _check_deadline_with_assignments(deadline, result)
                     blk_bb = _block_bbox(blk_data, oi)
                     bw = blk_bb[2] - blk_bb[0]
                     bh = blk_bb[3] - blk_bb[1]
@@ -590,15 +892,19 @@ def _place_blocks(
                         bay.width, bay.height, placed_in_bay, blk_bb
                     )
                     for (cx, cy) in candidates:
+                        _check_deadline_with_assignments(deadline, result)
                         new_blk = Block(block_id=bi, block_data=blk_data,
                                         x=cx, y=cy, orient_idx=oi)
                         if not bay.contains_block(new_blk):
                             continue
 
-                        entry, exit_t = _find_earliest_slot(
-                            new_blk, bay, placed_in_bay, schedule_in_bay,
-                            r_time, proc
-                        )
+                        try:
+                            entry, exit_t = _find_earliest_slot(
+                                new_blk, bay, placed_in_bay, schedule_in_bay,
+                                r_time, proc, deadline=deadline
+                            )
+                        except _TimeBudgetExpired as exc:
+                            raise _TimeBudgetExpired(dict(result)) from exc
                         if entry is None:
                             continue
 
@@ -664,7 +970,8 @@ def _repair(prob_info: dict,
             t_start: float,
             timelimit: float,
             max_passes: int = 10,
-            repair_mode: str = "greedy") -> dict[int, dict]:
+            repair_mode: str = "greedy",
+            deadline: float | None = None) -> dict[int, dict]:
     """
     Iteratively detect infeasible blocks and repair them.
 
@@ -720,6 +1027,7 @@ def _repair(prob_info: dict,
     forced_ids:      set[int]       = set()
 
     for pass_idx in range(max_passes):
+        _check_deadline_with_assignments(deadline, assignments)
         if time.time() - t_start > timelimit * 0.98:
             break
 
@@ -764,6 +1072,7 @@ def _repair(prob_info: dict,
                 bay_schedule[a["bay_id"]].append((a["entry_time"], a["exit_time"]))
 
             for ri, bid in enumerate(to_repair):
+                _check_deadline_with_assignments(deadline, assignments)
                 a      = assignments[bid]
                 bay_id = a["bay_id"]
                 r_time = blocks_data[bid]["release_time"]
@@ -830,18 +1139,26 @@ def _repair(prob_info: dict,
                 bay_loads[bay_id] += blocks_data[bid_a]["workload"]
 
             for ri, bi in enumerate(to_repair):
+                _check_deadline_with_assignments(deadline, assignments)
                 # Time guard: switch to forced path when 90% of timelimit is used.
                 # Without this, a slow repair search could exhaust the timelimit
                 # before all blocks are placed, causing Stage-1 (assignment) failures.
                 if time.time() - t_start > timelimit * 0.90:
                     forced_ids.add(bi)
                 prev_a  = assignments.get(bi)
-                partial = _place_blocks(
-                    [bi], blocks_data, bays,
-                    bay_placed, bay_schedule2, bay_loads,
-                    w1, w2, w3, forced_ids,
-                    prev_assignments=assignments,
-                )
+                try:
+                    partial = _place_blocks(
+                        [bi], blocks_data, bays,
+                        bay_placed, bay_schedule2, bay_loads,
+                        w1, w2, w3, forced_ids,
+                        prev_assignments=assignments,
+                        deadline=deadline,
+                    )
+                except _TimeBudgetExpired as exc:
+                    partial_assignments = dict(assignments)
+                    if exc.assignments:
+                        partial_assignments.update(exc.assignments)
+                    raise _TimeBudgetExpired(partial_assignments) from exc
                 assignments.update(partial)
                 new_a       = partial[bi]
                 is_forced   = bi in forced_ids

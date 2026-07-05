@@ -9,3 +9,4 @@ data/
 alg_tester/settings.json
 alg_tester/example/train*/
 alg_tester/example/*.zip
+.understand-anything/

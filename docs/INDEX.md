@@ -15,6 +15,14 @@ This index lists the active documentation set. Superseded duplicates and study c
 - [ogc2026_problem_statement_analysis_en.md](ogc2026_problem_statement_analysis_en.md): extended English analysis and algorithmic implications.
 - [ogc2026_problem_statement_analysis_ko.md](ogc2026_problem_statement_analysis_ko.md): extended Korean analysis and ALNS/SA design guide.
 
+## Active Solver Strategy
+
+- [strategy/operating-plan.md](strategy/operating-plan.md): compact operating plan, benchmark policy, milestones, and context discipline.
+- [strategy/idea-bank.md](strategy/idea-bank.md): evidence-gated solver idea bank, including Fable-derived candidates.
+- [strategy/experiment-log.md](strategy/experiment-log.md): decision log and benchmark experiment outcomes.
+- [strategy/m1-submission-safety-plan.md](strategy/m1-submission-safety-plan.md): M1 safety contract and implementation checklist.
+- [strategy/m1-submission-safety-plan-kr.md](strategy/m1-submission-safety-plan-kr.md): Korean version of the M1 safety contract and implementation checklist.
+
 ## Fable Strategy And Plans
 
 - [fable/2026-07-02-ogc2026-strategy-design.md](fable/2026-07-02-ogc2026-strategy-design.md): strategy design document.

@@ -89,7 +89,27 @@ Rationale:
 
 ## Experiment Entries
 
-No benchmark experiments recorded yet.
+### 2026-07-06: M1 Submission Safety Analysis Plan
+
+Experiment:
+
+- Documentation-only safety analysis for M1.
+- Created `docs/strategy/m1-submission-safety-plan.md`.
+- No solver code changes were made.
+
+Evidence:
+
+- `conda run -n ogc2026 python -m unittest discover -s baseline/tests -p 'test_*.py'` passed: 10 tests OK.
+- `conda run -n ogc2026 python baseline/run_myalgorithm.py ../alg_tester/example/example_B2_b10.json --timelimit 0` returned `Feasible : True (stage=5)`.
+- `conda run -n ogc2026 python baseline/run_myalgorithm.py ../alg_tester/example/example_B2_b10.json --timelimit 0.001` returned `Feasible : True (stage=5)`.
+- A monkeypatch probe confirmed `myalgorithm.algorithm()` currently propagates delegated solver exceptions.
+
+Decision:
+
+- Treat `baseline/myalgorithm.py` as the M1 hardening boundary.
+- Next implementation should wrap the delegated greedy call, revalidate returned solutions, and fall back to verified serial output on exception, malformed output, infeasible output, or deadline fallback failure.
+- Do not return unvalidated fallback output.
+- Scope the "always feasible" guarantee to valid official challenge instances only. Malformed or impossible `prob_info` objects should fail clearly and must not produce unvalidated output.
 
 ## Entry Template
 
