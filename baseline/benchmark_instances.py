@@ -5,6 +5,7 @@ import csv
 import json
 import pathlib
 import re
+import subprocess
 import sys
 import time
 from contextlib import redirect_stdout
@@ -13,6 +14,25 @@ from typing import Any
 
 
 _PROB_RE = re.compile(r"prob_(\d+)\.json$")
+_INSTANCE_SETS = {
+    "dev-10": [
+        "data/train 2/prob_4.json",
+        "data/train 2/prob_8.json",
+        "data/train 2/prob_9.json",
+        "data/train 2/prob_13.json",
+        "data/train 2/prob_20.json",
+        "data/train/prob_21.json",
+        "data/train/prob_32.json",
+        "data/train/prob_36.json",
+        "data/train 2/prob_18.json",
+        "data/train/prob_40.json",
+    ],
+    "smoke-3": [
+        "data/train 2/prob_9.json",
+        "data/train/prob_21.json",
+        "data/train/prob_32.json",
+    ],
+}
 
 
 def _prob_sort_key(path: pathlib.Path) -> tuple[int, str]:
@@ -28,6 +48,13 @@ def find_instance_paths(root: pathlib.Path | str) -> list[pathlib.Path]:
         if data_dir.is_dir():
             paths.extend(data_dir.glob("*.json"))
     return sorted(paths, key=_prob_sort_key)
+
+
+def select_instance_paths(root: pathlib.Path | str, set_name: str) -> list[pathlib.Path]:
+    root = pathlib.Path(root)
+    if set_name == "all":
+        return find_instance_paths(root)
+    return [root / rel_path for rel_path in _INSTANCE_SETS[set_name]]
 
 
 def _shape_bbox(shape: dict[str, Any]) -> tuple[float, float, float, float]:
@@ -130,6 +157,19 @@ def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:
     }
 
 
+def _git_commit(root: pathlib.Path) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return completed.stdout.strip() or None
+
+
 def _write_csv(rows: list[dict[str, Any]], stream) -> None:
     if not rows:
         return
@@ -146,15 +186,43 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--run-baseline", action="store_true")
     parser.add_argument("--timelimit", type=float, default=60.0)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument(
+        "--set-name",
+        choices=["all", *_INSTANCE_SETS],
+        default="all",
+        help="Instance set to benchmark; default discovers all training instances.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Metadata-only seed label; current baseline solver behavior is unchanged.",
+    )
+    parser.add_argument(
+        "--solver",
+        dest="solver_label",
+        default=None,
+        help="Metadata-only solver label for result comparison.",
+    )
     args = parser.parse_args(argv)
 
-    paths = find_instance_paths(args.root)
+    paths = select_instance_paths(args.root, args.set_name)
     if args.limit is not None:
         paths = paths[: args.limit]
 
+    git_commit = _git_commit(args.root)
+    solver_label = args.solver_label or ("baseline_greedy" if args.run_baseline else "stats_only")
     rows: list[dict[str, Any]] = []
     for path in paths:
         row = compute_instance_stats(path)
+        row.update(
+            {
+                "git_commit": git_commit,
+                "seed": args.seed,
+                "solver": solver_label,
+                "set_name": args.set_name,
+            }
+        )
         if args.run_baseline:
             row.update(run_baseline(path, args.timelimit))
         rows.append(row)

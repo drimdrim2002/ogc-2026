@@ -57,6 +57,16 @@ Selection notes:
 - Until measured baseline-fragility data exists, low average slack plus high zero-slack ratio is the failure-early-detection proxy.
 - Rotation should prioritize cases that are under-covered by recent experiments, especially other 300-block cases, high `w3` profiles, and max-layer instances.
 
+Current `smoke-3` set:
+
+| Slot | Instance | Path | Blocks | Bays | Max layers | Slack avg | Zero slack | Selection role |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| Easy contrast | `prob_21` | `data/train/prob_21.json` | 100 | 3 | 2 | 5.22 | 0.070 | Higher-slack/easier case from `dev-10`; catches gross runtime and metadata regressions without stressing dense packing first. |
+| Medium | `prob_32` | `data/train/prob_32.json` | 200 | 3 | 4 | 2.41 | 0.220 | Mid-size max-layer case with high preference-penalty weight; exercises geometry and objective reporting beyond the easy case. |
+| Dense/high-risk | `prob_9` | `data/train 2/prob_9.json` | 200 | 3 | 4 | 1.25 | 0.325 | Low-slack, high-zero-slack max-layer case; fast proxy for dense/high-risk failures. |
+
+`smoke-3` is a breakage check, not an improvement gate. Use it after larger code changes to confirm feasibility, runtime, and result metadata still work before spending time on `dev-10`.
+
 ## Current Milestones
 
 ### M0: Measurement Backbone

@@ -58,7 +58,32 @@ class Phase0HarnessTests(unittest.TestCase):
         self.assertEqual(0, status)
         rows = json.loads(out.getvalue())
         self.assertEqual(1, len(rows))
+        self.assertIn("git_commit", rows[0])
+        self.assertIsNone(rows[0]["seed"])
+        self.assertEqual("baseline_greedy", rows[0]["solver"])
+        self.assertEqual("all", rows[0]["set_name"])
         self.assertTrue(rows[0]["feasible"])
+
+    def test_benchmark_smoke3_set_uses_documented_instances(self):
+        import benchmark_instances
+
+        out = StringIO()
+        with redirect_stdout(out):
+            status = benchmark_instances.main([
+                "--root",
+                str(ROOT_DIR),
+                "--set-name",
+                "smoke-3",
+            ])
+
+        self.assertEqual(0, status)
+        rows = json.loads(out.getvalue())
+        self.assertEqual(
+            ["prob_9.json", "prob_21.json", "prob_32.json"],
+            [pathlib.Path(row["path"]).name for row in rows],
+        )
+        self.assertTrue(all(row["set_name"] == "smoke-3" for row in rows))
+        self.assertTrue(all(row["solver"] == "stats_only" for row in rows))
 
 
 class SerialFallbackTests(unittest.TestCase):

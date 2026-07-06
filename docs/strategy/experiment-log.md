@@ -6,6 +6,33 @@ This file records decisions and experiment outcomes. Keep entries short, factual
 
 ## Decision Log
 
+### 2026-07-06: smoke-3 and Benchmark Metadata Baseline
+
+Decision:
+
+- Use `prob_21`, `prob_32`, and `prob_9` as the initial `smoke-3` set.
+- Add benchmark result metadata fields: `git_commit`, `seed`, `solver`, and `set_name`.
+- Keep `seed` metadata-only for now; current solver behavior is unchanged.
+- Add `--set-name` support for `all`, `dev-10`, and `smoke-3`.
+
+Evidence:
+
+| Slot | Instance | Path | Role |
+|---|---|---|---|
+| Easy contrast | `prob_21` | `data/train/prob_21.json` | Higher-slack/easier `dev-10` case for quick runtime and metadata checks. |
+| Medium | `prob_32` | `data/train/prob_32.json` | Mid-size max-layer case with high preference-penalty weight. |
+| Dense/high-risk | `prob_9` | `data/train 2/prob_9.json` | Low-slack/high-zero-slack max-layer case for early dense failure detection. |
+
+Validation:
+
+- Added regression coverage for benchmark metadata and `smoke-3` set selection in `baseline/tests/test_phase0_harness.py`.
+- Focused RED/GREEN check passed after implementation.
+
+Open follow-up:
+
+- Record current baseline objective and feasibility on `dev-10` at 60s per instance.
+- Add a durable machine-readable output path or naming convention for daily benchmark artifacts.
+
 ### 2026-07-06: dev-10 Representative Set Selected
 
 Decision:
