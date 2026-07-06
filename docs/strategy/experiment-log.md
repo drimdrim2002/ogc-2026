@@ -6,6 +6,25 @@ This file records decisions and experiment outcomes. Keep entries short, factual
 
 ## Decision Log
 
+### 2026-07-06: M2 Experiment Playbook
+
+Decision:
+
+- Use `docs/strategy/m2-experiment-playbook.md` as the operating guide for M2 objective-improvement experiments.
+- Run the default M2 queue as separate measured branches: `block_ordering`, `time_slot_candidates`, `left_shift_polish`, `placement_candidates`, and `single_block_reinsert`.
+- Prefer one worktree per experiment; use a normal branch only when worktrees are awkward in the current environment.
+- End each experiment as `accepted`, `rejected`, or `parked`, with benchmark result files stored under `experiments/results/`.
+
+Rationale:
+
+- M2 needs consistent branch, benchmark, and decision rules before objective-improvement implementations start.
+- The playbook keeps `m2-main` as the integration baseline while preserving small, single-hypothesis experiment branches.
+
+Open follow-up:
+
+- Start the first M2 experiment on `codex/m2-block-ordering`.
+- Record a fresh `m2-main` `myalgorithm` comparison baseline after the first accepted M2 merge.
+
 ### 2026-07-06: smoke-3 and Benchmark Metadata Baseline
 
 Decision:

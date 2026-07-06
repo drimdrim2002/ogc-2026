@@ -94,21 +94,21 @@ Exit criteria:
 
 ### M2: Low-Cost Objective Improvements
 
-Status: queued.
+Status: queued with operating playbook ready in `docs/strategy/m2-experiment-playbook.md`.
 
 Candidate experiments:
 
-- Multi-start block ordering.
-- Alternative placement scoring.
-- Expanded candidate positions.
-- Expanded time-slot candidates.
-- Left-shift pass for tardy blocks.
-- Single-block reinsert polish.
+- `block_ordering` on branch `codex/m2-block-ordering`.
+- `time_slot_candidates` on branch `codex/m2-time-candidates`.
+- `left_shift_polish` on branch `codex/m2-left-shift`.
+- `placement_candidates` on branch `codex/m2-placement-candidates`.
+- `single_block_reinsert` on branch `codex/m2-single-reinsert`.
 
 Exit criteria:
 
 - Each kept experiment improves `dev-10` or a clearly defined subset without hurting feasibility.
 - Rejected experiments have a recorded reason in `experiment-log.md`.
+- Every experiment ends as `accepted`, `rejected`, or `parked` with result artifacts under `experiments/results/`.
 
 ### M3: LNS / ALNS Layer
 
@@ -163,6 +163,7 @@ At the end of a session, update:
 ## Immediate Next Actions
 
 1. Record the current baseline on `daily-40`.
-2. Start M2 only as a measured experiment bundle against the recorded `dev-10` baseline.
-3. Use `--solver myalgorithm` when measuring the submission entry point, and
+2. Start M2 with `block_ordering` on `codex/m2-block-ordering` against the recorded `dev-10` baseline.
+3. Follow `docs/strategy/m2-experiment-playbook.md` for branch/worktree, benchmark result, and accept/reject rules.
+4. Use `--solver myalgorithm` when measuring the submission entry point, and
    `--solver baseline_greedy` when measuring the reference baseline.
