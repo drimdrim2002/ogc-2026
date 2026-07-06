@@ -20,23 +20,23 @@ Status:
 
 ## Active Candidates
 
-### Multi-Start Block Ordering
+### Deterministic Block Ordering
 
 Source: current baseline structure and earlier Greedy + LNS notes.
 
-Hypothesis: The greedy constructor is sensitive to block order. Trying several deterministic orderings within the same 60s budget can reduce tardiness and preference penalty while preserving feasibility.
+Hypothesis: The greedy constructor is sensitive to block order. A single stronger deterministic ordering can reduce tardiness and preference penalty while preserving feasibility.
 
 Expected impact: Medium on `obj1`, low to medium on `obj3`.
 
-Risks: Time spent on weak starts can reduce best-solution quality.
+Risks: A mode that helps `dev-10` may overfit the representative set or regress broader `daily-40` behavior.
 
-Minimum implementation: Add a small portfolio of block sort keys and keep the best validated result.
+Minimum implementation: Add optional block sort keys behind `block_order_mode`, preserve `edd` as the default for existing `baseline_greedy` callers, and select one measured mode in `myalgorithm`.
 
-Validation: Compare against current baseline on `dev-10` at 60s per instance.
+Validation: Compare each mode against current baseline on `dev-10` at 60s per instance.
 
-Kill condition: No `dev-10` improvement or repeated runtime regressions.
+Kill condition: No `dev-10` improvement, feasibility loss, or repeated runtime regressions.
 
-Status: candidate for M2.
+Status: local accepted for M2 on `codex/m2-block-ordering`; `slack` selected. Evidence: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`.
 
 ### Expanded Candidate Positions
 

@@ -94,11 +94,11 @@ Exit criteria:
 
 ### M2: Low-Cost Objective Improvements
 
-Status: queued with operating playbook ready in `docs/strategy/m2-experiment-playbook.md`.
+Status: first local accepted experiment pending integration; `block_ordering` selected `slack` on `codex/m2-block-ordering`.
 
 Candidate experiments:
 
-- `block_ordering` on branch `codex/m2-block-ordering`.
+- `block_ordering` on branch `codex/m2-block-ordering` -- local accepted with `slack`; rerun from integration state before merging.
 - `time_slot_candidates` on branch `codex/m2-time-candidates`.
 - `left_shift_polish` on branch `codex/m2-left-shift`.
 - `placement_candidates` on branch `codex/m2-placement-candidates`.
@@ -162,8 +162,9 @@ At the end of a session, update:
 
 ## Immediate Next Actions
 
-1. Record the current baseline on `daily-40`.
-2. Start M2 with `block_ordering` on `codex/m2-block-ordering` against the recorded `dev-10` baseline.
-3. Follow `docs/strategy/m2-experiment-playbook.md` for branch/worktree, benchmark result, and accept/reject rules.
-4. Use `--solver myalgorithm` when measuring the submission entry point, and
+1. Integrate locally accepted `block_ordering` (`slack`) from `codex/m2-block-ordering` into `m2-main` after rerunning `smoke-3` and `dev-10` from the integration state.
+2. Record a fresh `m2-main` `myalgorithm` `dev-10` comparison baseline after the accepted merge.
+3. Record the current baseline on `daily-40`.
+4. Follow `docs/strategy/m2-experiment-playbook.md` for branch/worktree, benchmark result, and accept/reject rules.
+5. Use `--solver myalgorithm` when measuring the submission entry point, and
    `--solver baseline_greedy` when measuring the reference baseline.

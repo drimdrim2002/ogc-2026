@@ -1,6 +1,8 @@
 # myalgorithm.py
 # Submission entry point for the custom algorithm.
 
+_SUBMISSION_BLOCK_ORDER_MODE = "slack"
+
 
 def _is_feasible_solution(prob_info, solution):
     """Return True only when the official checker accepts the solution."""
@@ -35,7 +37,11 @@ def algorithm(prob_info, timelimit=60):
     import baseline_greedy
 
     try:
-        candidate = baseline_greedy.greedyalgorithm(prob_info, timelimit)
+        candidate = baseline_greedy.greedyalgorithm(
+            prob_info,
+            timelimit,
+            block_order_mode=_SUBMISSION_BLOCK_ORDER_MODE,
+        )
     except Exception:
         return _verified_serial_fallback(prob_info)
 

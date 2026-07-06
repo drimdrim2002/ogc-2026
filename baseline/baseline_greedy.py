@@ -5,9 +5,10 @@ baseline_greedy.py -- EDD + Best-Fit Greedy Algorithm with Post-Hoc Repair
 ALGORITHM OVERVIEW
 ===============================================================================
 
-Phase 1 -- Aggressive greedy placement (EDD order):
-  Blocks are sorted by Earliest Due Date (ties broken by Shortest Processing
-  Time).  For each block, every (bay, orientation, position, time-slot)
+Phase 1 -- Aggressive greedy placement (configurable block order):
+  Blocks are sorted by the selected block_order_mode.  The default "edd" mode
+  preserves the original Earliest Due Date order, with ties broken by Shortest
+  Processing Time.  For each block, every (bay, orientation, position, time-slot)
   combination is scored; the cheapest is committed.  Crane-path feasibility
   (check_entry / check_exit) is verified against the current bay state, so
   most Phase-1 placements are already crane-feasible.
@@ -198,6 +199,70 @@ def _placement_score(tardiness: float, workload: float,
         default=0.0
     )
     return w1 * tardiness + w2 * new_obj2 + w3 * pref_penalty + w4 * top_y
+
+
+# -----------------------------------------------------------------------------
+# Block ordering modes
+# -----------------------------------------------------------------------------
+
+_VALID_BLOCK_ORDER_MODES = (
+    "edd",
+    "release_edd",
+    "slack",
+    "latest_safe_entry",
+    "preference_pressure",
+)
+
+
+def _validate_block_order_mode(block_order_mode: str) -> None:
+    if block_order_mode not in _VALID_BLOCK_ORDER_MODES:
+        choices = ", ".join(_VALID_BLOCK_ORDER_MODES)
+        raise ValueError(f"unknown block_order_mode={block_order_mode!r}; choose one of: {choices}")
+
+
+def _preference_pressure(block_data: dict) -> float:
+    prefs = sorted(block_data.get("bay_preferences", []), reverse=True)
+    if len(prefs) < 2:
+        return 0.0
+    return float(prefs[0] - prefs[1])
+
+
+def _block_order_key(blocks_data: list[dict], idx: int, block_order_mode: str) -> tuple:
+    block = blocks_data[idx]
+    release = block["release_time"]
+    due = block["due_date"]
+    proc = block["processing_time"]
+
+    if block_order_mode == "edd":
+        return (due, proc, idx)
+    if block_order_mode == "release_edd":
+        return (release, due, proc, idx)
+    if block_order_mode == "slack":
+        slack = due - release - proc
+        return (slack, due, release, proc, idx)
+    if block_order_mode == "latest_safe_entry":
+        return (due - proc, release, due, proc, idx)
+    if block_order_mode == "preference_pressure":
+        return (-_preference_pressure(block), due, proc, idx)
+
+    _validate_block_order_mode(block_order_mode)
+    raise AssertionError("unreachable")
+
+
+def _ordered_block_ids(
+    block_ids: list[int],
+    blocks_data: list[dict],
+    block_order_mode: str = "edd",
+) -> list[int]:
+    _validate_block_order_mode(block_order_mode)
+    return sorted(
+        block_ids,
+        key=lambda idx: _block_order_key(blocks_data, idx, block_order_mode),
+    )
+
+
+def _block_order_indices(blocks_data: list[dict], block_order_mode: str = "edd") -> list[int]:
+    return _ordered_block_ids(list(range(len(blocks_data))), blocks_data, block_order_mode)
 
 
 # -----------------------------------------------------------------------------
@@ -575,7 +640,8 @@ def _serial_fallback_solution(prob_info: dict, verify: bool = True) -> dict:
 # -----------------------------------------------------------------------------
 
 def greedyalgorithm(prob_info: dict, timelimit: float,
-                    repair_mode: str = "greedy") -> dict:
+                    repair_mode: str = "greedy",
+                    block_order_mode: str = "edd") -> dict:
     """
     EDD + Best-Fit Greedy algorithm with post-hoc feasibility repair.
 
@@ -584,13 +650,15 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     prob_info   : instance JSON dict with keys "name", "bays", "blocks", "weights"
     timelimit   : wall-clock time limit in seconds
     repair_mode : "greedy" (default) or "simple" -- see module docstring for details
+    block_order_mode : deterministic construction order; "edd" preserves the
+        original behavior.
 
     Returns
     -------
     solution dict in the format described in the module docstring
 
-    Phase 1 -- EDD greedy placement:
-        Blocks sorted by (due_date, processing_time).  For each block, every
+    Phase 1 -- greedy placement:
+        Blocks sorted by block_order_mode.  For each block, every
         (bay, orientation, candidate position) is tried; _find_earliest_slot
         computes the earliest crane-feasible time slot.  The combination
         minimising _placement_score is committed.  bay_placed, bay_schedule,
@@ -602,6 +670,7 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     """
     t_start = time.time()
     deadline = t_start + max(0.0, timelimit) * 0.95
+    _validate_block_order_mode(block_order_mode)
 
     bays_data   = prob_info["bays"]
     blocks_data = prob_info["blocks"]
@@ -622,12 +691,9 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         print(f"[Greedy]   bay[{i}]  {b.width}x{b.height}")
 
     # -- Phase 1: aggressive greedy --------------------------------------------
-    sorted_indices = sorted(
-        range(n_blocks),
-        key=lambda i: (blocks_data[i]["due_date"], blocks_data[i]["processing_time"])
-    )
+    sorted_indices = _block_order_indices(blocks_data, block_order_mode)
     print(f"[Greedy] {'-' * 56}")
-    print("[Greedy] Phase 1 : EDD greedy placement ...")
+    print(f"[Greedy] Phase 1 : {block_order_mode} greedy placement ...")
 
     bay_placed:   list[list[Block]]             = [[] for _ in range(n_bays)]
     bay_schedule: list[list[tuple[int, int]]]   = [[] for _ in range(n_bays)]
@@ -662,7 +728,9 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     try:
         assignments = _repair(prob_info, sol, assignments, bays, blocks_data,
                               w1, w2, w3, t_start, timelimit,
-                              repair_mode=repair_mode, deadline=deadline)
+                              repair_mode=repair_mode,
+                              block_order_mode=block_order_mode,
+                              deadline=deadline)
     except _TimeBudgetExpired as exc:
         partial = exc.assignments or assignments
         if partial:
@@ -971,6 +1039,7 @@ def _repair(prob_info: dict,
             timelimit: float,
             max_passes: int = 10,
             repair_mode: str = "greedy",
+            block_order_mode: str = "edd",
             deadline: float | None = None) -> dict[int, dict]:
     """
     Iteratively detect infeasible blocks and repair them.
@@ -1016,6 +1085,7 @@ def _repair(prob_info: dict,
     timelimit   : total wall-clock time limit
     max_passes  : maximum number of repair iterations
     repair_mode : "greedy" or "simple"
+    block_order_mode : ordering mode for violating blocks during repair
 
     Returns
     -------
@@ -1057,9 +1127,7 @@ def _repair(prob_info: dict,
         if not to_repair:
             break
 
-        # Re-place in EDD order so earlier-due blocks get the best slots first
-        to_repair.sort(key=lambda b: (blocks_data[b]["due_date"],
-                                      blocks_data[b]["processing_time"]))
+        to_repair = _ordered_block_ids(to_repair, blocks_data, block_order_mode)
         n_repl = len(to_repair)
 
         if repair_mode == "simple":
@@ -1252,6 +1320,8 @@ if __name__ == "__main__":
                         help="wall-clock time limit in seconds (default: %(default)s)")
     parser.add_argument("--repair", choices=["greedy", "simple"], default="greedy",
                         help="repair mode (default: %(default)s)")
+    parser.add_argument("--block-order-mode", choices=_VALID_BLOCK_ORDER_MODES, default="edd",
+                        help="block ordering mode (default: %(default)s)")
     args = parser.parse_args()
 
     inst_file = pathlib.Path(args.instance)
@@ -1260,7 +1330,12 @@ if __name__ == "__main__":
         prob_info = json.load(f)
 
     t0  = time.time()
-    sol = greedyalgorithm(prob_info, timelimit=args.timelimit, repair_mode=args.repair)
+    sol = greedyalgorithm(
+        prob_info,
+        timelimit=args.timelimit,
+        repair_mode=args.repair,
+        block_order_mode=args.block_order_mode,
+    )
     elapsed = time.time() - t0
 
     result = check_feasibility(prob_info, sol)

@@ -134,6 +134,45 @@ Rationale:
 
 ## Experiment Entries
 
+### 2026-07-06: M2 Block Ordering
+
+Experiment:
+
+- Branch: `codex/m2-block-ordering` from clean `m2-main`.
+- Added `baseline_greedy.greedyalgorithm(..., block_order_mode="edd")` with deterministic modes: `edd`, `release_edd`, `slack`, `latest_safe_entry`, and `preference_pressure`.
+- Kept `baseline_greedy` default behavior compatible with the original EDD order.
+- Added benchmark runner support for `--block-order-mode` and result metadata.
+- Wired the submission entry point `myalgorithm.algorithm()` to the locally accepted single mode: `slack`.
+
+Evidence:
+
+- Unit tests: `conda run -n ogc2026 python -m unittest discover -s baseline/tests -p 'test_*.py'` passed: `Ran 28 tests`, `OK`.
+- Existing comparison baseline: `experiments/results/2026-07-06-dev10-baseline-60s.json`, 10 feasible Stage-5 rows, total objective `5562716279.375933`.
+- Mode result files are under `experiments/results/m2/block_ordering/`.
+- Machine-readable summary: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`.
+- Smoke check: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-smoke-3-baseline_greedy-15s-slack.json`, 3 feasible Stage-5 rows, total objective `976921751.8035469`.
+- Submission entry check: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-myalgorithm-60s-slack.json`, 10 feasible Stage-5 rows, total objective `3965663100.276379`.
+
+Dev-10 mode results at 60s per instance:
+
+| Mode | Feasible Stage-5 | Objective total | Delta vs `edd` | Delta % |
+|---|---:|---:|---:|---:|
+| `edd` | 10/10 | `5562716279.375933` | `0.0` | `0.00%` |
+| `release_edd` | 10/10 | `4506648648.397401` | `-1056067630.9785318` | `-18.98%` |
+| `slack` | 10/10 | `3965663100.276379` | `-1597053179.0995536` | `-28.71%` |
+| `latest_safe_entry` | 10/10 | `5124021360.36705` | `-438694919.0088825` | `-7.89%` |
+| `preference_pressure` | 10/10 | `4622033473.284263` | `-940682806.09167` | `-16.91%` |
+
+Decision:
+
+- `accepted` locally.
+- Select `slack` as the M2 block-ordering mode because it has the best dev-10 objective, preserves 10/10 feasibility and Stage 5, passes smoke-3, and is verified through the `myalgorithm` submission entry point.
+- `release_edd`, `latest_safe_entry`, and `preference_pressure` are measured but not selected for this branch.
+
+Next step:
+
+- Integrate this branch into `m2-main`, rerun `smoke-3` and `dev-10` from the integration state, then record a fresh `m2-main` `myalgorithm` comparison baseline for the next M2 experiment.
+
 ### 2026-07-06: M0/M1 Gate Cleanup Before M2
 
 Experiment:

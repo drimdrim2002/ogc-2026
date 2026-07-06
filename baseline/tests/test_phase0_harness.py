@@ -130,6 +130,34 @@ class Phase0HarnessTests(unittest.TestCase):
         self.assertTrue(rows[0]["feasible"])
         self.assertEqual(5, rows[0]["stage"])
 
+    def test_benchmark_solver_myalgorithm_reports_submission_block_order_mode(self):
+        import benchmark_instances
+        from baseline_greedy import _serial_fallback_solution
+
+        def fake_algorithm(received_prob_info, timelimit):
+            return _serial_fallback_solution(received_prob_info)
+
+        out = StringIO()
+        with patch("myalgorithm.algorithm", side_effect=fake_algorithm):
+            with redirect_stdout(out):
+                status = benchmark_instances.main([
+                    "--root",
+                    str(ROOT_DIR),
+                    "--set-name",
+                    "smoke-3",
+                    "--solver",
+                    "myalgorithm",
+                    "--limit",
+                    "1",
+                    "--timelimit",
+                    "0.001",
+                ])
+
+        self.assertEqual(0, status)
+        rows = json.loads(out.getvalue())
+        self.assertEqual("myalgorithm", rows[0]["solver"])
+        self.assertEqual("slack", rows[0]["block_order_mode"])
+
     def test_benchmark_solver_label_cannot_request_unexecuted_solver(self):
         import benchmark_instances
         from baseline_greedy import _serial_fallback_solution
@@ -194,7 +222,7 @@ class Phase0HarnessTests(unittest.TestCase):
 
         out = StringIO()
 
-        def fake_greedyalgorithm(received_prob_info, timelimit=60):
+        def fake_greedyalgorithm(received_prob_info, timelimit=60, **kwargs):
             return _serial_fallback_solution(received_prob_info)
 
         with patch("baseline_greedy.greedyalgorithm", side_effect=fake_greedyalgorithm) as greedy:
@@ -217,8 +245,91 @@ class Phase0HarnessTests(unittest.TestCase):
         self.assertEqual("baseline_greedy", rows[0]["solver"])
         self.assertTrue(rows[0]["feasible"])
 
+    def test_benchmark_passes_block_order_mode_to_baseline_greedy(self):
+        import benchmark_instances
+        from baseline_greedy import _serial_fallback_solution
+
+        calls = []
+        out = StringIO()
+
+        def fake_greedyalgorithm(received_prob_info, timelimit=60, block_order_mode="edd"):
+            calls.append((received_prob_info["name"], timelimit, block_order_mode))
+            return _serial_fallback_solution(received_prob_info)
+
+        with patch("baseline_greedy.greedyalgorithm", side_effect=fake_greedyalgorithm):
+            with redirect_stdout(out):
+                status = benchmark_instances.main([
+                    "--root",
+                    str(ROOT_DIR),
+                    "--set-name",
+                    "smoke-3",
+                    "--solver",
+                    "baseline_greedy",
+                    "--block-order-mode",
+                    "slack",
+                    "--limit",
+                    "1",
+                    "--timelimit",
+                    "0.001",
+                ])
+
+        self.assertEqual(0, status)
+        self.assertEqual([("prob_21", 0.001, "slack")], calls)
+        rows = json.loads(out.getvalue())
+        self.assertEqual("slack", rows[0]["block_order_mode"])
+
 
 class SerialFallbackTests(unittest.TestCase):
+    def test_default_block_order_matches_existing_edd_sort(self):
+        from baseline_greedy import _block_order_indices
+
+        blocks = [
+            {"release_time": 3, "due_date": 10, "processing_time": 4, "bay_preferences": [1, 8]},
+            {"release_time": 0, "due_date": 7, "processing_time": 5, "bay_preferences": [5, 1]},
+            {"release_time": 1, "due_date": 7, "processing_time": 2, "bay_preferences": [2, 4]},
+            {"release_time": 2, "due_date": 10, "processing_time": 1, "bay_preferences": [7, 3]},
+        ]
+
+        expected = sorted(range(len(blocks)), key=lambda idx: (
+            blocks[idx]["due_date"],
+            blocks[idx]["processing_time"],
+        ))
+
+        self.assertEqual(expected, _block_order_indices(blocks))
+        self.assertEqual(expected, _block_order_indices(blocks, "edd"))
+
+    def test_block_order_modes_include_each_block_once(self):
+        from baseline_greedy import _block_order_indices
+
+        blocks = [
+            {"release_time": 3, "due_date": 10, "processing_time": 4, "bay_preferences": [1, 8]},
+            {"release_time": 0, "due_date": 7, "processing_time": 5, "bay_preferences": [5, 1]},
+            {"release_time": 1, "due_date": 7, "processing_time": 2, "bay_preferences": [2, 4]},
+            {"release_time": 2, "due_date": 10, "processing_time": 1, "bay_preferences": [7, 3]},
+        ]
+
+        for mode in (
+            "edd",
+            "release_edd",
+            "slack",
+            "latest_safe_entry",
+            "preference_pressure",
+        ):
+            with self.subTest(mode=mode):
+                order = _block_order_indices(blocks, mode)
+                self.assertEqual(len(blocks), len(order))
+                self.assertEqual(set(range(len(blocks))), set(order))
+
+    def test_invalid_block_order_mode_raises(self):
+        from baseline_greedy import _block_order_indices
+
+        blocks = [
+            {"release_time": 0, "due_date": 1, "processing_time": 1, "bay_preferences": [1]},
+        ]
+
+        with self.assertRaisesRegex(ValueError, "block_order_mode"):
+            _block_order_indices(blocks, "unknown")
+
     def test_serial_fallback_is_feasible_on_example(self):
         from baseline_greedy import _serial_fallback_solution
         from utils import check_feasibility
@@ -368,6 +479,24 @@ class SerialFallbackTests(unittest.TestCase):
 
         with redirect_stdout(StringIO()):
             solution = greedyalgorithm(prob_info, timelimit=0.001)
+        result = check_feasibility(prob_info, solution)
+
+        self.assertTrue(result["feasible"], result["violations"][:5])
+        self.assertEqual(5, result["stage"])
+
+    def test_greedy_tiny_timelimit_returns_feasible_fallback_with_non_edd_order(self):
+        from baseline_greedy import greedyalgorithm
+        from utils import check_feasibility
+
+        instance_path = ROOT_DIR / "data/train 2/prob_1.json"
+        prob_info = json.loads(instance_path.read_text())
+
+        with redirect_stdout(StringIO()):
+            solution = greedyalgorithm(
+                prob_info,
+                timelimit=0.001,
+                block_order_mode="latest_safe_entry",
+            )
         result = check_feasibility(prob_info, solution)
 
         self.assertTrue(result["feasible"], result["violations"][:5])

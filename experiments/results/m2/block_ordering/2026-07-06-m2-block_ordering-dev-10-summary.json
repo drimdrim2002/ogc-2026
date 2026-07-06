@@ -1,0 +1,447 @@
+{
+  "baseline_mode": "edd",
+  "best_mode": "slack",
+  "experiment": "m2-block_ordering",
+  "modes": [
+    {
+      "delta_pct_vs_edd": 0.0,
+      "delta_vs_edd": 0.0,
+      "elapsed_total": 574.1929275989532,
+      "feasible_stage5": 10,
+      "mode": "edd",
+      "obj1_total": 980690.0,
+      "obj2_total": 96218.80247903214,
+      "obj3_total": 951.0,
+      "objective_total": 5562716279.375933,
+      "per_instance_delta_vs_edd": [
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_4",
+          "objective": 298626784.79027826,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_8",
+          "objective": 290312415.0975644,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_9",
+          "objective": 500065793.5991442,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_13",
+          "objective": 907934923.3533716,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_20",
+          "objective": 1564724638.4464712,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_21",
+          "objective": 481024793.97134805,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_32",
+          "objective": 234047701.88235295,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_36",
+          "objective": 150580052.93180633,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_18",
+          "objective": 871414250.5100543,
+          "stage": 5
+        },
+        {
+          "delta": 0.0,
+          "feasible": true,
+          "name": "prob_40",
+          "objective": 263984924.79354116,
+          "stage": 5
+        }
+      ],
+      "result_file": "experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-baseline_greedy-60s-edd.json",
+      "rows": 10
+    },
+    {
+      "delta_pct_vs_edd": -18.984747341761054,
+      "delta_vs_edd": -1056067630.9785318,
+      "elapsed_total": 577.6620733737946,
+      "feasible_stage5": 10,
+      "mode": "release_edd",
+      "obj1_total": 884369.0,
+      "obj2_total": 89232.80083088495,
+      "obj3_total": 2052.0,
+      "objective_total": 4506648648.397401,
+      "per_instance_delta_vs_edd": [
+        {
+          "delta": 482196.0,
+          "feasible": true,
+          "name": "prob_4",
+          "objective": 299108980.79027826,
+          "stage": 5
+        },
+        {
+          "delta": -101420000.0,
+          "feasible": true,
+          "name": "prob_8",
+          "objective": 188892415.0975644,
+          "stage": 5
+        },
+        {
+          "delta": -21866120.0,
+          "feasible": true,
+          "name": "prob_9",
+          "objective": 478199673.5991442,
+          "stage": 5
+        },
+        {
+          "delta": -289003759.36735487,
+          "feasible": true,
+          "name": "prob_13",
+          "objective": 618931163.9860168,
+          "stage": 5
+        },
+        {
+          "delta": -294327683.5784533,
+          "feasible": true,
+          "name": "prob_20",
+          "objective": 1270396954.868018,
+          "stage": 5
+        },
+        {
+          "delta": -56900795.525505304,
+          "feasible": true,
+          "name": "prob_21",
+          "objective": 424123998.44584274,
+          "stage": 5
+        },
+        {
+          "delta": -65196813.0,
+          "feasible": true,
+          "name": "prob_32",
+          "objective": 168850888.88235295,
+          "stage": 5
+        },
+        {
+          "delta": -20099735.00321774,
+          "feasible": true,
+          "name": "prob_36",
+          "objective": 130480317.92858858,
+          "stage": 5
+        },
+        {
+          "delta": -215853644.50400007,
+          "feasible": true,
+          "name": "prob_18",
+          "objective": 655560606.0060543,
+          "stage": 5
+        },
+        {
+          "delta": 8118724.00000003,
+          "feasible": true,
+          "name": "prob_40",
+          "objective": 272103648.7935412,
+          "stage": 5
+        }
+      ],
+      "result_file": "experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-baseline_greedy-60s-release_edd.json",
+      "rows": 10
+    },
+    {
+      "delta_pct_vs_edd": -28.709952096976675,
+      "delta_vs_edd": -1597053179.0995536,
+      "elapsed_total": 578.7620296478271,
+      "feasible_stage5": 10,
+      "mode": "slack",
+      "obj1_total": 831235.0,
+      "obj2_total": 88344.0261758905,
+      "obj3_total": 3077.0,
+      "objective_total": 3965663100.276379,
+      "per_instance_delta_vs_edd": [
+        {
+          "delta": -105118424.3645787,
+          "feasible": true,
+          "name": "prob_4",
+          "objective": 193508360.42569956,
+          "stage": 5
+        },
+        {
+          "delta": -88400000.0,
+          "feasible": true,
+          "name": "prob_8",
+          "objective": 201912415.0975644,
+          "stage": 5
+        },
+        {
+          "delta": -59225186.0,
+          "feasible": true,
+          "name": "prob_9",
+          "objective": 440840607.5991442,
+          "stage": 5
+        },
+        {
+          "delta": -216204923.54698002,
+          "feasible": true,
+          "name": "prob_13",
+          "objective": 691729999.8063916,
+          "stage": 5
+        },
+        {
+          "delta": -572152673.6770612,
+          "feasible": true,
+          "name": "prob_20",
+          "objective": 992571964.76941,
+          "stage": 5
+        },
+        {
+          "delta": -453671653.60783106,
+          "feasible": true,
+          "name": "prob_21",
+          "objective": 27353140.363516975,
+          "stage": 5
+        },
+        {
+          "delta": -19894677.0,
+          "feasible": true,
+          "name": "prob_32",
+          "objective": 214153024.88235295,
+          "stage": 5
+        },
+        {
+          "delta": -1759874.3154172003,
+          "feasible": true,
+          "name": "prob_36",
+          "objective": 148820178.61638913,
+          "stage": 5
+        },
+        {
+          "delta": -45798855.0,
+          "feasible": true,
+          "name": "prob_18",
+          "objective": 825615395.5100543,
+          "stage": 5
+        },
+        {
+          "delta": -34826911.58768535,
+          "feasible": true,
+          "name": "prob_40",
+          "objective": 229158013.20585582,
+          "stage": 5
+        }
+      ],
+      "result_file": "experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-baseline_greedy-60s-slack.json",
+      "rows": 10
+    },
+    {
+      "delta_pct_vs_edd": -7.886343595041281,
+      "delta_vs_edd": -438694919.0088825,
+      "elapsed_total": 576.4896640777588,
+      "feasible_stage5": 10,
+      "mode": "latest_safe_entry",
+      "obj1_total": 912731.0,
+      "obj2_total": 91798.53006715444,
+      "obj3_total": 1424.0,
+      "objective_total": 5124021360.36705,
+      "per_instance_delta_vs_edd": [
+        {
+          "delta": 6356220.0,
+          "feasible": true,
+          "name": "prob_4",
+          "objective": 304983004.79027826,
+          "stage": 5
+        },
+        {
+          "delta": -101420000.0,
+          "feasible": true,
+          "name": "prob_8",
+          "objective": 188892415.0975644,
+          "stage": 5
+        },
+        {
+          "delta": -41732290.0,
+          "feasible": true,
+          "name": "prob_9",
+          "objective": 458333503.5991442,
+          "stage": 5
+        },
+        {
+          "delta": 22493445.0,
+          "feasible": true,
+          "name": "prob_13",
+          "objective": 930428368.3533716,
+          "stage": 5
+        },
+        {
+          "delta": -254754708.31892657,
+          "feasible": true,
+          "name": "prob_20",
+          "objective": 1309969930.1275446,
+          "stage": 5
+        },
+        {
+          "delta": 38590831.98959422,
+          "feasible": true,
+          "name": "prob_21",
+          "objective": 519615625.96094227,
+          "stage": 5
+        },
+        {
+          "delta": -31613505.0,
+          "feasible": true,
+          "name": "prob_32",
+          "objective": 202434196.88235295,
+          "stage": 5
+        },
+        {
+          "delta": -24741517.175550207,
+          "feasible": true,
+          "name": "prob_36",
+          "objective": 125838535.75625612,
+          "stage": 5
+        },
+        {
+          "delta": -52537727.50400007,
+          "feasible": true,
+          "name": "prob_18",
+          "objective": 818876523.0060543,
+          "stage": 5
+        },
+        {
+          "delta": 664332.0,
+          "feasible": true,
+          "name": "prob_40",
+          "objective": 264649256.79354116,
+          "stage": 5
+        }
+      ],
+      "result_file": "experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-baseline_greedy-60s-latest_safe_entry.json",
+      "rows": 10
+    },
+    {
+      "delta_pct_vs_edd": -16.91049406167454,
+      "delta_vs_edd": -940682806.09167,
+      "elapsed_total": 574.6039025783539,
+      "feasible_stage5": 10,
+      "mode": "preference_pressure",
+      "obj1_total": 879636.0,
+      "obj2_total": 91944.95075297583,
+      "obj3_total": 3004.0,
+      "objective_total": 4622033473.284263,
+      "per_instance_delta_vs_edd": [
+        {
+          "delta": -126401106.0,
+          "feasible": true,
+          "name": "prob_4",
+          "objective": 172225678.79027826,
+          "stage": 5
+        },
+        {
+          "delta": -37090000.0,
+          "feasible": true,
+          "name": "prob_8",
+          "objective": 253222415.0975644,
+          "stage": 5
+        },
+        {
+          "delta": -7385940.737580359,
+          "feasible": true,
+          "name": "prob_9",
+          "objective": 492679852.86156386,
+          "stage": 5
+        },
+        {
+          "delta": -280144164.818262,
+          "feasible": true,
+          "name": "prob_13",
+          "objective": 627790758.5351096,
+          "stage": 5
+        },
+        {
+          "delta": -2454841.555206299,
+          "feasible": true,
+          "name": "prob_20",
+          "objective": 1562269796.891265,
+          "stage": 5
+        },
+        {
+          "delta": -452117716.03621984,
+          "feasible": true,
+          "name": "prob_21",
+          "objective": 28907077.935128212,
+          "stage": 5
+        },
+        {
+          "delta": -21131220.0,
+          "feasible": true,
+          "name": "prob_32",
+          "objective": 212916481.88235295,
+          "stage": 5
+        },
+        {
+          "delta": -15075633.944401234,
+          "feasible": true,
+          "name": "prob_36",
+          "objective": 135504418.9874051,
+          "stage": 5
+        },
+        {
+          "delta": 10306409.0,
+          "feasible": true,
+          "name": "prob_18",
+          "objective": 881720659.5100543,
+          "stage": 5
+        },
+        {
+          "delta": -9188592.0,
+          "feasible": true,
+          "name": "prob_40",
+          "objective": 254796332.79354116,
+          "stage": 5
+        }
+      ],
+      "result_file": "experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-baseline_greedy-60s-preference_pressure.json",
+      "rows": 10
+    }
+  ],
+  "set_name": "dev-10",
+  "solver": "baseline_greedy",
+  "submission_entry": {
+    "elapsed_total": 578.9582762718201,
+    "feasible_stage5": 10,
+    "mode": "slack",
+    "obj1_total": 831235.0,
+    "obj2_total": 88344.0261758905,
+    "obj3_total": 3077.0,
+    "objective_total": 3965663100.276379,
+    "result_file": "experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-myalgorithm-60s-slack.json",
+    "rows": 10,
+    "solver": "myalgorithm"
+  },
+  "timelimit": 60
+}

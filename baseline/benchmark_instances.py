@@ -14,6 +14,13 @@ from typing import Any
 
 
 _PROB_RE = re.compile(r"prob_(\d+)\.json$")
+_BLOCK_ORDER_MODES = (
+    "edd",
+    "release_edd",
+    "slack",
+    "latest_safe_entry",
+    "preference_pressure",
+)
 _INSTANCE_SETS = {
     "dev-10": [
         "data/train 2/prob_4.json",
@@ -134,16 +141,28 @@ def compute_instance_stats(path: pathlib.Path | str) -> dict[str, Any]:
     }
 
 
-def run_solver(path: pathlib.Path, solver: str, timelimit: float) -> dict[str, Any]:
+def run_solver(
+    path: pathlib.Path,
+    solver: str,
+    timelimit: float,
+    block_order_mode: str = "edd",
+) -> dict[str, Any]:
     from utils import check_feasibility
 
     if solver == "baseline_greedy":
         import baseline_greedy
 
-        solver_fn = baseline_greedy.greedyalgorithm
+        def solver_fn(prob_info, timelimit):
+            return baseline_greedy.greedyalgorithm(
+                prob_info,
+                timelimit=timelimit,
+                block_order_mode=block_order_mode,
+            )
     elif solver == "myalgorithm":
         import myalgorithm
 
+        if block_order_mode != "edd":
+            raise ValueError("block_order_mode is only supported with --solver baseline_greedy")
         solver_fn = myalgorithm.algorithm
     else:
         raise ValueError(f"unknown executable solver: {solver}")
@@ -170,6 +189,14 @@ def run_solver(path: pathlib.Path, solver: str, timelimit: float) -> dict[str, A
 
 def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:
     return run_solver(path, "baseline_greedy", timelimit)
+
+
+def _effective_block_order_mode(solver: str, requested_block_order_mode: str) -> str:
+    if solver != "myalgorithm":
+        return requested_block_order_mode
+    import myalgorithm
+
+    return getattr(myalgorithm, "_SUBMISSION_BLOCK_ORDER_MODE", requested_block_order_mode)
 
 
 def _git_commit(root: pathlib.Path) -> str | None:
@@ -223,6 +250,12 @@ def main(argv: list[str] | None = None) -> int:
             "otherwise stats_only is used."
         ),
     )
+    parser.add_argument(
+        "--block-order-mode",
+        choices=_BLOCK_ORDER_MODES,
+        default="edd",
+        help="Block ordering mode for --solver baseline_greedy; default preserves current EDD behavior.",
+    )
     args = parser.parse_args(argv)
 
     paths = select_instance_paths(args.root, args.set_name)
@@ -231,6 +264,7 @@ def main(argv: list[str] | None = None) -> int:
 
     git_commit = _git_commit(args.root)
     solver_name = args.solver or ("baseline_greedy" if args.run_baseline else "stats_only")
+    effective_block_order_mode = _effective_block_order_mode(solver_name, args.block_order_mode)
     rows: list[dict[str, Any]] = []
     for path in paths:
         row = compute_instance_stats(path)
@@ -240,10 +274,11 @@ def main(argv: list[str] | None = None) -> int:
                 "seed": args.seed,
                 "solver": solver_name,
                 "set_name": args.set_name,
+                "block_order_mode": effective_block_order_mode,
             }
         )
         if solver_name in _EXECUTABLE_SOLVERS:
-            row.update(run_solver(path, solver_name, args.timelimit))
+            row.update(run_solver(path, solver_name, args.timelimit, args.block_order_mode))
         rows.append(row)
 
     if args.format == "csv":

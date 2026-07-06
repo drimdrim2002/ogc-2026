@@ -70,6 +70,19 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
 
         _assert_stage5_feasible(self, prob_info, solution)
 
+    def test_algorithm_delegates_with_accepted_block_order_mode(self):
+        import myalgorithm
+
+        prob_info = _load_example_instance()
+        candidate = {"operations": {}}
+
+        with patch("baseline_greedy.greedyalgorithm", return_value=candidate) as greedy:
+            with patch("myalgorithm._is_feasible_solution", return_value=True):
+                solution = myalgorithm.algorithm(prob_info, timelimit=1.0)
+
+        self.assertIs(candidate, solution)
+        greedy.assert_called_once_with(prob_info, 1.0, block_order_mode="slack")
+
     def test_algorithm_replaces_empty_operations_with_verified_fallback(self):
         import myalgorithm
 
