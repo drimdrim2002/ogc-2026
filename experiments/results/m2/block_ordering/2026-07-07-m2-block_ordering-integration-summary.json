@@ -1,0 +1,100 @@
+{
+  "branch": "m2-main",
+  "comparison_baseline": {
+    "block_order_modes": [],
+    "feasible_stage5": 10,
+    "file": "experiments/results/2026-07-06-dev10-baseline-60s.json",
+    "git_commits": [
+      "d79ec15"
+    ],
+    "instances": [
+      "prob_4",
+      "prob_8",
+      "prob_9",
+      "prob_13",
+      "prob_20",
+      "prob_21",
+      "prob_32",
+      "prob_36",
+      "prob_18",
+      "prob_40"
+    ],
+    "max_elapsed": 58.279041051864624,
+    "obj1_total": 980690.0,
+    "obj2_total": 96218.80247903214,
+    "obj3_total": 951.0,
+    "objective_total": 5562716279.375933,
+    "rows": 10,
+    "solvers": [
+      "baseline_greedy"
+    ]
+  },
+  "decision": "accepted",
+  "deltas_vs_comparison_baseline": {
+    "obj1_total": -127345.0,
+    "obj2_total": -3749.880449863369,
+    "obj3_total": 400.0,
+    "objective_delta_pct": -23.41442803707297,
+    "objective_total": -1302478200.1410208
+  },
+  "dev_10": {
+    "block_order_modes": [
+      "slack"
+    ],
+    "feasible_stage5": 10,
+    "file": "experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json",
+    "git_commits": [
+      "ab1087d"
+    ],
+    "instances": [
+      "prob_4",
+      "prob_8",
+      "prob_9",
+      "prob_13",
+      "prob_20",
+      "prob_21",
+      "prob_32",
+      "prob_36",
+      "prob_18",
+      "prob_40"
+    ],
+    "max_elapsed": 59.105170011520386,
+    "obj1_total": 853345.0,
+    "obj2_total": 92468.92202916877,
+    "obj3_total": 1351.0,
+    "objective_total": 4260238079.234912,
+    "rows": 10,
+    "solvers": [
+      "myalgorithm"
+    ]
+  },
+  "experiment": "m2-block_ordering-integration",
+  "integration_commit": [
+    "ab1087d"
+  ],
+  "merged_branch": "codex/m2-block-ordering",
+  "smoke_3": {
+    "block_order_modes": [
+      "slack"
+    ],
+    "feasible_stage5": 3,
+    "file": "experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-smoke-3-myalgorithm-15s.json",
+    "git_commits": [
+      "ab1087d"
+    ],
+    "instances": [
+      "prob_21",
+      "prob_32",
+      "prob_9"
+    ],
+    "max_elapsed": 14.990301132202148,
+    "obj1_total": 121405.0,
+    "obj2_total": 13942.528504411242,
+    "obj3_total": 780.0,
+    "objective_total": 976921751.8035469,
+    "rows": 3,
+    "solvers": [
+      "myalgorithm"
+    ]
+  }
+}

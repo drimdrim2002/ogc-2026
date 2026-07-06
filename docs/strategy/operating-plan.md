@@ -1,6 +1,6 @@
 # OGC 2026 Solver Operating Plan
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 ## Purpose
 
@@ -94,11 +94,11 @@ Exit criteria:
 
 ### M2: Low-Cost Objective Improvements
 
-Status: first local accepted experiment pending integration; `block_ordering` selected `slack` on `codex/m2-block-ordering`.
+Status: active with first integration accepted; `block_ordering` selected `slack` and is now the `m2-main` comparison baseline.
 
 Candidate experiments:
 
-- `block_ordering` on branch `codex/m2-block-ordering` -- local accepted with `slack`; rerun from integration state before merging.
+- `block_ordering` on branch `codex/m2-block-ordering` -- accepted and integrated with `slack`; active `m2-main` `myalgorithm` baseline is `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json`.
 - `time_slot_candidates` on branch `codex/m2-time-candidates`.
 - `left_shift_polish` on branch `codex/m2-left-shift`.
 - `placement_candidates` on branch `codex/m2-placement-candidates`.
@@ -162,9 +162,9 @@ At the end of a session, update:
 
 ## Immediate Next Actions
 
-1. Integrate locally accepted `block_ordering` (`slack`) from `codex/m2-block-ordering` into `m2-main` after rerunning `smoke-3` and `dev-10` from the integration state.
-2. Record a fresh `m2-main` `myalgorithm` `dev-10` comparison baseline after the accepted merge.
-3. Record the current baseline on `daily-40`.
+1. Use the accepted `block_ordering` integration result as the active `m2-main` `myalgorithm` `dev-10` comparison baseline for later M2 experiments.
+2. Record the current accepted `m2-main` baseline on `daily-40`.
+3. Continue M2 one experiment branch at a time against the updated `m2-main`; do not mix multiple hypotheses in one merge.
 4. Follow `docs/strategy/m2-experiment-playbook.md` for branch/worktree, benchmark result, and accept/reject rules.
 5. Use `--solver myalgorithm` when measuring the submission entry point, and
    `--solver baseline_greedy` when measuring the reference baseline.

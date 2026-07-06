@@ -1,6 +1,6 @@
 # OGC 2026 Solver Experiment Log
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 This file records decisions and experiment outcomes. Keep entries short, factual, and tied to measurements where possible.
 
@@ -139,6 +139,7 @@ Rationale:
 Experiment:
 
 - Branch: `codex/m2-block-ordering` from clean `m2-main`.
+- Integration branch: fast-forwarded into `m2-main` at `ab1087d`.
 - Added `baseline_greedy.greedyalgorithm(..., block_order_mode="edd")` with deterministic modes: `edd`, `release_edd`, `slack`, `latest_safe_entry`, and `preference_pressure`.
 - Kept `baseline_greedy` default behavior compatible with the original EDD order.
 - Added benchmark runner support for `--block-order-mode` and result metadata.
@@ -152,6 +153,12 @@ Evidence:
 - Machine-readable summary: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`.
 - Smoke check: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-smoke-3-baseline_greedy-15s-slack.json`, 3 feasible Stage-5 rows, total objective `976921751.8035469`.
 - Submission entry check: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-myalgorithm-60s-slack.json`, 10 feasible Stage-5 rows, total objective `3965663100.276379`.
+- Integration compile check: `conda run -n ogc2026 python -m py_compile baseline/baseline_greedy.py baseline/myalgorithm.py baseline/benchmark_instances.py baseline/tests/test_phase0_harness.py baseline/tests/test_submission_safety.py` exited 0 on `m2-main`.
+- Integration unit tests: `conda run -n ogc2026 python -m unittest discover -s baseline/tests -p 'test_*.py'` passed on `m2-main`: `Ran 28 tests`, `OK`.
+- Integration smoke check: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-smoke-3-myalgorithm-15s.json`, 3 feasible Stage-5 rows, total objective `976921751.8035469`, mode `slack`.
+- Integration dev-10 check: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json`, 10 feasible Stage-5 rows, total objective `4260238079.234912`, total `obj1` `853345.0`, max elapsed `59.105170011520386`, mode `slack`.
+- Integration summary: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-summary.json`.
+- Integration delta vs active comparison baseline: objective `-1302478200.1410208` (`-23.41%`), `obj1` `-127345.0`, `obj2` `-3749.880449863369`, `obj3` `+400.0`.
 
 Dev-10 mode results at 60s per instance:
 
@@ -165,13 +172,14 @@ Dev-10 mode results at 60s per instance:
 
 Decision:
 
-- `accepted` locally.
-- Select `slack` as the M2 block-ordering mode because it has the best dev-10 objective, preserves 10/10 feasibility and Stage 5, passes smoke-3, and is verified through the `myalgorithm` submission entry point.
+- `accepted` locally and integration accepted on `m2-main`.
+- Select `slack` as the M2 block-ordering mode because it has the best local dev-10 objective, preserves 10/10 feasibility and Stage 5, passes integration smoke-3 and dev-10, and is verified through the `myalgorithm` submission entry point.
 - `release_edd`, `latest_safe_entry`, and `preference_pressure` are measured but not selected for this branch.
 
 Next step:
 
-- Integrate this branch into `m2-main`, rerun `smoke-3` and `dev-10` from the integration state, then record a fresh `m2-main` `myalgorithm` comparison baseline for the next M2 experiment.
+- Use `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json` as the active `m2-main` `myalgorithm` comparison baseline for the next M2 experiment.
+- Run `daily-40` before treating the improvement as broadly valid beyond the `dev-10` gate.
 
 ### 2026-07-06: M0/M1 Gate Cleanup Before M2
 

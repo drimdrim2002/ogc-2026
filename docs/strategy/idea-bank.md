@@ -1,6 +1,6 @@
 # OGC 2026 Solver Idea Bank
 
-Last updated: 2026-07-06
+Last updated: 2026-07-07
 
 This file stores solver ideas as hypotheses. It is not an implementation plan. Promote an idea only after a benchmark or profiling result justifies it.
 
@@ -36,7 +36,7 @@ Validation: Compare each mode against current baseline on `dev-10` at 60s per in
 
 Kill condition: No `dev-10` improvement, feasibility loss, or repeated runtime regressions.
 
-Status: local accepted for M2 on `codex/m2-block-ordering`; `slack` selected. Evidence: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`.
+Status: accepted and integrated for M2 on `m2-main`; `slack` selected. Local evidence: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`. Integration evidence: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-summary.json`.
 
 ### Expanded Candidate Positions
 
