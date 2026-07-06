@@ -6,8 +6,11 @@
     {
       "delta_pct_vs_edd": 0.0,
       "delta_vs_edd": 0.0,
-      "elapsed_total": 574.1929275989532,
+      "elapsed_total": 574.2486889362335,
       "feasible_stage5": 10,
+      "git_commits": [
+        "bfd18e8"
+      ],
       "mode": "edd",
       "obj1_total": 980690.0,
       "obj2_total": 96218.80247903214,
@@ -91,8 +94,11 @@
     {
       "delta_pct_vs_edd": -18.984747341761054,
       "delta_vs_edd": -1056067630.9785318,
-      "elapsed_total": 577.6620733737946,
+      "elapsed_total": 578.0680952072144,
       "feasible_stage5": 10,
+      "git_commits": [
+        "bfd18e8"
+      ],
       "mode": "release_edd",
       "obj1_total": 884369.0,
       "obj2_total": 89232.80083088495,
@@ -176,8 +182,11 @@
     {
       "delta_pct_vs_edd": -28.709952096976675,
       "delta_vs_edd": -1597053179.0995536,
-      "elapsed_total": 578.7620296478271,
+      "elapsed_total": 579.1759796142578,
       "feasible_stage5": 10,
+      "git_commits": [
+        "bfd18e8"
+      ],
       "mode": "slack",
       "obj1_total": 831235.0,
       "obj2_total": 88344.0261758905,
@@ -261,8 +270,11 @@
     {
       "delta_pct_vs_edd": -7.886343595041281,
       "delta_vs_edd": -438694919.0088825,
-      "elapsed_total": 576.4896640777588,
+      "elapsed_total": 576.5122792720795,
       "feasible_stage5": 10,
+      "git_commits": [
+        "bfd18e8"
+      ],
       "mode": "latest_safe_entry",
       "obj1_total": 912731.0,
       "obj2_total": 91798.53006715444,
@@ -346,8 +358,11 @@
     {
       "delta_pct_vs_edd": -16.91049406167454,
       "delta_vs_edd": -940682806.09167,
-      "elapsed_total": 574.6039025783539,
+      "elapsed_total": 574.6713736057281,
       "feasible_stage5": 10,
+      "git_commits": [
+        "bfd18e8"
+      ],
       "mode": "preference_pressure",
       "obj1_total": 879636.0,
       "obj2_total": 91944.95075297583,
@@ -432,8 +447,11 @@
   "set_name": "dev-10",
   "solver": "baseline_greedy",
   "submission_entry": {
-    "elapsed_total": 578.9582762718201,
+    "elapsed_total": 579.0549092292786,
     "feasible_stage5": 10,
+    "git_commits": [
+      "bfd18e8"
+    ],
     "mode": "slack",
     "obj1_total": 831235.0,
     "obj2_total": 88344.0261758905,
