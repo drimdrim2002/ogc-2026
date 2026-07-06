@@ -4,6 +4,7 @@ import sys
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
+from unittest.mock import patch
 
 
 BASELINE_DIR = pathlib.Path(__file__).resolve().parents[1]
@@ -79,11 +80,142 @@ class Phase0HarnessTests(unittest.TestCase):
         self.assertEqual(0, status)
         rows = json.loads(out.getvalue())
         self.assertEqual(
-            ["prob_9.json", "prob_21.json", "prob_32.json"],
+            ["prob_21.json", "prob_32.json", "prob_9.json"],
             [pathlib.Path(row["path"]).name for row in rows],
         )
         self.assertTrue(all(row["set_name"] == "smoke-3" for row in rows))
         self.assertTrue(all(row["solver"] == "stats_only" for row in rows))
+
+    def test_benchmark_daily40_set_alias_discovers_all_training_instances(self):
+        import benchmark_instances
+
+        paths = benchmark_instances.select_instance_paths(ROOT_DIR, "daily-40")
+
+        self.assertEqual(40, len(paths))
+        self.assertEqual(
+            [f"prob_{idx}.json" for idx in range(1, 41)],
+            [path.name for path in paths],
+        )
+
+    def test_benchmark_solver_myalgorithm_calls_submission_entry_point(self):
+        import benchmark_instances
+        from baseline_greedy import _serial_fallback_solution
+
+        calls = []
+
+        def fake_algorithm(received_prob_info, timelimit):
+            calls.append((received_prob_info["name"], timelimit))
+            return _serial_fallback_solution(received_prob_info)
+
+        out = StringIO()
+        with patch("myalgorithm.algorithm", side_effect=fake_algorithm):
+            with redirect_stdout(out):
+                status = benchmark_instances.main([
+                    "--root",
+                    str(ROOT_DIR),
+                    "--set-name",
+                    "smoke-3",
+                    "--solver",
+                    "myalgorithm",
+                    "--limit",
+                    "1",
+                    "--timelimit",
+                    "0.001",
+                ])
+
+        self.assertEqual(0, status)
+        rows = json.loads(out.getvalue())
+        self.assertEqual([("prob_21", 0.001)], calls)
+        self.assertEqual("myalgorithm", rows[0]["solver"])
+        self.assertTrue(rows[0]["feasible"])
+        self.assertEqual(5, rows[0]["stage"])
+
+    def test_benchmark_solver_label_cannot_request_unexecuted_solver(self):
+        import benchmark_instances
+        from baseline_greedy import _serial_fallback_solution
+
+        out = StringIO()
+        def fake_algorithm(received_prob_info, timelimit):
+            return _serial_fallback_solution(received_prob_info)
+
+        with patch("myalgorithm.algorithm", side_effect=fake_algorithm) as algorithm:
+            with patch("baseline_greedy.greedyalgorithm") as greedy:
+                with redirect_stdout(out):
+                    status = benchmark_instances.main([
+                        "--root",
+                        str(ROOT_DIR),
+                        "--set-name",
+                        "smoke-3",
+                        "--solver",
+                        "myalgorithm",
+                        "--limit",
+                        "1",
+                        "--timelimit",
+                        "0.001",
+                    ])
+
+        self.assertEqual(0, status)
+        algorithm.assert_called_once()
+        self.assertFalse(greedy.called)
+        rows = json.loads(out.getvalue())
+        self.assertEqual("myalgorithm", rows[0]["solver"])
+        self.assertIn("feasible", rows[0])
+
+    def test_benchmark_solver_stats_only_does_not_run_any_solver(self):
+        import benchmark_instances
+
+        out = StringIO()
+        with patch("myalgorithm.algorithm") as algorithm:
+            with patch("baseline_greedy.greedyalgorithm") as greedy:
+                with redirect_stdout(out):
+                    status = benchmark_instances.main([
+                        "--root",
+                        str(ROOT_DIR),
+                        "--set-name",
+                        "smoke-3",
+                        "--solver",
+                        "stats_only",
+                        "--limit",
+                        "1",
+                        "--timelimit",
+                        "0.001",
+                    ])
+
+        self.assertEqual(0, status)
+        self.assertFalse(algorithm.called)
+        self.assertFalse(greedy.called)
+        rows = json.loads(out.getvalue())
+        self.assertEqual("stats_only", rows[0]["solver"])
+        self.assertNotIn("feasible", rows[0])
+
+    def test_benchmark_run_baseline_alias_executes_baseline_greedy(self):
+        import benchmark_instances
+        from baseline_greedy import _serial_fallback_solution
+
+        out = StringIO()
+
+        def fake_greedyalgorithm(received_prob_info, timelimit=60):
+            return _serial_fallback_solution(received_prob_info)
+
+        with patch("baseline_greedy.greedyalgorithm", side_effect=fake_greedyalgorithm) as greedy:
+            with redirect_stdout(out):
+                status = benchmark_instances.main([
+                    "--root",
+                    str(ROOT_DIR),
+                    "--set-name",
+                    "smoke-3",
+                    "--run-baseline",
+                    "--limit",
+                    "1",
+                    "--timelimit",
+                    "0.001",
+                ])
+
+        self.assertEqual(0, status)
+        greedy.assert_called_once()
+        rows = json.loads(out.getvalue())
+        self.assertEqual("baseline_greedy", rows[0]["solver"])
+        self.assertTrue(rows[0]["feasible"])
 
 
 class SerialFallbackTests(unittest.TestCase):

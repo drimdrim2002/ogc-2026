@@ -24,7 +24,7 @@ Use three benchmark tiers:
 |---|---|---:|---:|
 | `smoke` | Catch obvious breakage quickly | 2-3 instances | 5-15s each |
 | `dev-10` | Main improvement loop | fixed 8 + rotating 2 | 60s each |
-| `daily-40` | Regression and generalization check | all 40 training instances | 60s each |
+| `daily-40` | Regression and generalization check | all 40 training instances via `--set-name daily-40` | 60s each |
 
 `dev-10` is the normal comparison gate for algorithm changes. `daily-40` should run about once per day or before treating a result as broadly valid.
 
@@ -71,18 +71,19 @@ Current `smoke-3` set:
 
 ### M0: Measurement Backbone
 
-Status: active.
+Status: M2-ready measurement backbone; `daily-40` full baseline artifact remains the next regression baseline action.
 
 Exit criteria:
 
 - `dev-10` fixed/rotating policy documented with concrete instance IDs.
 - Benchmark runner records objective, `obj1`, `obj2`, `obj3`, feasibility, stage, runtime, seed, and commit hash.
-- Current baseline and fallback behavior are measured on `dev-10`.
-- `daily-40` can run from one command and emit machine-readable results.
+- Current baseline behavior is measured on `dev-10` in `experiments/results/2026-07-06-dev10-baseline-60s.json`.
+- `daily-40` can run from one command and emit machine-readable results with `baseline/benchmark_instances.py --set-name daily-40`.
+- Solver selection is executable: `--solver baseline_greedy` runs `baseline_greedy.greedyalgorithm()`, `--solver myalgorithm` runs `myalgorithm.algorithm()`, and `--solver stats_only` runs no solver.
 
 ### M1: Submission Safety
 
-Status: next.
+Status: complete for valid official challenge instances.
 
 Exit criteria:
 
@@ -161,6 +162,7 @@ At the end of a session, update:
 
 ## Immediate Next Actions
 
-1. Extend or add a benchmark runner that emits the required result fields.
-2. Record the current baseline on `dev-10`.
-3. Record the current baseline on `daily-40`.
+1. Record the current baseline on `daily-40`.
+2. Start M2 only as a measured experiment bundle against the recorded `dev-10` baseline.
+3. Use `--solver myalgorithm` when measuring the submission entry point, and
+   `--solver baseline_greedy` when measuring the reference baseline.

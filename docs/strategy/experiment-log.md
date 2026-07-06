@@ -30,8 +30,8 @@ Validation:
 
 Open follow-up:
 
-- Record current baseline objective and feasibility on `dev-10` at 60s per instance.
-- Add a durable machine-readable output path or naming convention for daily benchmark artifacts.
+- `dev-10` 60s baseline is now recorded in `experiments/results/2026-07-06-dev10-baseline-60s.json`.
+- Record current baseline objective and feasibility on `daily-40` at 60s per instance.
 
 ### 2026-07-06: dev-10 Representative Set Selected
 
@@ -65,7 +65,6 @@ Rationale:
 
 Open follow-up:
 
-- Record current baseline objective and feasibility on `dev-10`.
 - Revisit rotating slots after the first few experiment bundles or after a `daily-40` run exposes under-covered failures.
 
 ### 2026-07-06: Benchmark Cadence
@@ -85,7 +84,7 @@ Rationale:
 
 Open follow-up:
 
-- Record baseline objective and feasibility on the selected `dev-10` set.
+- Record baseline objective and feasibility on `daily-40`.
 
 ### 2026-07-06: Context Management
 
@@ -115,6 +114,33 @@ Rationale:
 - Large components should be promoted only when smaller measured improvements are exhausted.
 
 ## Experiment Entries
+
+### 2026-07-06: M0/M1 Gate Cleanup Before M2
+
+Experiment:
+
+- Converted `baseline/benchmark_instances.py --solver` from metadata-only labeling to executable solver selection.
+- Preserved `--run-baseline` as a compatibility alias for `--solver baseline_greedy`.
+- Added `--solver stats_only` behavior for statistics-only output and a `daily-40` set alias for all 40 training instances.
+- Aligned `smoke-3` code order with the documented easy -> medium -> dense order: `prob_21`, `prob_32`, `prob_9`.
+- Updated M1 status documentation from open implementation plan to completed safety record.
+
+Evidence:
+
+- Added regression tests proving `--solver myalgorithm` calls `myalgorithm.algorithm()` and that solver labels cannot request an unexecuted solver.
+- `conda run -n ogc2026 python -m unittest discover -s baseline/tests -p 'test_*.py'` passed: `Ran 21 tests`, `OK`.
+- `conda run -n ogc2026 python -m py_compile baseline/myalgorithm.py baseline/baseline_greedy.py baseline/benchmark_instances.py baseline/utils.py` exited 0.
+- `conda run -n ogc2026 python baseline/benchmark_instances.py --root . --set-name smoke-3 --solver stats_only --format json` returned `prob_21`, `prob_32`, `prob_9` in that order and no feasibility fields.
+- `conda run -n ogc2026 python baseline/benchmark_instances.py --root . --set-name smoke-3 --solver myalgorithm --timelimit 0.001 --format json` returned three feasible Stage-5 rows with `solver: myalgorithm`.
+- `conda run -n ogc2026 python baseline/benchmark_instances.py --root . --set-name dev-10 --solver baseline_greedy --limit 1 --timelimit 0.001 --format json` returned one feasible Stage-5 row with `solver: baseline_greedy`.
+- `conda run -n ogc2026 python baseline/benchmark_instances.py --root . --set-name dev-10 --solver baseline_greedy --timelimit 60 --format json > experiments/results/2026-07-06-dev10-baseline-60s.json` completed successfully.
+- Saved result file validation: 10 rows, all `solver: baseline_greedy`, all feasible, all Stage 5, objective sum `5562716279.375933`, solver elapsed sum `574.5575788021088`.
+
+Decision:
+
+- M0 is now M2-ready for `dev-10` comparisons: the runner executes the selected solver and the 60s baseline artifact is recorded.
+- M1 entry-point safety remains accepted; no solver objective-improvement code was changed.
+- `daily-40` can now run by set name but the full 60s baseline artifact is still a next action.
 
 ### 2026-07-06: M1 Submission Safety Entry Point Guard
 

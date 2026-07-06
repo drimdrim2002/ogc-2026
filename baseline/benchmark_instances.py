@@ -28,11 +28,12 @@ _INSTANCE_SETS = {
         "data/train/prob_40.json",
     ],
     "smoke-3": [
-        "data/train 2/prob_9.json",
         "data/train/prob_21.json",
         "data/train/prob_32.json",
+        "data/train 2/prob_9.json",
     ],
 }
+_EXECUTABLE_SOLVERS = {"baseline_greedy", "myalgorithm"}
 
 
 def _prob_sort_key(path: pathlib.Path) -> tuple[int, str]:
@@ -52,7 +53,7 @@ def find_instance_paths(root: pathlib.Path | str) -> list[pathlib.Path]:
 
 def select_instance_paths(root: pathlib.Path | str, set_name: str) -> list[pathlib.Path]:
     root = pathlib.Path(root)
-    if set_name == "all":
+    if set_name in {"all", "daily-40"}:
         return find_instance_paths(root)
     return [root / rel_path for rel_path in _INSTANCE_SETS[set_name]]
 
@@ -133,15 +134,25 @@ def compute_instance_stats(path: pathlib.Path | str) -> dict[str, Any]:
     }
 
 
-def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:
-    from baseline_greedy import greedyalgorithm
+def run_solver(path: pathlib.Path, solver: str, timelimit: float) -> dict[str, Any]:
     from utils import check_feasibility
+
+    if solver == "baseline_greedy":
+        import baseline_greedy
+
+        solver_fn = baseline_greedy.greedyalgorithm
+    elif solver == "myalgorithm":
+        import myalgorithm
+
+        solver_fn = myalgorithm.algorithm
+    else:
+        raise ValueError(f"unknown executable solver: {solver}")
 
     prob_info = json.loads(path.read_text())
     started = time.time()
     solver_log = StringIO()
     with redirect_stdout(solver_log):
-        solution = greedyalgorithm(prob_info, timelimit=timelimit)
+        solution = solver_fn(prob_info, timelimit=timelimit)
     elapsed = time.time() - started
     result = check_feasibility(prob_info, solution)
     return {
@@ -155,6 +166,10 @@ def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:
         "violations": result.get("violations", [])[:5],
         "solver_log": solver_log.getvalue(),
     }
+
+
+def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:
+    return run_solver(path, "baseline_greedy", timelimit)
 
 
 def _git_commit(root: pathlib.Path) -> str | None:
@@ -188,7 +203,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument(
         "--set-name",
-        choices=["all", *_INSTANCE_SETS],
+        choices=["all", "daily-40", *_INSTANCE_SETS],
         default="all",
         help="Instance set to benchmark; default discovers all training instances.",
     )
@@ -200,9 +215,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--solver",
-        dest="solver_label",
+        choices=["stats_only", "baseline_greedy", "myalgorithm"],
         default=None,
-        help="Metadata-only solver label for result comparison.",
+        help=(
+            "Solver to execute. Use stats_only to print instance statistics without "
+            "running a solver. If omitted, --run-baseline selects baseline_greedy; "
+            "otherwise stats_only is used."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -211,7 +230,7 @@ def main(argv: list[str] | None = None) -> int:
         paths = paths[: args.limit]
 
     git_commit = _git_commit(args.root)
-    solver_label = args.solver_label or ("baseline_greedy" if args.run_baseline else "stats_only")
+    solver_name = args.solver or ("baseline_greedy" if args.run_baseline else "stats_only")
     rows: list[dict[str, Any]] = []
     for path in paths:
         row = compute_instance_stats(path)
@@ -219,12 +238,12 @@ def main(argv: list[str] | None = None) -> int:
             {
                 "git_commit": git_commit,
                 "seed": args.seed,
-                "solver": solver_label,
+                "solver": solver_name,
                 "set_name": args.set_name,
             }
         )
-        if args.run_baseline:
-            row.update(run_baseline(path, args.timelimit))
+        if solver_name in _EXECUTABLE_SOLVERS:
+            row.update(run_solver(path, solver_name, args.timelimit))
         rows.append(row)
 
     if args.format == "csv":
