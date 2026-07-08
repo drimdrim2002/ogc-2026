@@ -117,21 +117,29 @@ Status: idea-bank gated.
 
 Use Fable LNS/ALNS material only after M2 establishes a stable incumbent and benchmark harness. Start with small destroy-repair LNS, not the full Fable ALNS plan.
 
+M3 is a search-strategy milestone, not a geometry-acceleration milestone. It must still use the existing trusted Python geometry/checker path, including `utils.check_feasibility`, to test every candidate that might replace the incumbent. The purpose is to prove that remove-and-reinsert search can improve objective quality while preserving the M1 safety contract.
+
+Do not defer geometry correctness to M4. In M3, geometry checks are mandatory; what is deferred to M4 is only replacing or supplementing those checks with faster implementations.
+
 Exit criteria:
 
 - Every iteration operates on a copy or snapshot.
 - Failed repairs discard the candidate and keep the incumbent.
-- Accepted candidates are feasible and no worse according to the configured acceptance rule.
+- Repairs use trusted Python geometry/checker logic rather than new accelerated geometry.
+- Accepted candidates pass `utils.check_feasibility` and are no worse according to the configured acceptance rule.
 
 ### M4: Geometry Acceleration
 
 Status: profiling gated.
 
-Use Fable raster/C++ ideas only after profiling proves geometry checks dominate runtime and cheaper Python-level fixes are insufficient.
+M4 is a performance milestone for geometry verdicts already exercised by M3 or later search. It does not introduce geometry feasibility into the solver; feasibility must already be enforced by the trusted Python path before M4 begins.
+
+Use Fable raster/C++ ideas only after profiling proves geometry checks dominate runtime and cheaper Python-level fixes are insufficient. Examples include cache layers, bounding-box or raster prefilters, numpy-assisted checks, or a compiled core. Each accelerated path is optional and must preserve the exact checker semantics.
 
 Exit criteria:
 
 - A parity harness compares any accelerated geometry verdict against `utils.py`.
+- End-to-end benchmarks show the acceleration unlocks more useful search or lower runtime.
 - Any accelerated path has a pure Python fallback.
 - A failed acceleration import cannot affect correctness.
 
