@@ -219,11 +219,21 @@ _VALID_BLOCK_ORDER_MODES = (
     "preference_pressure",
 )
 
+_VALID_LNS_MODES = ("off", "small")
+_LNS_ACCEPTANCE_EPS = 1e-6
+_LNS_DEADLINE_FLOOR_SECONDS = 0.05
+
 
 def _validate_block_order_mode(block_order_mode: str) -> None:
     if block_order_mode not in _VALID_BLOCK_ORDER_MODES:
         choices = ", ".join(_VALID_BLOCK_ORDER_MODES)
         raise ValueError(f"unknown block_order_mode={block_order_mode!r}; choose one of: {choices}")
+
+
+def _validate_lns_mode(lns_mode: str) -> None:
+    if lns_mode not in _VALID_LNS_MODES:
+        choices = ", ".join(_VALID_LNS_MODES)
+        raise ValueError(f"unknown lns_mode={lns_mode!r}; choose one of: {choices}")
 
 
 def _preference_pressure(block_data: dict) -> float:
@@ -727,6 +737,73 @@ def _lns_try_repair_candidate(
         return None
 
 
+def _lns_improve_assignments(
+    prob_info: dict,
+    incumbent_assignments: dict[int, dict],
+    incumbent_result: dict,
+    block_order_mode: str,
+    deadline: float | None,
+) -> tuple[dict[int, dict], dict]:
+    blocks_data = prob_info["blocks"]
+    weights = prob_info.get("weights", {})
+    max_iterations = max(1, min(25, len(blocks_data) // 4))
+    best_assignments = _copy_assignments(incumbent_assignments)
+    best_result = incumbent_result
+    iterations = 0
+
+    while iterations < max_iterations:
+        if deadline is not None:
+            now = time.time()
+            if now >= deadline:
+                break
+            if deadline - now < _LNS_DEADLINE_FLOOR_SECONDS:
+                break
+
+        try:
+            if iterations % 2 == 0:
+                removed_ids = _lns_select_worst_objective_blocks(
+                    best_assignments,
+                    blocks_data,
+                    weights,
+                )
+            else:
+                removed_ids = _lns_select_same_bay_time_window(
+                    best_assignments,
+                    blocks_data,
+                )
+            candidate = _lns_try_repair_candidate(
+                prob_info,
+                best_assignments,
+                removed_ids,
+                block_order_mode,
+                deadline,
+            )
+        except (RuntimeError, KeyError, TypeError, ValueError, IndexError):
+            break
+
+        iterations += 1
+        if candidate is None:
+            continue
+
+        candidate_assignments, candidate_result = candidate
+        candidate_objective = candidate_result.get("objective")
+        best_objective = best_result.get("objective")
+        if (
+            candidate_result.get("feasible")
+            and candidate_objective is not None
+            and best_objective is not None
+            and candidate_objective < best_objective - _LNS_ACCEPTANCE_EPS
+        ):
+            best_assignments = _copy_assignments(candidate_assignments)
+            best_result = candidate_result
+            print(
+                f"[Greedy] LNS accepted iteration={iterations} "
+                f"objective={candidate_objective:.0f}"
+            )
+
+    return best_assignments, best_result
+
+
 def _complete_with_serial_fallback(
     prob_info: dict,
     assignments: dict[int, dict],
@@ -914,7 +991,8 @@ def _serial_fallback_solution(prob_info: dict, verify: bool = True) -> dict:
 
 def greedyalgorithm(prob_info: dict, timelimit: float,
                     repair_mode: str = "greedy",
-                    block_order_mode: str = "edd") -> dict:
+                    block_order_mode: str = "edd",
+                    lns_mode: str = "off") -> dict:
     """
     EDD + Best-Fit Greedy algorithm with post-hoc feasibility repair.
 
@@ -925,6 +1003,7 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     repair_mode : "greedy" (default) or "simple" -- see module docstring for details
     block_order_mode : deterministic construction order; "edd" preserves the
         original behavior.
+    lns_mode : "off" (default) or "small" opt-in destroy/repair improvement.
 
     Returns
     -------
@@ -944,6 +1023,7 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     t_start = time.time()
     deadline = t_start + max(0.0, timelimit) * 0.95
     _validate_block_order_mode(block_order_mode)
+    _validate_lns_mode(lns_mode)
 
     bays_data   = prob_info["bays"]
     blocks_data = prob_info["blocks"]
@@ -1013,11 +1093,24 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         print("[Greedy] Repair deadline reached; returning verified serial fallback")
         return _serial_fallback_solution(prob_info)
 
-    elapsed_total = time.time() - t_start
     final_sol = {"operations": _build_operations(list(assignments.values()))}
 
     from utils import check_feasibility
     final_result = check_feasibility(prob_info, final_sol)
+
+    if final_result["feasible"] and lns_mode == "small":
+        print(f"[Greedy] {'-' * 56}")
+        print("[Greedy] Phase 3 : small LNS improvement ...")
+        assignments, final_result = _lns_improve_assignments(
+            prob_info,
+            assignments,
+            final_result,
+            block_order_mode,
+            deadline,
+        )
+        final_sol = {"operations": _build_operations(list(assignments.values()))}
+
+    elapsed_total = time.time() - t_start
     print(f"[Greedy] {'-' * 56}")
     print(f"[Greedy] Done  |  assigned={len(assignments)}/{n_blocks}  "
           f"elapsed={elapsed_total:.2f}s")

@@ -624,6 +624,262 @@ class LnsPlacementModeTests(unittest.TestCase):
         self.assertEqual([0], [block.block_id for block in bay_placed[0]])
 
 
+class LnsLoopTests(unittest.TestCase):
+    def _incumbent_result(self, objective=10.0):
+        return {
+            "feasible": True,
+            "stage": 5,
+            "violations": [],
+            "objective": objective,
+            "obj1": objective,
+            "obj2": 0.0,
+            "obj3": 0.0,
+        }
+
+    def test_lns_loop_accepts_only_feasible_objective_improvement(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+        improved = {
+            block_id: dict(assignment)
+            for block_id, assignment in incumbent.items()
+        }
+        improved[1] = dict(improved[1], entry_time=0, exit_time=1)
+        better_result = self._incumbent_result(objective=8.0)
+
+        with patch(
+            "baseline_greedy._lns_select_worst_objective_blocks",
+            return_value=[1],
+        ):
+            with patch(
+                "baseline_greedy._lns_try_repair_candidate",
+                return_value=(improved, better_result),
+            ) as repair:
+                assignments, result = baseline_greedy._lns_improve_assignments(
+                    prob_info,
+                    incumbent,
+                    self._incumbent_result(),
+                    "edd",
+                    None,
+                )
+
+        self.assertEqual(improved, assignments)
+        self.assertEqual(better_result, result)
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+        repair.assert_called_once()
+
+    def test_lns_loop_keeps_incumbent_for_infeasible_worse_or_equal_candidates(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_result = self._incumbent_result()
+        rejected = {
+            block_id: dict(assignment)
+            for block_id, assignment in incumbent.items()
+        }
+        rejected[1] = dict(rejected[1], entry_time=0, exit_time=1)
+        cases = [
+            (
+                "infeasible",
+                {
+                    "feasible": False,
+                    "stage": 4,
+                    "violations": ["forced infeasible"],
+                    "objective": 0.0,
+                    "obj1": None,
+                    "obj2": None,
+                    "obj3": None,
+                },
+            ),
+            ("worse", self._incumbent_result(objective=11.0)),
+            ("equal", self._incumbent_result(objective=10.0)),
+            ("epsilon_tie", self._incumbent_result(objective=9.9999995)),
+        ]
+
+        for name, candidate_result in cases:
+            with self.subTest(name=name):
+                with patch(
+                    "baseline_greedy._lns_select_worst_objective_blocks",
+                    return_value=[1],
+                ):
+                    with patch(
+                        "baseline_greedy._lns_try_repair_candidate",
+                        return_value=(rejected, candidate_result),
+                    ):
+                        assignments, result = baseline_greedy._lns_improve_assignments(
+                            prob_info,
+                            incumbent,
+                            incumbent_result,
+                            "edd",
+                            None,
+                        )
+
+                self.assertEqual(incumbent, assignments)
+                self.assertEqual(incumbent_result, result)
+
+    def test_lns_loop_stops_at_numeric_iteration_cap(self):
+        import baseline_greedy
+
+        prob_info = _selector_prob_info(n_blocks=12, n_bays=1, slack=0)
+        incumbent = {
+            block_id: _lns_assignment(block_id)
+            for block_id in range(len(prob_info["blocks"]))
+        }
+
+        with patch(
+            "baseline_greedy._lns_select_worst_objective_blocks",
+            return_value=[0],
+        ):
+            with patch(
+                "baseline_greedy._lns_select_same_bay_time_window",
+                return_value=[0],
+            ):
+                with patch(
+                    "baseline_greedy._lns_try_repair_candidate",
+                    return_value=None,
+                ) as repair:
+                    assignments, result = baseline_greedy._lns_improve_assignments(
+                        prob_info,
+                        incumbent,
+                        self._incumbent_result(),
+                        "edd",
+                        None,
+                    )
+
+        self.assertEqual(3, repair.call_count)
+        self.assertEqual(incumbent, assignments)
+        self.assertEqual(self._incumbent_result(), result)
+
+    def test_lns_loop_stops_when_deadline_reached_or_budget_floor_hit(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+
+        for now in (100.0, 99.96):
+            with self.subTest(now=now):
+                with patch("baseline_greedy.time.time", return_value=now):
+                    with patch(
+                        "baseline_greedy._lns_try_repair_candidate",
+                    ) as repair:
+                        assignments, result = baseline_greedy._lns_improve_assignments(
+                            prob_info,
+                            incumbent,
+                            self._incumbent_result(),
+                            "edd",
+                            100.0,
+                        )
+
+                repair.assert_not_called()
+                self.assertEqual(incumbent, assignments)
+                self.assertEqual(self._incumbent_result(), result)
+
+
+class GreedyLnsModeTests(unittest.TestCase):
+    def test_greedyalgorithm_rejects_unknown_lns_mode(self):
+        import baseline_greedy
+
+        with self.assertRaises(ValueError):
+            with redirect_stdout(StringIO()):
+                baseline_greedy.greedyalgorithm(
+                    _repair_candidate_prob_info(),
+                    timelimit=1.0,
+                    lns_mode="large",
+                )
+
+    def test_greedyalgorithm_lns_mode_off_does_not_call_lns_loop(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+
+        with patch(
+            "baseline_greedy._lns_improve_assignments",
+            side_effect=AssertionError("off mode must not call LNS"),
+            create=True,
+        ):
+            with redirect_stdout(StringIO()):
+                solution = baseline_greedy.greedyalgorithm(
+                    prob_info,
+                    timelimit=1.0,
+                    lns_mode="off",
+                )
+
+        _assert_stage5_feasible(self, prob_info, solution)
+
+    def test_greedyalgorithm_small_lns_runs_after_feasible_incumbent(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+
+        def keep_incumbent(
+            received_prob_info,
+            assignments,
+            incumbent_result,
+            block_order_mode,
+            deadline,
+        ):
+            self.assertIs(received_prob_info, prob_info)
+            self.assertTrue(incumbent_result["feasible"])
+            self.assertEqual("edd", block_order_mode)
+            self.assertIsNotNone(deadline)
+            return assignments, incumbent_result
+
+        with patch(
+            "baseline_greedy._lns_improve_assignments",
+            side_effect=keep_incumbent,
+            create=True,
+        ) as improve:
+            with redirect_stdout(StringIO()):
+                solution = baseline_greedy.greedyalgorithm(
+                    prob_info,
+                    timelimit=1.0,
+                    lns_mode="small",
+                )
+
+        _assert_stage5_feasible(self, prob_info, solution)
+        improve.assert_called_once()
+
+    def test_greedyalgorithm_small_lns_skips_loop_when_incumbent_infeasible(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incomplete_assignments = {
+            0: _lns_assignment(0, entry_time=0, exit_time=1),
+        }
+
+        with patch("baseline_greedy._repair", return_value=incomplete_assignments):
+            with patch(
+                "baseline_greedy._lns_improve_assignments",
+                side_effect=AssertionError("infeasible incumbent must skip LNS"),
+                create=True,
+            ):
+                with redirect_stdout(StringIO()):
+                    solution = baseline_greedy.greedyalgorithm(
+                        prob_info,
+                        timelimit=1.0,
+                        lns_mode="small",
+                    )
+
+        _assert_stage5_feasible(self, prob_info, solution)
+
+    def test_greedyalgorithm_tiny_timelimit_returns_stage5_fallback_with_lns_small(self):
+        import baseline_greedy
+
+        prob_info = _load_example_instance()
+
+        with redirect_stdout(StringIO()):
+            solution = baseline_greedy.greedyalgorithm(
+                prob_info,
+                timelimit=0,
+                lns_mode="small",
+            )
+
+        _assert_stage5_feasible(self, prob_info, solution)
+
+
 class LnsRepairCandidateTests(unittest.TestCase):
     def test_lns_repair_candidate_returns_feasible_checked_candidate(self):
         import baseline_greedy
