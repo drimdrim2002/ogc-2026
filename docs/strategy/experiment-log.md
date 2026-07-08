@@ -1,6 +1,6 @@
 # OGC 2026 Solver Experiment Log
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 This file records decisions and experiment outcomes. Keep entries short, factual, and tied to measurements where possible.
 
@@ -133,6 +133,33 @@ Rationale:
 - Large components should be promoted only when smaller measured improvements are exhausted.
 
 ## Experiment Entries
+
+### 2026-07-08: M3 Small Destroy-Repair LNS
+
+Experiment:
+
+- Added a bounded small destroy-repair LNS layer behind `lns_mode="small"` and activated it for the submission entry point after measured gates passed.
+- Branch context: current branch `main`; activation commit `c40700912aa02d6617ec2f8d08453f159ec02db4` (`feat(submission): enable measured small lns`).
+- The active submission baseline now combines adaptive block-order selection with `_SUBMISSION_LNS_MODE = "small"` while preserving the public `algorithm(prob_info, timelimit)` signature and final checker/fallback contract.
+- Fable LNS/ALNS docs were used only as idea sources; this accepted slice stayed on the trusted Python geometry/checker path.
+
+Evidence:
+
+- Full 60s adaptive `daily-40` preflight baseline before activation: `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-preflight-daily-40-myalgorithm-60s-adaptive-baseline.json`, 40/40 feasible Stage 5, total objective `25376460025.16775`, total `obj1` `2493592.0`, total `obj2` `344342.0895618068`, total `obj3` `4991.0`, artifact `git_commit` `4d03ba6`.
+- Small-LNS smoke gate: `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-smoke-3-myalgorithm-15s-small.json`, 3/3 feasible Stage 5, total objective `931619615.8035469`, total `obj1` `107813.0`, total `obj2` `13942.528504411242`, total `obj3` `780.0`, effective LNS mode `small`, artifact `git_commit` `6e6c454`.
+- Small-LNS `dev-10` gate: `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-dev-10-myalgorithm-60s-small.json`, 10/10 feasible Stage 5, total objective `3620223014.45645`, total `obj1` `764243.0`, total `obj2` `86326.84947915215`, total `obj3` `3479.0`, delta vs active adaptive M2 baseline `3914797993.4149823` was `-294574978.95853233` (`-7.5246533653596455%`), effective LNS mode `small`, artifact `git_commit` `6e6c454`.
+- Small-LNS full 60s `daily-40` non-regression gate before activation: `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-daily-40-myalgorithm-60s-small.json`, 40/40 feasible Stage 5, total objective `25376460025.16775`, total `obj1` `2493592.0`, total `obj2` `344342.0895618068`, total `obj3` `4991.0`, non-regression delta vs the full adaptive preflight baseline `0.0`, effective LNS mode `small`, artifact `git_commit` `6e6c454`.
+- Todo 10 tiny-budget final smoke: `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-smoke-3-myalgorithm-0.001s-final.json`, 3/3 feasible Stage 5, total objective `1503916861.6392648`, total `obj1` `165986.0`, total `obj2` `14886.212076201271`, total `obj3` `628.0`, effective LNS mode `small`, artifact `git_commit` `c407009`.
+
+Decision:
+
+- `accepted`.
+- Use M3 small destroy-repair LNS as the active `myalgorithm` comparison baseline.
+- Keep the full Fable ALNS portfolio, simulated annealing acceptance, operator weighting, CP-SAT retiming, and geometry acceleration deferred until separately justified by focused evidence.
+
+Next step:
+
+- Compare the next solver experiment against the accepted M3 small-LNS baseline and rerun `daily-40` before making any new broad generalization claim.
 
 ### 2026-07-08: M2 Adaptive Block-Order Selection
 

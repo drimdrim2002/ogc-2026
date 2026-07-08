@@ -1,6 +1,6 @@
 # OGC 2026 Solver Operating Plan
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 ## Purpose
 
@@ -113,7 +113,7 @@ Exit criteria:
 
 ### M3: LNS / ALNS Layer
 
-Status: idea-bank gated.
+Status: active with small destroy-repair LNS accepted as the current `myalgorithm` comparison baseline.
 
 Use Fable LNS/ALNS material only after M2 establishes a stable incumbent and benchmark harness. Start with small destroy-repair LNS, not the full Fable ALNS plan.
 
@@ -123,10 +123,12 @@ Do not defer geometry correctness to M4. In M3, geometry checks are mandatory; w
 
 Exit criteria:
 
+- Small destroy-repair LNS is integrated behind the submission entry point with `_SUBMISSION_LNS_MODE = "small"`.
 - Every iteration operates on a copy or snapshot.
 - Failed repairs discard the candidate and keep the incumbent.
 - Repairs use trusted Python geometry/checker logic rather than new accelerated geometry.
-- Accepted candidates pass `utils.check_feasibility` and are no worse according to the configured acceptance rule.
+- Accepted candidates pass `utils.check_feasibility` and strictly improve the incumbent objective.
+- Accepted M3 evidence is recorded in `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-dev-10-myalgorithm-60s-small.json` and `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-daily-40-myalgorithm-60s-small.json`.
 
 ### M4: Geometry Acceleration
 
@@ -171,9 +173,9 @@ At the end of a session, update:
 
 ## Immediate Next Actions
 
-1. Use the accepted adaptive block-order selection result as the active `m2-main` `myalgorithm` `dev-10` comparison baseline for later M2 experiments.
-2. Run full 60s `daily-40` before making broad claims beyond the bounded 15s holdout.
-3. Continue M2 one experiment branch at a time against the adaptive baseline; do not mix multiple hypotheses in one merge.
-4. Follow `docs/strategy/m2-experiment-playbook.md` for branch/worktree, benchmark result, and accept/reject rules.
+1. Use the accepted M3 small destroy-repair LNS result as the active `myalgorithm` comparison baseline for the next solver experiment.
+2. Treat `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-daily-40-myalgorithm-60s-small.json` as the current full 60s `daily-40` non-regression evidence for the active submission baseline.
+3. Continue one experiment branch at a time against the accepted M3 baseline; do not mix multiple hypotheses in one merge.
+4. Keep full Fable ALNS, CP-SAT retiming, and geometry acceleration deferred until separately justified by focused evidence.
 5. Use `--solver myalgorithm` when measuring the submission entry point, and
    `--solver baseline_greedy` when measuring the reference baseline.

@@ -1,6 +1,6 @@
 # OGC 2026 Solver Idea Bank
 
-Last updated: 2026-07-08
+Last updated: 2026-07-09
 
 This file stores solver ideas as hypotheses. It is not an implementation plan. Promote an idea only after a benchmark or profiling result justifies it.
 
@@ -108,7 +108,7 @@ Validation: `dev-10` improvement over the best M2 solver; no feasibility regress
 
 Kill condition: No improvement after bounded iterations or unstable runtime.
 
-Status: gated for M3.
+Status: accepted and integrated for M3. Evidence: `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-dev-10-myalgorithm-60s-small.json` improved the active adaptive M2 `dev-10` baseline from `3914797993.4149823` to `3620223014.45645` with 10/10 feasible Stage 5 rows; `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-daily-40-myalgorithm-60s-small.json` matched the full 60s adaptive `daily-40` preflight baseline at `25376460025.16775` with 40/40 feasible Stage 5 rows. Activation commit: `c40700912aa02d6617ec2f8d08453f159ec02db4`.
 
 ### Full ALNS Operator Portfolio
 
