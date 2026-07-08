@@ -451,6 +451,68 @@ def _serial_fallback_assignments(prob_info: dict) -> dict[int, dict]:
     return assignments
 
 
+def _assignments_from_operations(operations: dict) -> dict[int, dict]:
+    assignments: dict[int, dict] = {}
+    for time_key, ops in operations.items():
+        time_int = int(time_key)
+        for op in ops:
+            block_id = int(op["block_id"])
+            assignment = assignments.setdefault(block_id, {"block_id": block_id})
+            if op["type"] == "ENTRY":
+                assignment.update(
+                    {
+                        "bay_id": int(op["bay_id"]),
+                        "x": int(op["x"]),
+                        "y": int(op["y"]),
+                        "orient_idx": int(op["orient_idx"]),
+                        "entry_time": time_int,
+                    }
+                )
+            elif op["type"] == "EXIT":
+                assignment["exit_time"] = time_int
+    return assignments
+
+
+def _copy_assignments(assignments: dict[int, dict]) -> dict[int, dict]:
+    return {
+        int(block_id): dict(assignment)
+        for block_id, assignment in assignments.items()
+    }
+
+
+def _rebuild_lns_state(
+    blocks_data: list[dict],
+    bays: list[Bay],
+    assignments: dict[int, dict],
+) -> tuple[list[list[Block]], list[list[tuple[int, int]]], list[float]]:
+    bay_placed: list[list[Block]] = [[] for _ in bays]
+    bay_schedule: list[list[tuple[int, int]]] = [[] for _ in bays]
+    bay_loads: list[float] = [0.0] * len(bays)
+
+    for assignment in assignments.values():
+        block_id = int(assignment["block_id"])
+        bay_id = int(assignment["bay_id"])
+        block = Block(
+            block_id=block_id,
+            block_data=blocks_data[block_id],
+            x=int(assignment["x"]),
+            y=int(assignment["y"]),
+            orient_idx=int(assignment["orient_idx"]),
+        )
+        bay_placed[bay_id].append(block)
+        bay_schedule[bay_id].append((
+            int(assignment["entry_time"]),
+            int(assignment["exit_time"]),
+        ))
+        bay_loads[bay_id] += blocks_data[block_id]["workload"]
+
+    return bay_placed, bay_schedule, bay_loads
+
+
+def _solution_from_assignments(assignments: dict[int, dict]) -> dict:
+    return {"operations": _build_operations(list(assignments.values()))}
+
+
 def _complete_with_serial_fallback(
     prob_info: dict,
     assignments: dict[int, dict],
@@ -489,10 +551,7 @@ def _complete_with_serial_fallback(
         return _serial_fallback_solution(prob_info, verify=verify)
 
     def build_solution(prefix_len: int) -> dict | None:
-        completed: dict[int, dict] = {
-            block_id: dict(assignment)
-            for block_id, assignment in ordered_assignments[:prefix_len]
-        }
+        completed = _copy_assignments(dict(ordered_assignments[:prefix_len]))
         bay_schedule: list[list[tuple[int, int]]] = [[] for _ in bays]
 
         for assignment in completed.values():
@@ -565,7 +624,7 @@ def _complete_with_serial_fallback(
                 "exit_time": int(exit_t),
             }
 
-        return {"operations": _build_operations(list(completed.values()))}
+        return _solution_from_assignments(completed)
 
     full_solution = build_solution(len(ordered_assignments))
     if full_solution is None:
@@ -625,7 +684,7 @@ def _complete_with_serial_fallback(
 
 def _serial_fallback_solution(prob_info: dict, verify: bool = True) -> dict:
     assignments = _serial_fallback_assignments(prob_info)
-    solution = {"operations": _build_operations(list(assignments.values()))}
+    solution = _solution_from_assignments(assignments)
     if verify:
         from utils import check_feasibility
 
@@ -1189,22 +1248,11 @@ def _repair(prob_info: dict,
             for bid in to_repair:
                 assignments.pop(bid, None)
 
-            # Reconstruct bay_placed / bay_schedule / bay_loads from the
-            # remaining valid assignments.  This gives _place_blocks an accurate
-            # view of which positions and time-slots are already occupied.
-            n_bays = len(bays)
-            bay_placed:    list[list[Block]]            = [[] for _ in range(n_bays)]
-            bay_schedule2: list[list[tuple[int, int]]]  = [[] for _ in range(n_bays)]
-            bay_loads:     list[float]                  = [0.0] * n_bays
-
-            for a in assignments.values():
-                bid_a  = a["block_id"]
-                bay_id = a["bay_id"]
-                blk    = Block(block_id=bid_a, block_data=blocks_data[bid_a],
-                               x=int(a["x"]), y=int(a["y"]), orient_idx=a["orient_idx"])
-                bay_placed[bay_id].append(blk)
-                bay_schedule2[bay_id].append((a["entry_time"], a["exit_time"]))
-                bay_loads[bay_id] += blocks_data[bid_a]["workload"]
+            bay_placed, bay_schedule2, bay_loads = _rebuild_lns_state(
+                blocks_data,
+                bays,
+                assignments,
+            )
 
             for ri, bi in enumerate(to_repair):
                 _check_deadline_with_assignments(deadline, assignments)
@@ -1247,7 +1295,7 @@ def _repair(prob_info: dict,
                       f"  {prev_t} -> {new_t}"
                       f"  elapsed={elapsed_ri:.1f}s")
 
-        sol = {"operations": _build_operations(list(assignments.values()))}
+        sol = _solution_from_assignments(assignments)
 
     result = check_feasibility(prob_info, sol)
     status = "feasible" if result["feasible"] else f"INFEASIBLE stage={result['stage']}"

@@ -27,25 +27,9 @@ def _assert_stage5_feasible(testcase, prob_info, solution):
 
 
 def _assignments_from_operations(operations):
-    assignments = {}
-    for time_key, ops in operations.items():
-        time_int = int(time_key)
-        for op in ops:
-            block_id = op["block_id"]
-            item = assignments.setdefault(block_id, {"block_id": block_id})
-            if op["type"] == "ENTRY":
-                item.update(
-                    {
-                        "bay_id": op["bay_id"],
-                        "x": op["x"],
-                        "y": op["y"],
-                        "orient_idx": op["orient_idx"],
-                        "entry_time": time_int,
-                    }
-                )
-            elif op["type"] == "EXIT":
-                item["exit_time"] = time_int
-    return assignments
+    from baseline_greedy import _assignments_from_operations as parse_operations
+
+    return parse_operations(operations)
 
 
 def _selector_prob_info(n_blocks, n_bays, slack, w1=1, w3=1):
@@ -62,6 +46,26 @@ def _selector_prob_info(n_blocks, n_bays, slack, w1=1, w3=1):
             for _ in range(n_blocks)
         ],
         "weights": {"w1": w1, "w2": 1, "w3": w3},
+    }
+
+
+def _lns_assignment(
+    block_id,
+    bay_id=0,
+    x=0,
+    y=0,
+    orient_idx=0,
+    entry_time=0,
+    exit_time=1,
+):
+    return {
+        "block_id": block_id,
+        "bay_id": bay_id,
+        "x": x,
+        "y": y,
+        "orient_idx": orient_idx,
+        "entry_time": entry_time,
+        "exit_time": exit_time,
     }
 
 
@@ -217,6 +221,100 @@ class PartialFallbackSafetyTests(unittest.TestCase):
         recovered = _assignments_from_operations(solution["operations"])
         _assert_stage5_feasible(self, prob_info, solution)
         self.assertEqual(serial_assignments[0], recovered[0])
+
+
+class LnsStateHelperTests(unittest.TestCase):
+    def test_lns_state_assignments_from_operations_returns_canonical_shape(self):
+        from baseline_greedy import _assignments_from_operations
+
+        entry_op = {
+            "type": "ENTRY",
+            "block_id": 2,
+            "bay_id": 1,
+            "x": 4,
+            "y": 5,
+            "orient_idx": 0,
+        }
+        exit_op = {"type": "EXIT", "block_id": 2, "bay_id": 1}
+        operations = {
+            "9": [exit_op],
+            "3": [entry_op],
+        }
+
+        assignments = _assignments_from_operations(operations)
+
+        self.assertEqual(
+            {2: _lns_assignment(2, bay_id=1, x=4, y=5, entry_time=3, exit_time=9)},
+            assignments,
+        )
+
+    def test_lns_state_copy_assignments_isolates_nested_assignment_dicts(self):
+        from baseline_greedy import _copy_assignments
+
+        assignments = {
+            1: _lns_assignment(1, x=2, y=3, orient_idx=1, entry_time=5, exit_time=11),
+        }
+        snapshot = {block_id: dict(assignment) for block_id, assignment in assignments.items()}
+        snapshot_json = json.dumps(assignments, sort_keys=True)
+
+        copied = _copy_assignments(assignments)
+        copied[1]["x"] = 99
+        copied[2] = dict(copied[1], block_id=2)
+
+        self.assertEqual(snapshot, assignments)
+        self.assertEqual(snapshot_json, json.dumps(assignments, sort_keys=True))
+
+    def test_lns_state_rebuilds_blocks_schedule_and_loads_from_assignments(self):
+        from baseline_greedy import _rebuild_lns_state, _serial_fallback_assignments
+        from utils import Bay
+
+        prob_info = _load_example_instance()
+        bays = [Bay.from_dict(data, idx) for idx, data in enumerate(prob_info["bays"])]
+        serial_assignments = _serial_fallback_assignments(prob_info)
+        assignments = {
+            block_id: dict(serial_assignments[block_id])
+            for block_id in (0, 1, 2)
+        }
+
+        bay_placed, bay_schedule, bay_loads = _rebuild_lns_state(
+            prob_info["blocks"],
+            bays,
+            assignments,
+        )
+
+        for assignment in assignments.values():
+            bay_id = assignment["bay_id"]
+            block_id = assignment["block_id"]
+            self.assertTrue(
+                any(block.block_id == block_id for block in bay_placed[bay_id]),
+                f"missing rebuilt block {block_id} in bay {bay_id}",
+            )
+            self.assertIn(
+                (assignment["entry_time"], assignment["exit_time"]),
+                bay_schedule[bay_id],
+            )
+
+        expected_loads = [0.0] * len(bays)
+        for assignment in assignments.values():
+            expected_loads[assignment["bay_id"]] += (
+                prob_info["blocks"][assignment["block_id"]]["workload"]
+            )
+        self.assertEqual(expected_loads, bay_loads)
+
+    def test_lns_state_solution_from_assignments_uses_build_operations(self):
+        from baseline_greedy import _solution_from_assignments
+
+        assignments = {
+            0: _lns_assignment(0, exit_time=5),
+            1: _lns_assignment(1, x=1, y=1, entry_time=5, exit_time=7),
+        }
+        operations = {"5": [{"type": "EXIT", "block_id": 0, "bay_id": 0}]}
+
+        with patch("baseline_greedy._build_operations", return_value=operations) as build:
+            solution = _solution_from_assignments(assignments)
+
+        build.assert_called_once_with(list(assignments.values()))
+        self.assertEqual({"operations": operations}, solution)
 
 
 if __name__ == "__main__":
