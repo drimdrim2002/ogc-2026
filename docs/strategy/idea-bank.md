@@ -1,6 +1,6 @@
 # OGC 2026 Solver Idea Bank
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 This file stores solver ideas as hypotheses. It is not an implementation plan. Promote an idea only after a benchmark or profiling result justifies it.
 
@@ -36,7 +36,7 @@ Validation: Compare each mode against current baseline on `dev-10` at 60s per in
 
 Kill condition: No `dev-10` improvement, feasibility loss, or repeated runtime regressions.
 
-Status: accepted and integrated for M2 on `m2-main`; `slack` selected. Local evidence: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`. Integration evidence: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-summary.json`.
+Status: accepted and integrated for M2 on `m2-main`; `slack` was the first selected global mode, then adaptive per-instance selection among existing modes was accepted. Local evidence: `experiments/results/m2/block_ordering/2026-07-06-m2-block_ordering-dev-10-summary.json`. Slack integration evidence: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-summary.json`. Adaptive integration evidence: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-integration-dev-10-myalgorithm-60s-adaptive.json`; bounded daily-40 holdout evidence: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-daily-40-myalgorithm-15s-adaptive.json`.
 
 ### Expanded Candidate Positions
 

@@ -1,6 +1,6 @@
 # OGC 2026 Solver Operating Plan
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 ## Purpose
 
@@ -94,11 +94,12 @@ Exit criteria:
 
 ### M2: Low-Cost Objective Improvements
 
-Status: active with first integration accepted; `block_ordering` selected `slack` and is now the `m2-main` comparison baseline.
+Status: active with adaptive block-order selection accepted as the current `m2-main` comparison baseline.
 
 Candidate experiments:
 
-- `block_ordering` on branch `codex/m2-block-ordering` -- accepted and integrated with `slack`; active `m2-main` `myalgorithm` baseline is `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json`.
+- `block_ordering` on branch `codex/m2-block-ordering` -- accepted and integrated with `slack`.
+- `adaptive_block_order_selection` -- accepted; active `m2-main` `myalgorithm` baseline is `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-integration-dev-10-myalgorithm-60s-adaptive.json`; bounded daily-40 holdout is `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-daily-40-myalgorithm-15s-adaptive.json`.
 - `time_slot_candidates` on branch `codex/m2-time-candidates`.
 - `left_shift_polish` on branch `codex/m2-left-shift`.
 - `placement_candidates` on branch `codex/m2-placement-candidates`.
@@ -162,9 +163,9 @@ At the end of a session, update:
 
 ## Immediate Next Actions
 
-1. Use the accepted `block_ordering` integration result as the active `m2-main` `myalgorithm` `dev-10` comparison baseline for later M2 experiments.
-2. Record the current accepted `m2-main` baseline on `daily-40`.
-3. Continue M2 one experiment branch at a time against the updated `m2-main`; do not mix multiple hypotheses in one merge.
+1. Use the accepted adaptive block-order selection result as the active `m2-main` `myalgorithm` `dev-10` comparison baseline for later M2 experiments.
+2. Run full 60s `daily-40` before making broad claims beyond the bounded 15s holdout.
+3. Continue M2 one experiment branch at a time against the adaptive baseline; do not mix multiple hypotheses in one merge.
 4. Follow `docs/strategy/m2-experiment-playbook.md` for branch/worktree, benchmark result, and accept/reject rules.
 5. Use `--solver myalgorithm` when measuring the submission entry point, and
    `--solver baseline_greedy` when measuring the reference baseline.

@@ -191,12 +191,22 @@ def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:
     return run_solver(path, "baseline_greedy", timelimit)
 
 
-def _effective_block_order_mode(solver: str, requested_block_order_mode: str) -> str:
+def _effective_block_order_mode(
+    solver: str,
+    requested_block_order_mode: str,
+    path: pathlib.Path | None = None,
+) -> str:
     if solver != "myalgorithm":
         return requested_block_order_mode
     import myalgorithm
 
-    return getattr(myalgorithm, "_SUBMISSION_BLOCK_ORDER_MODE", requested_block_order_mode)
+    configured_mode = getattr(myalgorithm, "_SUBMISSION_BLOCK_ORDER_MODE", requested_block_order_mode)
+    if configured_mode != "adaptive" or path is None:
+        return configured_mode
+    selector = getattr(myalgorithm, "_select_submission_block_order_mode", None)
+    if selector is None:
+        return configured_mode
+    return selector(json.loads(path.read_text()))
 
 
 def _git_commit(root: pathlib.Path) -> str | None:
@@ -264,10 +274,14 @@ def main(argv: list[str] | None = None) -> int:
 
     git_commit = _git_commit(args.root)
     solver_name = args.solver or ("baseline_greedy" if args.run_baseline else "stats_only")
-    effective_block_order_mode = _effective_block_order_mode(solver_name, args.block_order_mode)
     rows: list[dict[str, Any]] = []
     for path in paths:
         row = compute_instance_stats(path)
+        effective_block_order_mode = _effective_block_order_mode(
+            solver_name,
+            args.block_order_mode,
+            path,
+        )
         row.update(
             {
                 "git_commit": git_commit,

@@ -1,6 +1,6 @@
 # OGC 2026 Solver Experiment Log
 
-Last updated: 2026-07-07
+Last updated: 2026-07-08
 
 This file records decisions and experiment outcomes. Keep entries short, factual, and tied to measurements where possible.
 
@@ -133,6 +133,40 @@ Rationale:
 - Large components should be promoted only when smaller measured improvements are exhausted.
 
 ## Experiment Entries
+
+### 2026-07-08: M2 Adaptive Block-Order Selection
+
+Experiment:
+
+- Compared the accepted global `slack` submission baseline against a low-cost adaptive selector over already implemented block-order modes.
+- Branch context: this run used the current `main` checkout; `main` and `m2-main` both pointed at `70ac6f7` before the local changes, so the branch-name mismatch was an alias of the same M2 base commit.
+- Reused prior dev-10 single-mode artifacts for `release_edd`, `latest_safe_entry`, and `preference_pressure`, then screened a feature rule that selects among those modes per instance.
+- Screened `repair_mode="simple"` on smoke-3 for both global `slack` and adaptive order selection; it produced no objective change, so it was rejected as a no-op for this bundle.
+- Wired `baseline/myalgorithm.py` to select the measured block-order mode per instance while keeping the public `algorithm(prob_info, timelimit)` signature and fallback verification unchanged.
+- Updated benchmark metadata so `--solver myalgorithm` records the effective per-instance block-order mode rather than the selector label.
+
+Evidence:
+
+- Active comparison baseline: `experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json`, 10/10 feasible Stage 5, total objective `4260238079.234912`, total `obj1` `853345.0`, mode `slack`.
+- Existing single-mode dev-10 artifacts showed an oracle best total `3620223014.4564495` across `preference_pressure`, `latest_safe_entry`, `release_edd`, and `slack`, versus global `slack` total `3965663100.276379` from the same mode batch.
+- Smoke screen: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-smoke-3-variants-15s.json`. Adaptive greedy repair returned 3/3 feasible Stage 5 with objective `931619615.8035469`; global `slack` returned `976921751.8035469`; simple repair matched greedy repair exactly for both order policies.
+- Dev-10 adaptive screen: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-dev-10-adaptive-greedy-60s.json`, 10/10 feasible Stage 5, total objective `3914797993.4149823`, total `obj1` `786353.0`, max elapsed `59.38332796096802`, delta vs active slack `-345440085.8199296` (`-8.108469043165929%`).
+- Integration smoke through `myalgorithm`: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-integration-smoke-3-myalgorithm-15s-adaptive.json`, 3/3 feasible Stage 5, objective `931619615.8035469`.
+- Integration dev-10 through `myalgorithm`: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-integration-dev-10-myalgorithm-60s-adaptive.json`, 10/10 feasible Stage 5, total objective `3914797993.4149823`, total `obj1` `786353.0`, total `obj2` `90451.74533243042`, total `obj3` `1753.0`, max elapsed `59.3257110118866`.
+- Selected modes in the integration dev-10 run: `prob_4:preference_pressure`, `prob_8:latest_safe_entry`, `prob_9:slack`, `prob_13:release_edd`, `prob_20:slack`, `prob_21:slack`, `prob_32:release_edd`, `prob_36:latest_safe_entry`, `prob_18:release_edd`, `prob_40:slack`.
+- Bounded daily-40 holdout through `myalgorithm`: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-daily-40-myalgorithm-15s-adaptive.json`, 40/40 feasible Stage 5, total objective `26165605047.325424`, total `obj1` `2549737.0`, total `obj2` `350544.64663166535`, total `obj3` `3158.0`, max elapsed `16.576851844787598`. Mode distribution: `preference_pressure=5`, `latest_safe_entry=4`, `release_edd=7`, `slack=24`.
+- RED/GREEN: `baseline.tests.test_submission_safety` first failed because the adaptive-case test observed `block_order_mode="slack"`; after implementation it passed. Added direct selector branch coverage for every adaptive rule and the explicit non-adaptive override path. Full suite passed: `/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s baseline/tests -p 'test_*.py'`, `Ran 31 tests`, `OK`.
+- Manual submission CLI: `experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-manual-run_myalgorithm-example_B2_b10-10s.txt`, reported `Feasible : True (stage=5)` and objective details.
+
+Decision:
+
+- `accepted`.
+- Use adaptive block-order selection as the new active M2 `myalgorithm` comparison baseline.
+- Keep expanded time-slot candidates, expanded placement candidates, left-shift polish, and single-block reinsert in the M2 queue, but compare them against the adaptive baseline rather than the old global `slack` baseline.
+
+Next step:
+
+- Run full 60s `daily-40` before treating adaptive selection as broadly validated beyond the bounded 15s holdout.
 
 ### 2026-07-06: M2 Block Ordering
 

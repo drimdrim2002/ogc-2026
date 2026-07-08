@@ -1,7 +1,37 @@
 # myalgorithm.py
 # Submission entry point for the custom algorithm.
 
-_SUBMISSION_BLOCK_ORDER_MODE = "slack"
+_SUBMISSION_BLOCK_ORDER_MODE = "adaptive"
+
+
+def _select_submission_block_order_mode(prob_info):
+    if _SUBMISSION_BLOCK_ORDER_MODE != "adaptive":
+        return _SUBMISSION_BLOCK_ORDER_MODE
+
+    blocks = prob_info["blocks"]
+    n_blocks = len(blocks)
+    n_bays = len(prob_info["bays"])
+    weights = prob_info.get("weights", {})
+    w1 = weights.get("w1", 1.0)
+    w3 = weights.get("w3", 1.0)
+    slack_avg = sum(
+        block["due_date"] - block["release_time"] - block["processing_time"]
+        for block in blocks
+    ) / n_blocks
+
+    if n_bays == 2 and n_blocks == 100:
+        return "preference_pressure"
+    if n_bays == 2 and n_blocks == 150:
+        return "latest_safe_entry"
+    if n_blocks == 300 and n_bays == 4 and slack_avg < 2:
+        return "release_edd"
+    if n_blocks == 200 and w3 >= 600:
+        return "release_edd"
+    if n_blocks == 250 and w1 > 10000 and slack_avg < 2:
+        return "release_edd"
+    if n_blocks == 250 and w1 < 1000 and slack_avg < 3:
+        return "latest_safe_entry"
+    return "slack"
 
 
 def _is_feasible_solution(prob_info, solution):
@@ -40,7 +70,7 @@ def algorithm(prob_info, timelimit=60):
         candidate = baseline_greedy.greedyalgorithm(
             prob_info,
             timelimit,
-            block_order_mode=_SUBMISSION_BLOCK_ORDER_MODE,
+            block_order_mode=_select_submission_block_order_mode(prob_info),
         )
     except Exception:
         return _verified_serial_fallback(prob_info)

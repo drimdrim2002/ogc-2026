@@ -1,6 +1,6 @@
 # M2 Experiment Playbook
 
-Last updated: 2026-07-06
+Last updated: 2026-07-08
 
 ## Purpose
 
@@ -16,7 +16,7 @@ Before starting an experiment:
 
 1. Run `git status --short`.
 2. Confirm `git branch --show-current` is `m2-main`.
-3. If the current branch is not `m2-main`, do not discard changes. Preserve them by committing, stashing with a descriptive message, or moving the experiment to a separate worktree.
+3. If the current branch is not `m2-main`, check whether it points to the same commit as `m2-main`. If it does, record the alias in `experiment-log.md` before continuing. If it does not, do not discard changes; preserve them by committing, stashing with a descriptive message, or moving the experiment to a separate worktree.
 
 Prefer one worktree per experiment:
 
@@ -44,17 +44,30 @@ Only one queue item should be active at a time. If an experiment depends on anot
 
 Store machine-readable benchmark outputs under `experiments/results/`.
 
-Use this naming pattern:
+Use this naming pattern for flat result files:
 
 ```text
 experiments/results/YYYY-MM-DD-m2-<queue-id>-<set-name>-<solver>-<timelimit>s.json
 ```
+
+For M2 bundles with several related result files, prefer a queue-specific
+subdirectory:
+
+```text
+experiments/results/m2/<queue-id>/YYYY-MM-DD-m2-<queue-id>-<set-name>-<solver>-<timelimit>s[-variant].json
+```
+
+Use `<queue-id>=alternative_screening` only for a measured screening bundle that
+compares multiple already-available low-cost alternatives before promoting one
+small integration change.
 
 Examples:
 
 ```text
 experiments/results/2026-07-06-m2-block_ordering-smoke-3-myalgorithm-15s.json
 experiments/results/2026-07-06-m2-block_ordering-dev-10-myalgorithm-60s.json
+experiments/results/m2/block_ordering/2026-07-07-m2-block_ordering-integration-dev-10-myalgorithm-60s.json
+experiments/results/m2/alternative_screening/2026-07-08-m2-alt-screening-integration-dev-10-myalgorithm-60s-adaptive.json
 ```
 
 If a rerun is needed on the same day with the same settings, append `-run2`, `-run3`, and so on before `.json`.
