@@ -144,14 +144,14 @@ def _repair_candidate_incumbent():
 
 
 class SubmissionEntryPointSafetyTests(unittest.TestCase):
-    def test_algorithm_public_signature_stays_stable_and_default_lns_off(self):
+    def test_algorithm_public_signature_stays_stable_and_default_lns_small(self):
         import myalgorithm
 
         signature = inspect.signature(myalgorithm.algorithm)
 
         self.assertEqual(["prob_info", "timelimit"], list(signature.parameters))
         self.assertEqual(60, signature.parameters["timelimit"].default)
-        self.assertEqual("off", myalgorithm._SUBMISSION_LNS_MODE)
+        self.assertEqual("small", myalgorithm._SUBMISSION_LNS_MODE)
 
     def test_algorithm_zero_timelimit_returns_feasible_fallback(self):
         import myalgorithm
@@ -189,7 +189,7 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
             prob_info,
             1.0,
             block_order_mode="slack",
-            lns_mode="off",
+            lns_mode="small",
         )
 
     def test_algorithm_delegates_with_adaptive_block_order_mode(self):
@@ -207,7 +207,7 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
             prob_info,
             1.0,
             block_order_mode="preference_pressure",
-            lns_mode="off",
+            lns_mode="small",
         )
 
     def test_adaptive_block_order_selector_covers_measured_branches(self):
@@ -267,6 +267,7 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
         rows = json.loads(out.getvalue())
         self.assertEqual("myalgorithm", rows[0]["solver"])
         self.assertEqual("preference_pressure", rows[0]["block_order_mode"])
+        self.assertEqual("small", rows[0]["lns_mode"])
 
     def test_algorithm_replaces_empty_operations_with_verified_fallback(self):
         import myalgorithm
@@ -281,13 +282,22 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
 
     def test_algorithm_replaces_malformed_output_with_verified_fallback(self):
         import myalgorithm
+        from baseline_greedy import _serial_fallback_solution
 
         prob_info = _load_example_instance()
+        expected_fallback = _serial_fallback_solution(prob_info, verify=True)
 
-        with patch("baseline_greedy.greedyalgorithm", return_value="not-a-solution"):
+        with patch("baseline_greedy.greedyalgorithm", return_value="not-a-solution") as greedy:
             with redirect_stdout(StringIO()):
                 solution = myalgorithm.algorithm(prob_info, timelimit=1.0)
 
+        greedy.assert_called_once_with(
+            prob_info,
+            1.0,
+            block_order_mode="slack",
+            lns_mode="small",
+        )
+        self.assertEqual(expected_fallback, solution)
         _assert_stage5_feasible(self, prob_info, solution)
 
 

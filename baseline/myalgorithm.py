@@ -2,7 +2,7 @@
 # Submission entry point for the custom algorithm.
 
 _SUBMISSION_BLOCK_ORDER_MODE = "adaptive"
-_SUBMISSION_LNS_MODE = "off"
+_SUBMISSION_LNS_MODE = "small"
 
 
 def _select_submission_block_order_mode(prob_info):

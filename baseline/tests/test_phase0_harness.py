@@ -158,7 +158,7 @@ class Phase0HarnessTests(unittest.TestCase):
         rows = json.loads(out.getvalue())
         self.assertEqual("myalgorithm", rows[0]["solver"])
         self.assertEqual("slack", rows[0]["block_order_mode"])
-        self.assertEqual("off", rows[0]["lns_mode"])
+        self.assertEqual("small", rows[0]["lns_mode"])
 
     def test_benchmark_solver_myalgorithm_reports_requested_lns_mode(self):
         import benchmark_instances
