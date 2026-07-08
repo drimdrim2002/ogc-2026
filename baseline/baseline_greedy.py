@@ -645,6 +645,88 @@ def _solution_from_assignments(assignments: dict[int, dict]) -> dict:
     return {"operations": _build_operations(list(assignments.values()))}
 
 
+def _lns_try_repair_candidate(
+    prob_info: dict,
+    incumbent_assignments: dict[int, dict],
+    removed_ids: list[int],
+    block_order_mode: str,
+    deadline: float | None,
+) -> tuple[dict[int, dict], dict] | None:
+    try:
+        _check_deadline(deadline)
+        blocks_data = prob_info["blocks"]
+        bays = [
+            Bay.from_dict(data, idx)
+            for idx, data in enumerate(prob_info["bays"])
+        ]
+        weights = prob_info.get("weights", {})
+        w1 = weights.get("w1", 1.0)
+        w2 = weights.get("w2", 1.0)
+        w3 = weights.get("w3", 1.0)
+
+        candidate_assignments = _copy_assignments(incumbent_assignments)
+        removed_block_ids: list[int] = []
+        seen_removed: set[int] = set()
+        for raw_block_id in removed_ids:
+            block_id = int(raw_block_id)
+            if block_id in seen_removed:
+                continue
+            if block_id not in candidate_assignments:
+                return None
+            seen_removed.add(block_id)
+            removed_block_ids.append(block_id)
+            candidate_assignments.pop(block_id)
+
+        if not removed_block_ids:
+            return None
+
+        ordered_removed = _ordered_block_ids(
+            removed_block_ids,
+            blocks_data,
+            block_order_mode,
+        )
+        bay_placed, bay_schedule, bay_loads = _rebuild_lns_state(
+            blocks_data,
+            bays,
+            candidate_assignments,
+        )
+        repaired_assignments = _place_blocks(
+            ordered_removed,
+            blocks_data,
+            bays,
+            bay_placed,
+            bay_schedule,
+            bay_loads,
+            w1,
+            w2,
+            w3,
+            forced_ids=set(),
+            allow_force=False,
+            prev_assignments=incumbent_assignments,
+            deadline=deadline,
+        )
+        if set(repaired_assignments) != set(removed_block_ids):
+            return None
+
+        candidate_assignments.update(_copy_assignments(repaired_assignments))
+        if len(candidate_assignments) != len(blocks_data):
+            return None
+
+        _check_deadline(deadline)
+        solution = _solution_from_assignments(candidate_assignments)
+
+        from utils import check_feasibility
+
+        result = check_feasibility(prob_info, solution)
+        if not result["feasible"]:
+            return None
+        return candidate_assignments, result
+    except (_LnsRepairFailed, _TimeBudgetExpired):
+        return None
+    except (RuntimeError, KeyError, TypeError, ValueError, IndexError):
+        return None
+
+
 def _complete_with_serial_fallback(
     prob_info: dict,
     assignments: dict[int, dict],

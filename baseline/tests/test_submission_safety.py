@@ -102,6 +102,46 @@ def _placement_mode_prob_info(widths):
     }
 
 
+def _repair_candidate_prob_info():
+    blocks = []
+    for block_id, release_time in enumerate((0, 1)):
+        blocks.append(
+            {
+                "release_time": release_time,
+                "due_date": 10,
+                "processing_time": 1,
+                "workload": 1,
+                "bay_preferences": [1],
+                "shape": [
+                    {
+                        "orientation": 0,
+                        "layers": [
+                            [
+                                [0, 0],
+                                [1, 0],
+                                [1, 1],
+                                [0, 1],
+                            ],
+                        ],
+                    },
+                ],
+            }
+        )
+    return {
+        "name": "repair_candidate_fixture",
+        "bays": [{"width": 4, "height": 2}],
+        "blocks": blocks,
+        "weights": {"w1": 1, "w2": 1, "w3": 1},
+    }
+
+
+def _repair_candidate_incumbent():
+    return {
+        0: _lns_assignment(0, bay_id=0, x=0, y=0, entry_time=0, exit_time=1),
+        1: _lns_assignment(1, bay_id=0, x=1, y=0, entry_time=1, exit_time=2),
+    }
+
+
 class SubmissionEntryPointSafetyTests(unittest.TestCase):
     def test_algorithm_zero_timelimit_returns_feasible_fallback(self):
         import myalgorithm
@@ -582,6 +622,172 @@ class LnsPlacementModeTests(unittest.TestCase):
         self.assertEqual({0}, set(assignments))
         self.assertEqual(0, assignments[0]["block_id"])
         self.assertEqual([0], [block.block_id for block in bay_placed[0]])
+
+
+class LnsRepairCandidateTests(unittest.TestCase):
+    def test_lns_repair_candidate_returns_feasible_checked_candidate(self):
+        import baseline_greedy
+        from utils import check_feasibility
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+
+        with patch(
+            "baseline_greedy._build_operations",
+            wraps=baseline_greedy._build_operations,
+        ) as build_operations:
+            with patch("utils.check_feasibility", wraps=check_feasibility) as check:
+                candidate = baseline_greedy._lns_try_repair_candidate(
+                    prob_info,
+                    incumbent,
+                    [1],
+                    "edd",
+                    None,
+                )
+
+        self.assertIsNotNone(candidate)
+        candidate_assignments, result = candidate
+        self.assertTrue(result["feasible"], result["violations"])
+        self.assertEqual(5, result["stage"])
+        self.assertEqual(set(incumbent), set(candidate_assignments))
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+        build_operations.assert_called()
+        check.assert_called()
+
+    def test_lns_repair_candidate_accepts_duplicate_removed_ids_once(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+
+        candidate = baseline_greedy._lns_try_repair_candidate(
+            prob_info,
+            incumbent,
+            [1, 1],
+            "edd",
+            None,
+        )
+
+        self.assertIsNotNone(candidate)
+        _, result = candidate
+        self.assertTrue(result["feasible"], result["violations"])
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+
+    def test_lns_repair_candidate_rejects_unknown_removed_id_without_mutating_incumbent(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+
+        candidate = baseline_greedy._lns_try_repair_candidate(
+            prob_info,
+            incumbent,
+            [99],
+            "edd",
+            None,
+        )
+
+        self.assertIsNone(candidate)
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+
+    def test_lns_repair_candidate_discards_empty_repair_result_without_mutating_incumbent(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+
+        with patch("baseline_greedy._place_blocks", return_value={}):
+            candidate = baseline_greedy._lns_try_repair_candidate(
+                prob_info,
+                incumbent,
+                [1],
+                "edd",
+                None,
+            )
+
+        self.assertIsNone(candidate)
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+
+    def test_lns_repair_candidate_discards_repair_failure_without_mutating_incumbent(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+
+        with patch(
+            "baseline_greedy._place_blocks",
+            side_effect=baseline_greedy._LnsRepairFailed({}),
+        ):
+            failed_candidate = baseline_greedy._lns_try_repair_candidate(
+                prob_info,
+                incumbent,
+                [1],
+                "edd",
+                None,
+            )
+        with patch("baseline_greedy._place_blocks", side_effect=RuntimeError("boom")):
+            exception_candidate = baseline_greedy._lns_try_repair_candidate(
+                prob_info,
+                incumbent,
+                [1],
+                "edd",
+                None,
+            )
+
+        self.assertIsNone(failed_candidate)
+        self.assertIsNone(exception_candidate)
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+
+    def test_lns_repair_candidate_discards_expired_deadline_without_mutating_incumbent(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+
+        candidate = baseline_greedy._lns_try_repair_candidate(
+            prob_info,
+            incumbent,
+            [1],
+            "edd",
+            0.0,
+        )
+
+        self.assertIsNone(candidate)
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
+
+    def test_lns_repair_candidate_discards_infeasible_checker_result_without_mutating_incumbent(self):
+        import baseline_greedy
+
+        prob_info = _repair_candidate_prob_info()
+        incumbent = _repair_candidate_incumbent()
+        incumbent_snapshot = json.dumps(incumbent, sort_keys=True)
+        infeasible = {
+            "feasible": False,
+            "stage": 1,
+            "violations": ["forced test infeasible"],
+            "objective": None,
+            "obj1": None,
+            "obj2": None,
+            "obj3": None,
+        }
+
+        with patch("utils.check_feasibility", return_value=infeasible):
+            candidate = baseline_greedy._lns_try_repair_candidate(
+                prob_info,
+                incumbent,
+                [1],
+                "edd",
+                None,
+            )
+
+        self.assertIsNone(candidate)
+        self.assertEqual(incumbent_snapshot, json.dumps(incumbent, sort_keys=True))
 
 
 if __name__ == "__main__":
