@@ -28,9 +28,25 @@ def _assert_stage5_feasible(testcase, prob_info, solution):
 
 
 def _assignments_from_operations(operations):
-    from baseline_greedy import _assignments_from_operations as parse_operations
-
-    return parse_operations(operations)
+    assignments = {}
+    for time_key, ops in operations.items():
+        time_int = int(time_key)
+        for op in ops:
+            block_id = int(op["block_id"])
+            assignment = assignments.setdefault(block_id, {"block_id": block_id})
+            if op["type"] == "ENTRY":
+                assignment.update(
+                    {
+                        "bay_id": int(op["bay_id"]),
+                        "x": int(op["x"]),
+                        "y": int(op["y"]),
+                        "orient_idx": int(op["orient_idx"]),
+                        "entry_time": time_int,
+                    }
+                )
+            elif op["type"] == "EXIT":
+                assignment["exit_time"] = time_int
+    return assignments
 
 
 def _selector_prob_info(n_blocks, n_bays, slack, w1=1, w3=1):
@@ -323,30 +339,6 @@ class PartialFallbackSafetyTests(unittest.TestCase):
 
 
 class LnsStateHelperTests(unittest.TestCase):
-    def test_lns_state_assignments_from_operations_returns_canonical_shape(self):
-        from baseline_greedy import _assignments_from_operations
-
-        entry_op = {
-            "type": "ENTRY",
-            "block_id": 2,
-            "bay_id": 1,
-            "x": 4,
-            "y": 5,
-            "orient_idx": 0,
-        }
-        exit_op = {"type": "EXIT", "block_id": 2, "bay_id": 1}
-        operations = {
-            "9": [exit_op],
-            "3": [entry_op],
-        }
-
-        assignments = _assignments_from_operations(operations)
-
-        self.assertEqual(
-            {2: _lns_assignment(2, bay_id=1, x=4, y=5, entry_time=3, exit_time=9)},
-            assignments,
-        )
-
     def test_lns_state_copy_assignments_isolates_nested_assignment_dicts(self):
         from baseline_greedy import _copy_assignments
 

@@ -467,28 +467,6 @@ def _serial_fallback_assignments(prob_info: dict) -> dict[int, dict]:
     return assignments
 
 
-def _assignments_from_operations(operations: dict) -> dict[int, dict]:
-    assignments: dict[int, dict] = {}
-    for time_key, ops in operations.items():
-        time_int = int(time_key)
-        for op in ops:
-            block_id = int(op["block_id"])
-            assignment = assignments.setdefault(block_id, {"block_id": block_id})
-            if op["type"] == "ENTRY":
-                assignment.update(
-                    {
-                        "bay_id": int(op["bay_id"]),
-                        "x": int(op["x"]),
-                        "y": int(op["y"]),
-                        "orient_idx": int(op["orient_idx"]),
-                        "entry_time": time_int,
-                    }
-                )
-            elif op["type"] == "EXIT":
-                assignment["exit_time"] = time_int
-    return assignments
-
-
 def _copy_assignments(assignments: dict[int, dict]) -> dict[int, dict]:
     return {
         int(block_id): dict(assignment)
