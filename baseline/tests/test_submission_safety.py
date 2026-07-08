@@ -69,6 +69,39 @@ def _lns_assignment(
     }
 
 
+def _placement_mode_prob_info(widths):
+    blocks = []
+    for block_id, width in enumerate(widths):
+        blocks.append(
+            {
+                "release_time": 0,
+                "due_date": 10,
+                "processing_time": 1,
+                "workload": 1,
+                "bay_preferences": [1],
+                "shape": [
+                    {
+                        "orientation": 0,
+                        "layers": [
+                            [
+                                [0, 0],
+                                [width, 0],
+                                [width, 1],
+                                [0, 1],
+                            ],
+                        ],
+                    },
+                ],
+            }
+        )
+    return {
+        "name": "placement_mode_fixture",
+        "bays": [{"width": 2, "height": 2}],
+        "blocks": blocks,
+        "weights": {"w1": 1, "w2": 1, "w3": 1},
+    }
+
+
 class SubmissionEntryPointSafetyTests(unittest.TestCase):
     def test_algorithm_zero_timelimit_returns_feasible_fallback(self):
         import myalgorithm
@@ -315,6 +348,65 @@ class LnsStateHelperTests(unittest.TestCase):
 
         build.assert_called_once_with(list(assignments.values()))
         self.assertEqual({"operations": operations}, solution)
+
+
+class LnsPlacementModeTests(unittest.TestCase):
+    def test_lns_repair_place_blocks_allow_force_false_raises_with_partial_assignments(self):
+        import baseline_greedy
+        from utils import Bay
+
+        prob_info = _placement_mode_prob_info([1, 3])
+        bays = [Bay.from_dict(data, idx) for idx, data in enumerate(prob_info["bays"])]
+        bay_placed = [[] for _ in bays]
+        bay_schedule = [[] for _ in bays]
+        bay_loads = [0.0 for _ in bays]
+
+        with self.assertRaises(baseline_greedy._LnsRepairFailed) as ctx:
+            baseline_greedy._place_blocks(
+                [0, 1],
+                prob_info["blocks"],
+                bays,
+                bay_placed,
+                bay_schedule,
+                bay_loads,
+                1.0,
+                1.0,
+                1.0,
+                forced_ids=set(),
+                allow_force=False,
+            )
+
+        partial = ctx.exception.assignments
+        self.assertEqual({0}, set(partial))
+        self.assertEqual(0, partial[0]["block_id"])
+        self.assertEqual([0], [block.block_id for block in bay_placed[0]])
+
+    def test_place_blocks_default_keeps_forced_fallback_when_no_candidate_fits(self):
+        import baseline_greedy
+        from utils import Bay
+
+        prob_info = _placement_mode_prob_info([3])
+        bays = [Bay.from_dict(data, idx) for idx, data in enumerate(prob_info["bays"])]
+        bay_placed = [[] for _ in bays]
+        bay_schedule = [[] for _ in bays]
+        bay_loads = [0.0 for _ in bays]
+
+        assignments = baseline_greedy._place_blocks(
+            [0],
+            prob_info["blocks"],
+            bays,
+            bay_placed,
+            bay_schedule,
+            bay_loads,
+            1.0,
+            1.0,
+            1.0,
+            forced_ids=set(),
+        )
+
+        self.assertEqual({0}, set(assignments))
+        self.assertEqual(0, assignments[0]["block_id"])
+        self.assertEqual([0], [block.block_id for block in bay_placed[0]])
 
 
 if __name__ == "__main__":

@@ -81,6 +81,12 @@ class _TimeBudgetExpired(RuntimeError):
         self.assignments = assignments
 
 
+class _LnsRepairFailed(RuntimeError):
+    def __init__(self, assignments: dict[int, dict]):
+        super().__init__("lns repair failed")
+        self.assignments = assignments
+
+
 def _check_deadline(deadline: float | None) -> None:
     if deadline is not None and time.time() >= deadline:
         raise _TimeBudgetExpired()
@@ -901,6 +907,7 @@ def _place_blocks(
     bay_loads: list[float],
     w1: float, w2: float, w3: float,
     forced_ids: set[int],
+    allow_force: bool = True,
     prev_assignments: dict[int, dict] | None = None,
     t_start: float | None = None,
     log_interval: int = 0,
@@ -939,6 +946,7 @@ def _place_blocks(
     bay_loads        : mutable per-bay cumulative workload floats (updated in-place)
     w1, w2, w3       : objective weights
     forced_ids       : block ids to bypass search and use _force_place directly
+    allow_force      : when false, raise _LnsRepairFailed instead of force-placing
     prev_assignments : previous assignment dict (repair mode fast-path)
     t_start          : wall-clock start time (for log timestamps)
     log_interval     : print a progress line every N blocks (0 = silent)
@@ -1046,6 +1054,8 @@ def _place_blocks(
                             best_placement = (bay_id, cx, cy, oi, entry, exit_t)
 
         if best_placement is None:
+            if not allow_force:
+                raise _LnsRepairFailed(dict(result))
             best_placement = _force_place(bi, blocks_data, bays, bay_schedule, prefs)
             n_fallback += 1
 
