@@ -350,6 +350,181 @@ class LnsStateHelperTests(unittest.TestCase):
         self.assertEqual({"operations": operations}, solution)
 
 
+class LnsDestroySelectorTests(unittest.TestCase):
+    def test_lns_destroy_size_is_bounded_percentage_with_small_floor(self):
+        from baseline_greedy import _lns_destroy_size
+
+        self.assertEqual(1, _lns_destroy_size(0))
+        self.assertEqual(1, _lns_destroy_size(1))
+        self.assertEqual(2, _lns_destroy_size(2))
+        self.assertEqual(2, _lns_destroy_size(66))
+        self.assertEqual(3, _lns_destroy_size(67))
+        self.assertEqual(8, _lns_destroy_size(1000))
+
+    def test_lns_destroy_worst_objective_blocks_are_bounded_deterministic_and_prioritize_cost(self):
+        from baseline_greedy import (
+            _lns_destroy_size,
+            _lns_select_worst_objective_blocks,
+        )
+
+        blocks_data = [
+            {
+                "due_date": 100,
+                "workload": 1,
+                "bay_preferences": [10, 10],
+            }
+            for _ in range(67)
+        ]
+        blocks_data[2] = {
+            "due_date": 100,
+            "workload": 5,
+            "bay_preferences": [20, 0],
+        }
+        blocks_data[3] = {
+            "due_date": 30,
+            "workload": 5,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[4] = {
+            "due_date": 30,
+            "workload": 5,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[5] = {
+            "due_date": 30,
+            "workload": 2,
+            "bay_preferences": [10, 10],
+        }
+        assignments = {
+            block_id: _lns_assignment(block_id, bay_id=0, exit_time=10)
+            for block_id in range(len(blocks_data))
+        }
+        assignments[2] = _lns_assignment(2, bay_id=1, exit_time=40)
+        assignments[3] = _lns_assignment(3, bay_id=0, exit_time=50)
+        assignments[4] = _lns_assignment(4, bay_id=0, exit_time=50)
+        assignments[5] = _lns_assignment(5, bay_id=0, exit_time=50)
+
+        first = _lns_select_worst_objective_blocks(
+            assignments,
+            blocks_data,
+            {"w1": 1, "w3": 1},
+        )
+        second = _lns_select_worst_objective_blocks(
+            assignments,
+            blocks_data,
+            {"w1": 1, "w3": 1},
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(_lns_destroy_size(len(assignments)), len(first))
+        self.assertEqual([3, 4, 2], first)
+        self.assertEqual(len(first), len(set(first)))
+        self.assertTrue(set(first).issubset(assignments))
+
+    def test_lns_destroy_same_bay_time_window_uses_worst_seed_and_overlap_gap_score_order(self):
+        from baseline_greedy import (
+            _lns_destroy_size,
+            _lns_select_same_bay_time_window,
+        )
+
+        blocks_data = [
+            {
+                "due_date": 1000,
+                "workload": 1,
+                "bay_preferences": [10, 10],
+            }
+            for _ in range(200)
+        ]
+        blocks_data[10] = {
+            "due_date": 0,
+            "workload": 3,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[12] = {
+            "due_date": 100,
+            "workload": 3,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[13] = {
+            "due_date": 122,
+            "workload": 3,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[14] = {
+            "due_date": 60,
+            "workload": 3,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[15] = {
+            "due_date": 122,
+            "workload": 3,
+            "bay_preferences": [10, 10],
+        }
+        blocks_data[16] = {
+            "due_date": 20,
+            "workload": 3,
+            "bay_preferences": [10, 10],
+        }
+        assignments = {
+            block_id: _lns_assignment(block_id, bay_id=0, exit_time=10)
+            for block_id in range(len(blocks_data))
+        }
+        assignments[10] = _lns_assignment(10, bay_id=1, entry_time=100, exit_time=130)
+        assignments[11] = _lns_assignment(11, bay_id=1, entry_time=110, exit_time=125)
+        assignments[12] = _lns_assignment(12, bay_id=1, entry_time=90, exit_time=105)
+        assignments[13] = _lns_assignment(13, bay_id=1, entry_time=130, exit_time=140)
+        assignments[14] = _lns_assignment(14, bay_id=1, entry_time=150, exit_time=160)
+        assignments[15] = _lns_assignment(15, bay_id=1, entry_time=90, exit_time=100)
+        assignments[16] = _lns_assignment(16, bay_id=0, entry_time=100, exit_time=140)
+
+        selected = _lns_select_same_bay_time_window(assignments, blocks_data)
+
+        self.assertEqual(_lns_destroy_size(len(assignments)), len(selected))
+        self.assertEqual([10, 11, 12, 13, 15, 14], selected)
+        self.assertEqual(len(selected), len(set(selected)))
+        self.assertTrue(set(selected).issubset(assignments))
+
+    def test_lns_destroy_selectors_reject_duplicate_or_unknown_assignment_ids(self):
+        from baseline_greedy import (
+            _lns_select_same_bay_time_window,
+            _lns_select_worst_objective_blocks,
+        )
+
+        blocks_data = [
+            {
+                "due_date": 10,
+                "workload": 1,
+                "bay_preferences": [1],
+            }
+            for _ in range(3)
+        ]
+        duplicate_assignments = {
+            0: _lns_assignment(0, exit_time=11),
+            1: _lns_assignment(0, exit_time=12),
+        }
+        unknown_assignments = {
+            0: _lns_assignment(0, exit_time=11),
+            3: _lns_assignment(3, exit_time=12),
+        }
+
+        with self.assertRaises(ValueError):
+            _lns_select_worst_objective_blocks(
+                duplicate_assignments,
+                blocks_data,
+                {"w1": 1, "w3": 1},
+            )
+        with self.assertRaises(ValueError):
+            _lns_select_worst_objective_blocks(
+                unknown_assignments,
+                blocks_data,
+                {"w1": 1, "w3": 1},
+            )
+        with self.assertRaises(ValueError):
+            _lns_select_same_bay_time_window(duplicate_assignments, blocks_data)
+        with self.assertRaises(ValueError):
+            _lns_select_same_bay_time_window(unknown_assignments, blocks_data)
+
+
 class LnsPlacementModeTests(unittest.TestCase):
     def test_lns_repair_place_blocks_allow_force_false_raises_with_partial_assignments(self):
         import baseline_greedy

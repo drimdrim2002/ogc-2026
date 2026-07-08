@@ -486,6 +486,132 @@ def _copy_assignments(assignments: dict[int, dict]) -> dict[int, dict]:
     }
 
 
+def _lns_destroy_size(n_blocks: int) -> int:
+    if n_blocks < 2:
+        return 1
+    return min(8, max(2, math.ceil(0.03 * n_blocks)))
+
+
+def _lns_validated_assignment_items(
+    assignments: dict[int, dict],
+    blocks_data: list[dict],
+) -> list[tuple[int, dict]]:
+    items: list[tuple[int, dict]] = []
+    seen: set[int] = set()
+
+    for raw_block_id, assignment in assignments.items():
+        block_id = int(assignment["block_id"])
+        if block_id in seen:
+            raise ValueError(f"duplicate assignment block_id {block_id}")
+        seen.add(block_id)
+
+        key_block_id = int(raw_block_id)
+        if block_id != key_block_id:
+            raise ValueError("assignment key and block_id differ")
+        if not (0 <= block_id < len(blocks_data)):
+            raise ValueError(f"assignment block_id {block_id} out of range")
+
+        bay_id = int(assignment["bay_id"])
+        prefs = blocks_data[block_id]["bay_preferences"]
+        if not (0 <= bay_id < len(prefs)):
+            raise ValueError(f"assignment block {block_id} bay_id {bay_id} out of range")
+
+        int(assignment["entry_time"])
+        int(assignment["exit_time"])
+        items.append((block_id, assignment))
+
+    return items
+
+
+def _lns_worst_objective_score(
+    assignment: dict,
+    block_data: dict,
+    weights: dict,
+) -> float:
+    bay_id = int(assignment["bay_id"])
+    exit_time = float(assignment["exit_time"])
+    prefs = block_data["bay_preferences"]
+    return (
+        float(weights.get("w1", 1.0)) * max(0.0, exit_time - float(block_data["due_date"]))
+        + float(weights.get("w3", 1.0)) * (max(prefs) - prefs[bay_id])
+    )
+
+
+def _lns_select_worst_objective_blocks(
+    assignments: dict[int, dict],
+    blocks_data: list[dict],
+    weights: dict,
+) -> list[int]:
+    items = _lns_validated_assignment_items(assignments, blocks_data)
+    limit = min(len(items), _lns_destroy_size(len(items)))
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            -_lns_worst_objective_score(item[1], blocks_data[item[0]], weights),
+            -float(blocks_data[item[0]]["workload"]),
+            -float(item[1]["exit_time"]),
+            item[0],
+        ),
+    )
+    return [block_id for block_id, _ in ranked[:limit]]
+
+
+def _lns_overlap_duration(assignment: dict, seed_assignment: dict) -> float:
+    return max(
+        0.0,
+        min(float(assignment["exit_time"]), float(seed_assignment["exit_time"]))
+        - max(float(assignment["entry_time"]), float(seed_assignment["entry_time"])),
+    )
+
+
+def _lns_interval_gap(assignment: dict, seed_assignment: dict) -> float:
+    exit_time = float(assignment["exit_time"])
+    entry_time = float(assignment["entry_time"])
+    seed_exit = float(seed_assignment["exit_time"])
+    seed_entry = float(seed_assignment["entry_time"])
+    if exit_time < seed_entry:
+        return seed_entry - exit_time
+    if seed_exit < entry_time:
+        return entry_time - seed_exit
+    return 0.0
+
+
+def _lns_select_same_bay_time_window(
+    assignments: dict[int, dict],
+    blocks_data: list[dict],
+) -> list[int]:
+    items = _lns_validated_assignment_items(assignments, blocks_data)
+    if not items:
+        return []
+
+    unit_weights = {"w1": 1.0, "w3": 1.0}
+    seed_block_id = _lns_select_worst_objective_blocks(
+        assignments,
+        blocks_data,
+        unit_weights,
+    )[0]
+    assignment_by_id = dict(items)
+    seed_assignment = assignment_by_id[seed_block_id]
+    seed_bay_id = int(seed_assignment["bay_id"])
+    limit = min(len(items), _lns_destroy_size(len(items)))
+
+    same_bay_items = [
+        (block_id, assignment)
+        for block_id, assignment in items
+        if block_id != seed_block_id and int(assignment["bay_id"]) == seed_bay_id
+    ]
+    ranked = sorted(
+        same_bay_items,
+        key=lambda item: (
+            -_lns_overlap_duration(item[1], seed_assignment),
+            _lns_interval_gap(item[1], seed_assignment),
+            -_lns_worst_objective_score(item[1], blocks_data[item[0]], unit_weights),
+            item[0],
+        ),
+    )
+    return [seed_block_id] + [block_id for block_id, _ in ranked[:limit - 1]]
+
+
 def _rebuild_lns_state(
     blocks_data: list[dict],
     bays: list[Bay],
