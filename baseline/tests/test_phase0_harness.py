@@ -1,3 +1,4 @@
+import builtins
 import json
 import pathlib
 import sys
@@ -157,6 +158,47 @@ class Phase0HarnessTests(unittest.TestCase):
         rows = json.loads(out.getvalue())
         self.assertEqual("myalgorithm", rows[0]["solver"])
         self.assertEqual("slack", rows[0]["block_order_mode"])
+        self.assertEqual("off", rows[0]["lns_mode"])
+
+    def test_benchmark_solver_myalgorithm_reports_requested_lns_mode(self):
+        import benchmark_instances
+        import myalgorithm
+        from baseline_greedy import _serial_fallback_solution
+
+        original_mode = myalgorithm._SUBMISSION_LNS_MODE
+        observed_modes = []
+
+        def fake_algorithm(received_prob_info, timelimit):
+            observed_modes.append(myalgorithm._SUBMISSION_LNS_MODE)
+            return _serial_fallback_solution(received_prob_info)
+
+        out = StringIO()
+        try:
+            with patch("myalgorithm.algorithm", side_effect=fake_algorithm):
+                with redirect_stdout(out):
+                    status = benchmark_instances.main([
+                        "--root",
+                        str(ROOT_DIR),
+                        "--set-name",
+                        "smoke-3",
+                        "--solver",
+                        "myalgorithm",
+                        "--lns-mode",
+                        "small",
+                        "--limit",
+                        "1",
+                        "--timelimit",
+                        "0.001",
+                    ])
+
+            self.assertEqual(original_mode, myalgorithm._SUBMISSION_LNS_MODE)
+        finally:
+            myalgorithm._SUBMISSION_LNS_MODE = original_mode
+
+        self.assertEqual(0, status)
+        rows = json.loads(out.getvalue())
+        self.assertEqual("small", rows[0]["lns_mode"])
+        self.assertEqual(["small"], observed_modes)
 
     def test_benchmark_solver_label_cannot_request_unexecuted_solver(self):
         import benchmark_instances
@@ -193,27 +235,34 @@ class Phase0HarnessTests(unittest.TestCase):
         import benchmark_instances
 
         out = StringIO()
-        with patch("myalgorithm.algorithm") as algorithm:
-            with patch("baseline_greedy.greedyalgorithm") as greedy:
-                with redirect_stdout(out):
-                    status = benchmark_instances.main([
-                        "--root",
-                        str(ROOT_DIR),
-                        "--set-name",
-                        "smoke-3",
-                        "--solver",
-                        "stats_only",
-                        "--limit",
-                        "1",
-                        "--timelimit",
-                        "0.001",
-                    ])
+        original_import = builtins.__import__
+
+        def block_solver_imports(name, *args, **kwargs):
+            if name in {"myalgorithm", "baseline_greedy"}:
+                raise AssertionError(f"stats_only imported solver module {name}")
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=block_solver_imports):
+            with redirect_stdout(out):
+                status = benchmark_instances.main([
+                    "--root",
+                    str(ROOT_DIR),
+                    "--set-name",
+                    "smoke-3",
+                    "--solver",
+                    "stats_only",
+                    "--lns-mode",
+                    "small",
+                    "--limit",
+                    "1",
+                    "--timelimit",
+                    "0.001",
+                ])
 
         self.assertEqual(0, status)
-        self.assertFalse(algorithm.called)
-        self.assertFalse(greedy.called)
         rows = json.loads(out.getvalue())
         self.assertEqual("stats_only", rows[0]["solver"])
+        self.assertEqual("small", rows[0]["lns_mode"])
         self.assertNotIn("feasible", rows[0])
 
     def test_benchmark_run_baseline_alias_executes_baseline_greedy(self):
@@ -252,8 +301,18 @@ class Phase0HarnessTests(unittest.TestCase):
         calls = []
         out = StringIO()
 
-        def fake_greedyalgorithm(received_prob_info, timelimit=60, block_order_mode="edd"):
-            calls.append((received_prob_info["name"], timelimit, block_order_mode))
+        def fake_greedyalgorithm(
+            received_prob_info,
+            timelimit=60,
+            block_order_mode="edd",
+            lns_mode="off",
+        ):
+            calls.append((
+                received_prob_info["name"],
+                timelimit,
+                block_order_mode,
+                lns_mode,
+            ))
             return _serial_fallback_solution(received_prob_info)
 
         with patch("baseline_greedy.greedyalgorithm", side_effect=fake_greedyalgorithm):
@@ -267,6 +326,8 @@ class Phase0HarnessTests(unittest.TestCase):
                     "baseline_greedy",
                     "--block-order-mode",
                     "slack",
+                    "--lns-mode",
+                    "small",
                     "--limit",
                     "1",
                     "--timelimit",
@@ -274,9 +335,67 @@ class Phase0HarnessTests(unittest.TestCase):
                 ])
 
         self.assertEqual(0, status)
-        self.assertEqual([("prob_21", 0.001, "slack")], calls)
+        self.assertEqual([("prob_21", 0.001, "slack", "small")], calls)
         rows = json.loads(out.getvalue())
         self.assertEqual("slack", rows[0]["block_order_mode"])
+        self.assertEqual("small", rows[0]["lns_mode"])
+
+    def test_benchmark_solver_myalgorithm_overrides_lns_mode_and_restores_after_success(self):
+        import benchmark_instances
+        import myalgorithm
+        from baseline_greedy import _serial_fallback_solution
+
+        path = ROOT_DIR / "alg_tester/example/example_B2_b10.json"
+        original_mode = myalgorithm._SUBMISSION_LNS_MODE
+        observed_modes = []
+
+        def fake_algorithm(received_prob_info, timelimit):
+            observed_modes.append(myalgorithm._SUBMISSION_LNS_MODE)
+            return _serial_fallback_solution(received_prob_info)
+
+        myalgorithm._SUBMISSION_LNS_MODE = "off"
+        try:
+            with patch("myalgorithm.algorithm", side_effect=fake_algorithm):
+                result = benchmark_instances.run_solver(
+                    path,
+                    "myalgorithm",
+                    timelimit=0.001,
+                    lns_mode="small",
+                )
+            self.assertEqual("off", myalgorithm._SUBMISSION_LNS_MODE)
+        finally:
+            myalgorithm._SUBMISSION_LNS_MODE = original_mode
+
+        self.assertEqual(["small"], observed_modes)
+        self.assertTrue(result["feasible"])
+
+    def test_benchmark_solver_myalgorithm_restores_lns_mode_after_exception(self):
+        import benchmark_instances
+        import myalgorithm
+
+        path = ROOT_DIR / "alg_tester/example/example_B2_b10.json"
+        original_mode = myalgorithm._SUBMISSION_LNS_MODE
+        observed_modes = []
+
+        def raising_algorithm(received_prob_info, timelimit):
+            observed_modes.append(myalgorithm._SUBMISSION_LNS_MODE)
+            raise RuntimeError("forced benchmark failure")
+
+        myalgorithm._SUBMISSION_LNS_MODE = "off"
+        try:
+            with patch("myalgorithm.algorithm", side_effect=raising_algorithm):
+                with self.assertRaisesRegex(RuntimeError, "forced benchmark failure"):
+                    benchmark_instances.run_solver(
+                        path,
+                        "myalgorithm",
+                        timelimit=0.001,
+                        lns_mode="small",
+                    )
+            self.assertEqual("off", myalgorithm._SUBMISSION_LNS_MODE)
+        finally:
+            myalgorithm._SUBMISSION_LNS_MODE = original_mode
+
+        self.assertEqual(["small"], observed_modes)
 
 
 class SerialFallbackTests(unittest.TestCase):

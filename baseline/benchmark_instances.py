@@ -21,6 +21,7 @@ _BLOCK_ORDER_MODES = (
     "latest_safe_entry",
     "preference_pressure",
 )
+_LNS_MODES = ("off", "small")
 _INSTANCE_SETS = {
     "dev-10": [
         "data/train 2/prob_4.json",
@@ -146,9 +147,12 @@ def run_solver(
     solver: str,
     timelimit: float,
     block_order_mode: str = "edd",
+    lns_mode: str = "off",
 ) -> dict[str, Any]:
     from utils import check_feasibility
 
+    restore_myalgorithm_lns_mode = False
+    original_myalgorithm_lns_mode = None
     if solver == "baseline_greedy":
         import baseline_greedy
 
@@ -157,12 +161,16 @@ def run_solver(
                 prob_info,
                 timelimit=timelimit,
                 block_order_mode=block_order_mode,
+                lns_mode=lns_mode,
             )
     elif solver == "myalgorithm":
         import myalgorithm
 
         if block_order_mode != "edd":
             raise ValueError("block_order_mode is only supported with --solver baseline_greedy")
+        restore_myalgorithm_lns_mode = True
+        original_myalgorithm_lns_mode = myalgorithm._SUBMISSION_LNS_MODE
+        myalgorithm._SUBMISSION_LNS_MODE = lns_mode
         solver_fn = myalgorithm.algorithm
     else:
         raise ValueError(f"unknown executable solver: {solver}")
@@ -170,8 +178,12 @@ def run_solver(
     prob_info = json.loads(path.read_text())
     started = time.time()
     solver_log = StringIO()
-    with redirect_stdout(solver_log):
-        solution = solver_fn(prob_info, timelimit=timelimit)
+    try:
+        with redirect_stdout(solver_log):
+            solution = solver_fn(prob_info, timelimit=timelimit)
+    finally:
+        if restore_myalgorithm_lns_mode:
+            myalgorithm._SUBMISSION_LNS_MODE = original_myalgorithm_lns_mode
     elapsed = time.time() - started
     result = check_feasibility(prob_info, solution)
     return {
@@ -207,6 +219,16 @@ def _effective_block_order_mode(
     if selector is None:
         return configured_mode
     return selector(json.loads(path.read_text()))
+
+
+def _effective_lns_mode(solver: str, requested_lns_mode: str | None) -> str:
+    if requested_lns_mode is not None:
+        return requested_lns_mode
+    if solver != "myalgorithm":
+        return "off"
+    import myalgorithm
+
+    return myalgorithm._SUBMISSION_LNS_MODE
 
 
 def _git_commit(root: pathlib.Path) -> str | None:
@@ -266,6 +288,12 @@ def main(argv: list[str] | None = None) -> int:
         default="edd",
         help="Block ordering mode for --solver baseline_greedy; default preserves current EDD behavior.",
     )
+    parser.add_argument(
+        "--lns-mode",
+        choices=_LNS_MODES,
+        default=None,
+        help="LNS mode metadata and benchmark override; default uses the solver's current off mode.",
+    )
     args = parser.parse_args(argv)
 
     paths = select_instance_paths(args.root, args.set_name)
@@ -282,6 +310,7 @@ def main(argv: list[str] | None = None) -> int:
             args.block_order_mode,
             path,
         )
+        effective_lns_mode = _effective_lns_mode(solver_name, args.lns_mode)
         row.update(
             {
                 "git_commit": git_commit,
@@ -289,10 +318,19 @@ def main(argv: list[str] | None = None) -> int:
                 "solver": solver_name,
                 "set_name": args.set_name,
                 "block_order_mode": effective_block_order_mode,
+                "lns_mode": effective_lns_mode,
             }
         )
         if solver_name in _EXECUTABLE_SOLVERS:
-            row.update(run_solver(path, solver_name, args.timelimit, args.block_order_mode))
+            row.update(
+                run_solver(
+                    path,
+                    solver_name,
+                    args.timelimit,
+                    args.block_order_mode,
+                    effective_lns_mode,
+                )
+            )
         rows.append(row)
 
     if args.format == "csv":

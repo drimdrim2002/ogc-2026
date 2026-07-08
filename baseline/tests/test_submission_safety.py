@@ -1,3 +1,4 @@
+import inspect
 import json
 import pathlib
 import sys
@@ -143,6 +144,15 @@ def _repair_candidate_incumbent():
 
 
 class SubmissionEntryPointSafetyTests(unittest.TestCase):
+    def test_algorithm_public_signature_stays_stable_and_default_lns_off(self):
+        import myalgorithm
+
+        signature = inspect.signature(myalgorithm.algorithm)
+
+        self.assertEqual(["prob_info", "timelimit"], list(signature.parameters))
+        self.assertEqual(60, signature.parameters["timelimit"].default)
+        self.assertEqual("off", myalgorithm._SUBMISSION_LNS_MODE)
+
     def test_algorithm_zero_timelimit_returns_feasible_fallback(self):
         import myalgorithm
 
@@ -175,7 +185,12 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
                 solution = myalgorithm.algorithm(prob_info, timelimit=1.0)
 
         self.assertIs(candidate, solution)
-        greedy.assert_called_once_with(prob_info, 1.0, block_order_mode="slack")
+        greedy.assert_called_once_with(
+            prob_info,
+            1.0,
+            block_order_mode="slack",
+            lns_mode="off",
+        )
 
     def test_algorithm_delegates_with_adaptive_block_order_mode(self):
         import myalgorithm
@@ -192,6 +207,7 @@ class SubmissionEntryPointSafetyTests(unittest.TestCase):
             prob_info,
             1.0,
             block_order_mode="preference_pressure",
+            lns_mode="off",
         )
 
     def test_adaptive_block_order_selector_covers_measured_branches(self):
