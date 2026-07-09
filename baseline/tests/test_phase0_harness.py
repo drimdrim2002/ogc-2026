@@ -200,6 +200,64 @@ class Phase0HarnessTests(unittest.TestCase):
         self.assertEqual("small", rows[0]["lns_mode"])
         self.assertEqual(["small"], observed_modes)
 
+    def test_benchmark_solver_myalgorithm_includes_lns_diagnostic_stats(self):
+        import benchmark_instances
+        import baseline_greedy
+        from baseline_greedy import _serial_fallback_solution
+
+        def fake_algorithm(received_prob_info, timelimit):
+            baseline_greedy._LAST_LNS_STATS = {
+                "phase1_start": 1.0,
+                "phase1_end": 2.0,
+                "phase1_elapsed": 1.0,
+                "phase1_deadline_reached": False,
+                "greedy_placed_count": 2,
+                "repair_start": 2.0,
+                "repair_end": 3.0,
+                "repair_elapsed": 1.0,
+                "lns_entered": True,
+                "lns_available_time_at_entry": 10.0,
+                "lns_max_iterations": 1,
+                "lns_attempted_iterations": 1,
+                "destroy_operator_attempts": {"worst_objective": 1},
+                "repair_candidate_attempted_count": 1,
+                "repair_candidate_returned_none_count": 0,
+                "feasible_candidate_count": 1,
+                "accepted_candidate_count": 0,
+                "best_objective_before": 10.0,
+                "best_objective_after": 10.0,
+                "best_objective_delta": 0.0,
+                "best_objective_delta_pct": 0.0,
+                "no_improvement_reason": "no_strict_improvement",
+            }
+            return _serial_fallback_solution(received_prob_info)
+
+        out = StringIO()
+        with patch("myalgorithm.algorithm", side_effect=fake_algorithm):
+            with redirect_stdout(out):
+                status = benchmark_instances.main([
+                    "--root",
+                    str(ROOT_DIR),
+                    "--set-name",
+                    "smoke-3",
+                    "--solver",
+                    "myalgorithm",
+                    "--limit",
+                    "1",
+                    "--timelimit",
+                    "0.001",
+                ])
+
+        self.assertEqual(0, status)
+        rows = json.loads(out.getvalue())
+        stats = rows[0]["lns_stats"]
+        self.assertEqual(str(ROOT_DIR / "data/train/prob_21.json"), stats["instance_path"])
+        self.assertEqual("prob_21", stats["instance_name"])
+        self.assertEqual(rows[0]["n_blocks"], stats["n_blocks"])
+        self.assertEqual(rows[0]["n_bays"], stats["n_bays"])
+        self.assertEqual(1, stats["repair_candidate_attempted_count"])
+        self.assertEqual("no_strict_improvement", stats["no_improvement_reason"])
+
     def test_benchmark_solver_label_cannot_request_unexecuted_solver(self):
         import benchmark_instances
         from baseline_greedy import _serial_fallback_solution

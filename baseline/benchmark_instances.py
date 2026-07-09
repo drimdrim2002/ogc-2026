@@ -149,13 +149,13 @@ def run_solver(
     block_order_mode: str = "edd",
     lns_mode: str = "off",
 ) -> dict[str, Any]:
+    import baseline_greedy
     from utils import check_feasibility
 
+    baseline_greedy.reset_last_lns_stats()
     restore_myalgorithm_lns_mode = False
     original_myalgorithm_lns_mode = None
     if solver == "baseline_greedy":
-        import baseline_greedy
-
         def solver_fn(prob_info, timelimit):
             return baseline_greedy.greedyalgorithm(
                 prob_info,
@@ -186,7 +186,7 @@ def run_solver(
             myalgorithm._SUBMISSION_LNS_MODE = original_myalgorithm_lns_mode
     elapsed = time.time() - started
     result = check_feasibility(prob_info, solution)
-    return {
+    row = {
         "elapsed": elapsed,
         "feasible": result.get("feasible"),
         "stage": result.get("stage"),
@@ -197,6 +197,18 @@ def run_solver(
         "violations": result.get("violations", [])[:5],
         "solver_log": solver_log.getvalue(),
     }
+    lns_stats = baseline_greedy.get_last_lns_stats()
+    if lns_stats is not None:
+        lns_stats.update(
+            {
+                "instance_path": str(path),
+                "instance_name": prob_info.get("name", path.stem),
+                "n_blocks": len(prob_info["blocks"]),
+                "n_bays": len(prob_info["bays"]),
+            }
+        )
+        row["lns_stats"] = lns_stats
+    return row
 
 
 def run_baseline(path: pathlib.Path, timelimit: float) -> dict[str, Any]:

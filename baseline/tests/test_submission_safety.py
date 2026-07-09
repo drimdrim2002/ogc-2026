@@ -795,6 +795,78 @@ class LnsLoopTests(unittest.TestCase):
                 self.assertEqual(incumbent, assignments)
                 self.assertEqual(self._incumbent_result(), result)
 
+    def test_lns_loop_records_diagnostic_counts(self):
+        import baseline_greedy
+
+        prob_info = _selector_prob_info(n_blocks=8, n_bays=1, slack=0)
+        incumbent = {
+            block_id: _lns_assignment(block_id)
+            for block_id in range(len(prob_info["blocks"]))
+        }
+        improved = {
+            block_id: _lns_assignment(block_id)
+            for block_id in range(len(prob_info["blocks"]))
+        }
+        baseline_greedy._LAST_LNS_STATS = {
+            "lns_entered": False,
+            "lns_available_time_at_entry": None,
+            "lns_max_iterations": 0,
+            "lns_attempted_iterations": 0,
+            "destroy_operator_attempts": {},
+            "repair_candidate_attempted_count": 0,
+            "repair_candidate_returned_none_count": 0,
+            "feasible_candidate_count": 0,
+            "accepted_candidate_count": 0,
+            "best_objective_before": None,
+            "best_objective_after": None,
+            "best_objective_delta": None,
+            "best_objective_delta_pct": None,
+            "no_improvement_reason": None,
+        }
+
+        with patch(
+            "baseline_greedy._lns_select_worst_objective_blocks",
+            return_value=[0, 1],
+        ):
+            with patch(
+                "baseline_greedy._lns_select_same_bay_time_window",
+                return_value=[2, 3],
+            ):
+                with patch(
+                    "baseline_greedy._lns_try_repair_candidate",
+                    side_effect=[
+                        (improved, self._incumbent_result(objective=9.0)),
+                        None,
+                    ],
+                ):
+                    assignments, result = baseline_greedy._lns_improve_assignments(
+                        prob_info,
+                        incumbent,
+                        self._incumbent_result(objective=10.0),
+                        "edd",
+                        None,
+                    )
+
+        stats = baseline_greedy.get_last_lns_stats()
+        self.assertEqual(improved, assignments)
+        self.assertEqual(self._incumbent_result(objective=9.0), result)
+        self.assertTrue(stats["lns_entered"])
+        self.assertEqual(2, stats["lns_max_iterations"])
+        self.assertEqual(2, stats["lns_attempted_iterations"])
+        self.assertEqual(
+            {"worst_objective": 1, "same_bay_time_window": 1},
+            stats["destroy_operator_attempts"],
+        )
+        self.assertEqual(2, stats["repair_candidate_attempted_count"])
+        self.assertEqual(1, stats["repair_candidate_returned_none_count"])
+        self.assertEqual(1, stats["feasible_candidate_count"])
+        self.assertEqual(1, stats["accepted_candidate_count"])
+        self.assertEqual(10.0, stats["best_objective_before"])
+        self.assertEqual(9.0, stats["best_objective_after"])
+        self.assertEqual(1.0, stats["best_objective_delta"])
+        self.assertEqual(10.0, stats["best_objective_delta_pct"])
+        self.assertIsNone(stats["no_improvement_reason"])
+
 
 class GreedyLnsModeTests(unittest.TestCase):
     def test_greedyalgorithm_rejects_unknown_lns_mode(self):

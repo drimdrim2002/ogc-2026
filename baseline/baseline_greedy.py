@@ -87,6 +87,29 @@ class _LnsRepairFailed(RuntimeError):
         self.assignments = assignments
 
 
+_LAST_LNS_STATS = None
+
+
+def reset_last_lns_stats() -> None:
+    global _LAST_LNS_STATS
+    _LAST_LNS_STATS = None
+
+
+def get_last_lns_stats():
+    if _LAST_LNS_STATS is None:
+        return None
+    stats = dict(_LAST_LNS_STATS)
+    stats["destroy_operator_attempts"] = dict(
+        _LAST_LNS_STATS.get("destroy_operator_attempts", {})
+    )
+    return stats
+
+
+def _increment_lns_stat(name: str) -> None:
+    if _LAST_LNS_STATS is not None:
+        _LAST_LNS_STATS[name] = _LAST_LNS_STATS.get(name, 0) + 1
+
+
 def _check_deadline(deadline: float | None) -> None:
     if deadline is not None and time.time() >= deadline:
         raise _TimeBudgetExpired()
@@ -707,11 +730,13 @@ def _lns_try_repair_candidate(
 
         result = check_feasibility(prob_info, solution)
         if not result["feasible"]:
+            _increment_lns_stat("infeasible_candidate_count")
             return None
         return candidate_assignments, result
     except (_LnsRepairFailed, _TimeBudgetExpired):
         return None
     except (RuntimeError, KeyError, TypeError, ValueError, IndexError):
+        _increment_lns_stat("exception_count")
         return None
 
 
@@ -728,27 +753,48 @@ def _lns_improve_assignments(
     best_assignments = _copy_assignments(incumbent_assignments)
     best_result = incumbent_result
     iterations = 0
+    stop_reason = None
+
+    if _LAST_LNS_STATS is not None:
+        now = time.time()
+        _LAST_LNS_STATS["lns_entered"] = True
+        _LAST_LNS_STATS["lns_available_time_at_entry"] = (
+            None if deadline is None else max(0.0, deadline - now)
+        )
+        _LAST_LNS_STATS["lns_max_iterations"] = max_iterations
+        _LAST_LNS_STATS["best_objective_before"] = incumbent_result.get("objective")
+        _LAST_LNS_STATS["best_objective_after"] = incumbent_result.get("objective")
 
     while iterations < max_iterations:
         if deadline is not None:
             now = time.time()
             if now >= deadline:
+                stop_reason = "timeout"
                 break
             if deadline - now < _LNS_DEADLINE_FLOOR_SECONDS:
+                stop_reason = "no_time"
                 break
 
         try:
             if iterations % 2 == 0:
+                operator_name = "worst_objective"
                 removed_ids = _lns_select_worst_objective_blocks(
                     best_assignments,
                     blocks_data,
                     weights,
                 )
             else:
+                operator_name = "same_bay_time_window"
                 removed_ids = _lns_select_same_bay_time_window(
                     best_assignments,
                     blocks_data,
                 )
+            if _LAST_LNS_STATS is not None:
+                destroy_attempts = _LAST_LNS_STATS["destroy_operator_attempts"]
+                destroy_attempts[operator_name] = (
+                    destroy_attempts.get(operator_name, 0) + 1
+                )
+                _LAST_LNS_STATS["repair_candidate_attempted_count"] += 1
             candidate = _lns_try_repair_candidate(
                 prob_info,
                 best_assignments,
@@ -757,15 +803,24 @@ def _lns_improve_assignments(
                 deadline,
             )
         except (RuntimeError, KeyError, TypeError, ValueError, IndexError):
+            if _LAST_LNS_STATS is not None:
+                _LAST_LNS_STATS["exception_count"] += 1
+                _LAST_LNS_STATS["no_improvement_reason"] = "exception"
             break
 
         iterations += 1
+        if _LAST_LNS_STATS is not None:
+            _LAST_LNS_STATS["lns_attempted_iterations"] = iterations
         if candidate is None:
+            if _LAST_LNS_STATS is not None:
+                _LAST_LNS_STATS["repair_candidate_returned_none_count"] += 1
             continue
 
         candidate_assignments, candidate_result = candidate
         candidate_objective = candidate_result.get("objective")
         best_objective = best_result.get("objective")
+        if _LAST_LNS_STATS is not None and candidate_result.get("feasible"):
+            _LAST_LNS_STATS["feasible_candidate_count"] += 1
         if (
             candidate_result.get("feasible")
             and candidate_objective is not None
@@ -774,10 +829,41 @@ def _lns_improve_assignments(
         ):
             best_assignments = _copy_assignments(candidate_assignments)
             best_result = candidate_result
+            if _LAST_LNS_STATS is not None:
+                _LAST_LNS_STATS["accepted_candidate_count"] += 1
             print(
                 f"[Greedy] LNS accepted iteration={iterations} "
                 f"objective={candidate_objective:.0f}"
             )
+
+    if _LAST_LNS_STATS is not None:
+        before = _LAST_LNS_STATS["best_objective_before"]
+        after = best_result.get("objective")
+        _LAST_LNS_STATS["best_objective_after"] = after
+        if before is not None and after is not None:
+            delta = before - after
+            _LAST_LNS_STATS["best_objective_delta"] = delta
+            _LAST_LNS_STATS["best_objective_delta_pct"] = (
+                None if before == 0 else (delta / before) * 100.0
+            )
+        if _LAST_LNS_STATS["accepted_candidate_count"] == 0:
+            attempts = _LAST_LNS_STATS["repair_candidate_attempted_count"]
+            returned_none = _LAST_LNS_STATS["repair_candidate_returned_none_count"]
+            if _LAST_LNS_STATS["no_improvement_reason"] is None:
+                if stop_reason is not None:
+                    _LAST_LNS_STATS["no_improvement_reason"] = stop_reason
+                elif attempts == 0:
+                    _LAST_LNS_STATS["no_improvement_reason"] = "no_time"
+                elif _LAST_LNS_STATS["infeasible_candidate_count"] > 0:
+                    _LAST_LNS_STATS["no_improvement_reason"] = "infeasible_candidate"
+                elif returned_none == attempts:
+                    _LAST_LNS_STATS["no_improvement_reason"] = "no_candidate"
+                elif _LAST_LNS_STATS["feasible_candidate_count"] > 0:
+                    _LAST_LNS_STATS["no_improvement_reason"] = "no_strict_improvement"
+                elif _LAST_LNS_STATS["exception_count"] > 0:
+                    _LAST_LNS_STATS["no_improvement_reason"] = "exception"
+                else:
+                    _LAST_LNS_STATS["no_improvement_reason"] = "no_candidate"
 
     return best_assignments, best_result
 
@@ -998,6 +1084,7 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         Calls _repair which runs up to max_passes rounds of
         check_feasibility -> re-place violating blocks.
     """
+    global _LAST_LNS_STATS
     t_start = time.time()
     deadline = t_start + max(0.0, timelimit) * 0.95
     _validate_block_order_mode(block_order_mode)
@@ -1007,6 +1094,35 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     blocks_data = prob_info["blocks"]
     n_bays      = len(bays_data)
     n_blocks    = len(blocks_data)
+    _LAST_LNS_STATS = {
+        "instance_name": prob_info.get("name", "?"),
+        "n_blocks": n_blocks,
+        "n_bays": n_bays,
+        "phase1_start": None,
+        "phase1_end": None,
+        "phase1_elapsed": None,
+        "phase1_deadline_reached": False,
+        "greedy_placed_count": 0,
+        "repair_start": None,
+        "repair_end": None,
+        "repair_elapsed": None,
+        "lns_entered": False,
+        "lns_available_time_at_entry": None,
+        "lns_max_iterations": 0,
+        "lns_attempted_iterations": 0,
+        "destroy_operator_attempts": {},
+        "repair_candidate_attempted_count": 0,
+        "repair_candidate_returned_none_count": 0,
+        "infeasible_candidate_count": 0,
+        "exception_count": 0,
+        "feasible_candidate_count": 0,
+        "accepted_candidate_count": 0,
+        "best_objective_before": None,
+        "best_objective_after": None,
+        "best_objective_delta": None,
+        "best_objective_delta_pct": None,
+        "no_improvement_reason": None,
+    }
 
     w1 = prob_info.get("weights", {}).get("w1", 1.0)
     w2 = prob_info.get("weights", {}).get("w2", 1.0)
@@ -1030,6 +1146,8 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     bay_schedule: list[list[tuple[int, int]]]   = [[] for _ in range(n_bays)]
     bay_loads:    list[float]                   = [0.0] * n_bays
 
+    phase1_start = time.time()
+    _LAST_LNS_STATS["phase1_start"] = phase1_start
     try:
         assignments = _place_blocks(
             sorted_indices, blocks_data, bays,
@@ -1040,6 +1158,12 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         )
     except _TimeBudgetExpired as exc:
         partial = exc.assignments or {}
+        phase1_end = time.time()
+        _LAST_LNS_STATS["phase1_end"] = phase1_end
+        _LAST_LNS_STATS["phase1_elapsed"] = phase1_end - phase1_start
+        _LAST_LNS_STATS["phase1_deadline_reached"] = True
+        _LAST_LNS_STATS["greedy_placed_count"] = len(partial)
+        _LAST_LNS_STATS["no_improvement_reason"] = "no_time"
         if partial:
             print(f"[Greedy] Phase 1 deadline reached; serially completing "
                   f"{len(partial)}/{n_blocks} greedy assignments")
@@ -1047,7 +1171,11 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         print("[Greedy] Phase 1 deadline reached; returning verified serial fallback")
         return _serial_fallback_solution(prob_info)
 
-    elapsed_p1 = time.time() - t_start
+    phase1_end = time.time()
+    elapsed_p1 = phase1_end - phase1_start
+    _LAST_LNS_STATS["phase1_end"] = phase1_end
+    _LAST_LNS_STATS["phase1_elapsed"] = elapsed_p1
+    _LAST_LNS_STATS["greedy_placed_count"] = len(assignments)
     loads_str = "  ".join(f"bay{i}={round(bay_loads[i])}" for i in range(n_bays))
     print(f"[Greedy] Phase 1 done  |  placed={len(assignments)}  {loads_str}  "
           f"elapsed={elapsed_p1:.2f}s")
@@ -1056,6 +1184,8 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
     print(f"[Greedy] {'-' * 56}")
     print(f"[Greedy] Phase 2 : repair  mode={repair_mode}")
     sol = {"operations": _build_operations(list(assignments.values()))}
+    repair_start = time.time()
+    _LAST_LNS_STATS["repair_start"] = repair_start
     try:
         assignments = _repair(prob_info, sol, assignments, bays, blocks_data,
                               w1, w2, w3, t_start, timelimit,
@@ -1064,6 +1194,10 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
                               deadline=deadline)
     except _TimeBudgetExpired as exc:
         partial = exc.assignments or assignments
+        repair_end = time.time()
+        _LAST_LNS_STATS["repair_end"] = repair_end
+        _LAST_LNS_STATS["repair_elapsed"] = repair_end - repair_start
+        _LAST_LNS_STATS["no_improvement_reason"] = "no_time"
         if partial:
             print(f"[Greedy] Repair deadline reached; serially completing "
                   f"{len(partial)}/{n_blocks} assignments")
@@ -1071,10 +1205,17 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
         print("[Greedy] Repair deadline reached; returning verified serial fallback")
         return _serial_fallback_solution(prob_info)
 
+    repair_end = time.time()
+    _LAST_LNS_STATS["repair_end"] = repair_end
+    _LAST_LNS_STATS["repair_elapsed"] = repair_end - repair_start
     final_sol = {"operations": _build_operations(list(assignments.values()))}
 
     from utils import check_feasibility
     final_result = check_feasibility(prob_info, final_sol)
+    _LAST_LNS_STATS["best_objective_before"] = final_result.get("objective")
+    _LAST_LNS_STATS["best_objective_after"] = final_result.get("objective")
+    _LAST_LNS_STATS["best_objective_delta"] = 0.0
+    _LAST_LNS_STATS["best_objective_delta_pct"] = 0.0
 
     if final_result["feasible"] and lns_mode == "small":
         print(f"[Greedy] {'-' * 56}")
@@ -1087,6 +1228,8 @@ def greedyalgorithm(prob_info: dict, timelimit: float,
             deadline,
         )
         final_sol = {"operations": _build_operations(list(assignments.values()))}
+    elif lns_mode == "small":
+        _LAST_LNS_STATS["no_improvement_reason"] = "infeasible_candidate"
 
     elapsed_total = time.time() - t_start
     print(f"[Greedy] {'-' * 56}")
