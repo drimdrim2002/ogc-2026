@@ -130,24 +130,30 @@ Exit criteria:
 - Accepted candidates pass `utils.check_feasibility` and strictly improve the incumbent objective.
 - Accepted M3 evidence is recorded in `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-dev-10-myalgorithm-60s-small.json` and `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-daily-40-myalgorithm-60s-small.json`.
 
-### M4: Geometry Acceleration
+### M4: Placement / Geometry Performance
 
 Status: profiling gated.
 
-M4 is a performance milestone for geometry verdicts already exercised by M3 or later search. It does not introduce geometry feasibility into the solver; feasibility must already be enforced by the trusted Python path before M4 begins.
+M4 is a performance milestone for the greedy placement path, candidate-position search, and geometry verdicts already exercised by M3 or later search. It does not introduce geometry feasibility into the solver; feasibility must already be enforced by the trusted Python path before M4 begins.
 
-Use Fable raster/C++ ideas only after profiling proves geometry checks dominate runtime and cheaper Python-level fixes are insufficient. Examples include cache layers, bounding-box or raster prefilters, numpy-assisted checks, or a compiled core. Each accelerated path is optional and must preserve the exact checker semantics.
+Start M4 with profiling and cheap Python-level fixes before any raster/C++ work. The first slice should measure `_candidate_positions`, `_place_blocks`, overlap/containment checks, repeated shape/orientation computations, and final `check_feasibility`. Candidate pruning, ordering, early cutoff, memoization, and bounding-box/cache prefilters belong in this first slice when they preserve solution semantics.
+
+Use Fable raster/C++ ideas only after profiling proves geometry checks dominate runtime and cheaper Python-level fixes are insufficient. Examples include raster prefilters, numpy-assisted checks, or a compiled core. Each accelerated path is optional and must preserve the exact checker semantics.
 
 Exit criteria:
 
+- A profiling report ranks placement/candidate/geometry hotspots on representative `dev-10` and at least one dense or max-layer case.
+- Cheap Python-level placement/candidate fixes are tried before compiled or raster geometry work.
 - A parity harness compares any accelerated geometry verdict against `utils.py`.
-- End-to-end benchmarks show the acceleration unlocks more useful search or lower runtime.
+- End-to-end benchmarks show the performance work unlocks more useful search time, more LNS iterations, or lower runtime without objective or feasibility regression.
 - Any accelerated path has a pure Python fallback.
 - A failed acceleration import cannot affect correctness.
 
 ### M5: Submission Hardening
 
 Status: later.
+
+M5 packages and hardens the best accepted solver state. It must not introduce new solver optimization, new search operators, or new accelerated geometry paths; those belong in M2-M4 experiment tracks and must already be accepted before M5 begins.
 
 Exit criteria:
 
@@ -175,7 +181,8 @@ At the end of a session, update:
 
 1. Use the accepted M3 small destroy-repair LNS result as the active `myalgorithm` comparison baseline for the next solver experiment.
 2. Treat `experiments/results/m3/small_lns/2026-07-08-m3-small-lns-daily-40-myalgorithm-60s-small.json` as the current full 60s `daily-40` non-regression evidence for the active submission baseline.
-3. Continue one experiment branch at a time against the accepted M3 baseline; do not mix multiple hypotheses in one merge.
-4. Keep full Fable ALNS, CP-SAT retiming, and geometry acceleration deferred until separately justified by focused evidence.
-5. Use `--solver myalgorithm` when measuring the submission entry point, and
+3. Run the next performance experiment as an M4a-style profiling and cheap placement/candidate optimization slice before expanding LNS operators.
+4. Continue one experiment branch at a time against the accepted M3 baseline; do not mix multiple hypotheses in one merge.
+5. Keep full Fable ALNS, CP-SAT retiming, and compiled/raster geometry acceleration deferred until separately justified by focused evidence.
+6. Use `--solver myalgorithm` when measuring the submission entry point, and
    `--solver baseline_greedy` when measuring the reference baseline.

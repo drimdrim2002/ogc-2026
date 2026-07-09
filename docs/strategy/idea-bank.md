@@ -42,19 +42,19 @@ Status: accepted and integrated for M2 on `m2-main`; `slack` was the first selec
 
 Source: baseline candidate generator and Fable packing observations.
 
-Hypothesis: More candidate anchors from block edges, bay walls, and possibly due-date congestion windows can improve packing without full geometry acceleration.
+Hypothesis: Better bounded candidate anchors, ordering, pruning, or caching can improve packing or reduce wasted placement checks without full geometry acceleration.
 
 Expected impact: Medium on dense instances.
 
 Risks: Candidate explosion and slower greedy placement.
 
-Minimum implementation: Add bounded candidate sources behind a configuration flag.
+Minimum implementation: Profile `_candidate_positions` and `_place_blocks` first; then add only bounded candidate sources, ordering rules, early cutoffs, or cache layers behind a configuration flag.
 
-Validation: Track runtime and objective deltas on dense `dev-10` instances.
+Validation: Track runtime, candidate count, LNS time/iteration budget, and objective deltas on dense `dev-10` instances.
 
 Kill condition: Runtime increase without objective gain.
 
-Status: candidate for M2.
+Status: candidate for M4a placement-performance work. Earlier M2 branch context remains useful, but this should now be evaluated as a runtime-unlocking slice against the accepted M3 baseline.
 
 ### Expanded Time-Slot Candidates
 
@@ -146,6 +146,24 @@ Kill condition: No clear `obj1` gain within budget.
 
 Status: idea-bank only.
 
+### Placement / Geometry Runtime Profiling
+
+Source: M3 small-LNS outcome and current greedy placement logs.
+
+Hypothesis: Greedy placement, candidate-position generation, and trusted geometry checks consume enough of the 60s budget that search layers cannot run often enough to improve most instances.
+
+Expected impact: High if profiling confirms a concentrated hotspot.
+
+Risks: Profiling noise, overfitting to one instance, and optimizing a path that is not actually dominant across `dev-10` or dense holdouts.
+
+Minimum implementation: Produce a profiling report for `_candidate_positions`, `_place_blocks`, overlap/containment checks, repeated shape/orientation computations, and final `check_feasibility`; then select one cheap Python-level fix.
+
+Validation: The report identifies ranked hotspots, and the selected fix improves runtime, LNS iteration count, or objective on representative cases without feasibility regressions.
+
+Kill condition: Profiling does not show a placement or geometry bottleneck, or the cheapest fix fails to improve runtime/search budget.
+
+Status: next M4a candidate.
+
 ### Raster or C++ Geometry Core
 
 Source: Fable geometry acceleration plans.
@@ -156,13 +174,13 @@ Expected impact: Potentially high, but only if profiling proves geometry is the 
 
 Risks: Semantic drift from `utils.py`, ABI issues, memory growth, large implementation cost.
 
-Minimum implementation: Profiling report first; then a parity-tested Python/numpy prototype before C++.
+Minimum implementation: Only after M4a profiling and cheap Python-level fixes are insufficient; then build a parity-tested Python/numpy prototype before C++.
 
 Validation: Verdict parity against `utils.py` plus end-to-end runtime improvement.
 
 Kill condition: Profiling does not justify it or parity is unreliable.
 
-Status: gated for M4.
+Status: gated for M4b.
 
 ### Interlock Densifier
 

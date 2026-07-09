@@ -132,6 +132,25 @@ Rationale:
 - Current repository state is much smaller than the Fable implementation plan assumes.
 - Large components should be promoted only when smaller measured improvements are exhausted.
 
+### 2026-07-09: M4/M5 Scope Clarification After M3
+
+Decision:
+
+- Rename the next performance milestone from narrow geometry acceleration to placement/geometry performance.
+- Treat M4a as profiling plus cheap Python-level placement/candidate optimization before raster, numpy, or compiled geometry work.
+- Keep raster/C++ geometry as M4b and require profiling plus parity evidence before adopting it.
+- Keep M5 as submission hardening only; no new solver optimization should start in M5.
+
+Rationale:
+
+- M3 small LNS was safe but produced no strict full `daily-40` objective improvement against its preflight baseline.
+- The likely next bottleneck is time spent in greedy placement, candidate-position search, or trusted geometry checks, which leaves little budget for useful search.
+- Placing candidate optimization under M4a reduces ambiguity between old M2 constructor ideas and later geometry acceleration, while keeping M5 clean.
+
+Open follow-up:
+
+- Run a focused profiling slice against the accepted M3 baseline before expanding LNS operators or starting compiled/raster geometry work.
+
 ## Experiment Entries
 
 ### 2026-07-08: M3 Small Destroy-Repair LNS
