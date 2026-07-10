@@ -62,8 +62,10 @@ This two-level decomposition is **exact**, not heuristic.
 
 Checker feasibility is the conjunction of (i) unary block conditions (Stage 1 timing and boundary) and (ii) **pair** conditions for blocks in the same bay (all Stage 2/3/4/5 obstacle and collision records belong to a particular pair, utils.py:1179-1194, 1219-1228, 1260-1273, 1339-1382). Therefore:
 
+**Intuition and example.** Suppose a candidate changes only block K—its position, orientation, dates, or bay. For two other blocks B and C, both their unary inputs and the inputs to the B–C pair test are bit-for-bit unchanged, so a B–C test that passed before cannot newly fail. The checker has no independent violation that intrinsically requires three or more blocks. Even when Stages 2/3/5 iterate over an entire present-set at an operation time, every reported obstruction is a pair: one moving block and one blocker. It is therefore sufficient to test K's unary conditions and every pair between K and a block in the **same bay in the candidate solution**. If K moves bays, its old-bay pairs are absent from the candidate and only its new-bay pairs need testing. This is an exact reduction from rechecking all pairs to roughly O(k·n) checks for k changed blocks.
+
 - When only part of a solution changes, rechecking **pairs involving changed blocks plus the unary conditions of changed blocks** determines whole-solution feasibility exactly (targeted revalidation — not approximation).
-- Non-interlock pair conditions translate exactly to Gurobi indicator constraints or CP-SAT enforced constraints (§4.4). Interlock pairs require additional nested-time constraints and same-day EXIT ordering, so they are handled only behind a separate gate.
+- Non-interlock pair conditions translate exactly to Gurobi indicator constraints or CP-SAT enforced constraints (§4.4): one of the two choices—i vacates first or j vacates first—activates its corresponding date inequality. This is not an approximation of the checker; it is the direct model encoding of the non-interlock trichotomy in §2.4. Interlock pairs require additional nested-time constraints and same-day EXIT ordering, so they are handled only behind a separate gate.
 
 ### 2.4 Pair-feasibility trichotomy (the entire feasibility theory)
 
