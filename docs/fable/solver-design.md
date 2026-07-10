@@ -1,6 +1,6 @@
 # OGC 2026 우승 지향 솔버 설계 (Clean-Slate Design)
 
-Last updated: 2026-07-09
+Last updated: 2026-07-10
 Status: active — 알고리즘 설계의 단일 기준 문서 (design source of truth)
 
 근거 자료는 정확히 두 개다: `docs/OGC2026_Problem_Analysis.md`(문제 정의서 분석, 이하 "정의서")와 `baseline/utils.py`(공식 채점기, 이하 "체커"). 이 문서의 모든 규칙적 주장은 이 둘에서 직접 유도되었고, 체커 주장에는 `utils.py:line` 앵커를 붙였다. 기존 분석 문서(docs/fable 등)의 결론은 전제하지 않는다. 실행 로드맵 관점에서 이 문서는 `docs/deprecated/m2-m4-execution-plan.md`를 대체한다.
@@ -18,7 +18,7 @@ Status: active — 알고리즘 설계의 단일 기준 문서 (design source of
 | P3 | **엄격히 더 좋으면 순위가 오른다.** objective는 float이고 동률은 nb에 안 잡히므로, 마지막 한 단위의 개선도 순위 가치가 있다. 정확한(근사 아닌) delta 평가와 마무리 미세 최적화가 점수다 | 정의서 §5.5, utils.py:1421 |
 | P4 | **숨은 인스턴스는 일반화를 보상한다.** 보이는 인스턴스에 대한 하드코딩 금지. 모든 임계값은 인스턴스 데이터(가중치, 규모, 혼잡도)에서 유도한다 | 정의서 §3, §7.3 |
 
-부가 사실: 서버는 4코어(400%)/16GB/인터넷 없음, shapely 2.1.2·OR-Tools 9.15·numpy 계열과 gurobipy/xpress가 사용 가능하다(정의서 §5.4, §6.1). gurobipy/xpress는 지원 패키지지만, 최종 심사의 코드 공개 적격성·런타임 실패 표면·구현 단순성을 고려해 기본 수리 컴포넌트는 **CP-SAT(OR-Tools)** 로 제한한다.
+부가 사실: 서버는 4코어(400%)/16GB/인터넷 없음, shapely 2.1.2·OR-Tools 9.15·numpy 계열과 **gurobipy 13.0.2/xpress 9.8.1**을 지원한다(정의서 §5.4, §6.1). 2026-07-10 현재 프로젝트의 `ogc-2026` 환경에서도 Gurobi 13.0.2 모델 생성·최적화가 실제로 성공했다. 따라서 수리 최적화를 Google OR-Tools로 한정하지 않는다. 본 설계는 **Gurobi를 1급 exact backend로 사용하고 CP-SAT을 보완·폴백으로 유지하는 하이브리드 matheuristic**을 채택한다. 어떤 외부 솔버 예외도 검증된 incumbent를 손상시키지 못한다.
 
 ---
 
@@ -63,7 +63,7 @@ Status: active — 알고리즘 설계의 단일 기준 문서 (design source of
 체커의 feasibility는 (i) 블록 단항 조건(Stage 1 타이밍, 경계)과 (ii) 같은 bay 블록 **쌍** 조건(Stage 2/3/4/5의 장애물·충돌 기록은 전부 특정 쌍에 귀속됨, utils.py:1179-1194, 1219-1228, 1260-1273, 1339-1382)의 논리곱이다. 따라서:
 
 - 해의 일부만 바꿀 때, **바뀐 블록이 관여하는 쌍 + 바뀐 블록의 단항 조건**만 재검사하면 전체 feasibility가 정확히 결정된다(표적 재검증 — 근사가 아님).
-- 비-인터락 쌍 조건은 CP-SAT 분리 제약(disjunction)으로 정확히 옮겨진다(§4.4). 인터락 쌍은 중첩 시간 제약과 같은 날 EXIT 순서가 추가로 필요하므로 별도 게이트에서만 다룬다.
+- 비-인터락 쌍 조건은 Gurobi indicator constraint 또는 CP-SAT enforced constraint로 정확히 옮겨진다(§4.4). 인터락 쌍은 중첩 시간 제약과 같은 날 EXIT 순서가 추가로 필요하므로 별도 게이트에서만 다룬다.
 
 ### 2.4 쌍 실행가능성 삼분법 (feasibility 이론의 전부)
 
@@ -121,11 +121,11 @@ Status: active — 알고리즘 설계의 단일 기준 문서 (design source of
 
 1. **−1 제로 (S0)**: 항상-유효 incumbent 프로토콜(§4.1) + 예산 관리자 + 전역 예외 방어. 숨은 인스턴스·타임아웃에서 −1을 맞는 팀 대비 무상 순위 이득. 이것 하나가 가장 값싸고 확실한 점수원이다.
 2. **탐색 처리량 (S1)**: §2.4 삼분법 덕에 배치 후보 검사가 "AABB 일괄 → union 교차 1회"로 줄고(비-인터락 후보에서는 크레인 검사 자체가 소거됨), 정수 오프셋 판정 캐시로 반복 비용을 줄인다. 실제 배율은 S0/S1 마이크로벤치로 검증한다.
-3. **layout당 스케줄 최적성 (S2)**: 비-인터락 위치를 고정하면 남는 문제는 "union 겹침 쌍의 시간 분리 + release + tardiness 최소화"라는 **disjunctive 스케줄링**이고, CP-SAT가 강한 후보 컴포넌트다(§4.4). 휴리스틱만 쓰는 팀이 남기는 Z1을 회수한다는 주장은 S2 게이트에서 실측으로 입증한다.
+3. **layout당 스케줄 최적성 (S2)**: 비-인터락 위치를 고정하면 남는 문제는 "union 겹침 쌍의 시간 분리 + release + tardiness 최소화"라는 **disjunctive 스케줄링**이다. Gurobi indicator-MIP와 CP-SAT을 동일 입력·동일 timebox로 비교하고, 인스턴스에서 더 강한 backend를 이어서 사용한다(§4.4). 휴리스틱만 쓰는 팀이 남기는 Z1을 회수한다는 주장은 S2 게이트에서 실측으로 입증한다.
 4. **anytime 확장 (S3)**: LNS(destroy-repair) + 주기적 retiming으로 5분·30분 예산을 실제 개선으로 전환. 60초용 고정 파이프라인 팀과의 격차가 큰 timelimit에서 벌어진다.
 5. **가중치 적응 (S4)**: Z2/Z3는 닫힌 식이므로 bay-이동/스왑의 이득이 정확히 계산된다. 환율(w1 : w3·ΔS : w2·Δrange)을 읽고 인스턴스마다 다른 지점을 공략한다. 예시 가중치(26667/10/300)에서 선호도 최대 손실(ΔS=100)은 지각 1일과 같은 자릿수다 — 이 트레이드는 인스턴스마다 다르게 갈린다(정의서 §2.7).
 6. **인터락 보너스 (S6, 게이트)**: 밀집 인스턴스에서 갈래 3을 쓰는 팀은 드물다(정확히 구현하기 어렵기 때문). 진리표+테스트로 안전하게 켜면 남들이 못 줍는 점수를 줍는다. 단, 기본 off이며 게이트를 통과할 때만.
-7. **4코어 활용**: 1차로 CP-SAT `num_search_workers=4`(프로세스 취급 불필요, 안전), 2차로 멀티프로세스 포트폴리오(S5, 게이트).
+7. **4코어 활용**: exact solve 한 번에는 Gurobi `Threads=4` 또는 CP-SAT `num_search_workers=4`를 사용한다. 멀티프로세스 포트폴리오(S5)를 켤 때는 각 exact backend를 단일 스레드로 낮춰 중첩 과구독을 금지한다.
 
 ---
 
@@ -138,7 +138,7 @@ algorithm(prob_info, timelimit)
  ├─ P1 할당        : Z2/Z3 + 혼잡도 근사를 반영한 초기 bay 할당
  ├─ P2 구성        : bay별 삽입식 constructor (비-인터락, 다중 프로파일)
  ├─ P2' 검증/등록  : full check → incumbent 교체
- ├─ P3 개선 루프   : [CP-SAT retiming ↔ LNS destroy-repair ↔ bay-move] (남은 예산 전부)
+ ├─ P3 개선 루프   : [Gurobi/CP-SAT exact repair ↔ LNS destroy-repair ↔ bay-move]
  │                    수용 후보만 full check → incumbent 교체 (원자적)
  └─ P4 마무리      : incumbent 반환 (이미 검증·직렬화 완료 상태)
 ```
@@ -172,17 +172,22 @@ algorithm(prob_info, timelimit)
 
 구성 성능 목표: 300블록 인스턴스에서 **≤ 5초**를 가설로 두고 S0/S1 마이크로벤치로 재보정한다. 후보당 정확 판정 수를 계측 필드로 남긴다.
 
-### 4.4 CP-SAT Retiming (P3의 정밀 무기)
+### 4.4 Exact optimization layer: Gurobi 1급 + CP-SAT 보완
 
 **입력**: 한 bay의 고정된 (위치, 방향) 배치. **출력**: 그 layout이 허용하는 최소 Σ tardiness 스케줄.
 
 - 변수: `a_i ∈ [R_i, H]`, `e_i = a_i + max(P_i, 1)` (비-인터락; 인터락 쌍이 있으면 `e_i ≥ a_i + max(P_i,1)`의 변수로 확장하고 중첩 제약 추가).
-- 제약: union 겹침 쌍마다 Bool `b_ij`: `b_ij ⇒ e_i ≤ a_j`, `¬b_ij ⇒ e_j ≤ a_i` (등호 포함 — 같은 날 손바뀜 활용). union 서로소 쌍은 **무제약**.
-- 목적: `Σ T_i`, `T_i = max(0, e_i − D_i)` (AddMaxEquality). w1은 bay 내 상수라 생략 가능.
-- 워밍: 현재 스케줄을 hint로. `num_search_workers = 4`. 타임박스 `min(5s, 예산 지분)`.
+- 제약: union 겹침 쌍마다 Bool `b_ij`: `b_ij ⇒ e_i ≤ a_j`, `¬b_ij ⇒ e_j ≤ a_i` (등호 포함 — 같은 날 손바뀜 활용). union 서로소 쌍은 **무제약**이다.
+- 목적: `Σ T_i`, `T_i ≥ e_i − D_i`, `T_i ≥ 0`. w1은 bay 내 상수라 생략 가능하다.
+- **Gurobi 경로**: 분리 조건은 explicit big-M 대신 indicator constraint로 모델링하고, 현재 `a/e/b`를 MIP start로 제공한다. `Threads=4`, `TimeLimit=min(5s, 예산 지분)`, `MIPFocus=1`, `MIPGap=0`, `OutputFlag=0`을 기본으로 한다.
+- **CP-SAT 경로**: 같은 정수 모델을 `OnlyEnforceIf`로 표현하고 현재 해를 hint로 제공한다. `num_search_workers=4`, 동일 timebox를 사용한다.
 - **never-worse 가드**: 결과가 현재 bay Z1보다 엄격히 좋을 때만 채택, 채택 후 full check. 실패/타임아웃이면 무시.
 
-이 컴포넌트의 정확성 근거는 §2.4 삼분법이다: 비-인터락 layout에서 쌍 제약은 정확히 "시간 분리 또는 union 서로소"이고, 후자는 시간과 무관하므로 시간 최적화가 위 모델과 **동치**다. 수백 구간·수천 disjunction 규모는 CP-SAT의 전형적 스위트스팟이다. 구성 직후 1회 + P3에서 layout이 바뀔 때마다 해당 bay만 재실행.
+두 경로의 정확성 근거는 동일한 §2.4 삼분법이다. 구성 직후 첫 retime sweep에서 tardiness가 큰 최대 2개 bay를 대상으로 동일 timebox의 짧은 pilot을 실행하되, pilot 총량은 첫 sweep 예산의 50% 이하로 제한하고 backend·bay 수로 균등 분할한다. `(개선량, 최초 개선 시간, 종료 objective)` 사전식 비교로 해당 인스턴스의 retime backend를 고정한다. 한 backend가 unavailable/error/no-solution이면 다른 경로를 즉시 사용한다. 둘 다 실패해도 기존 feasible schedule을 유지한다.
+
+초기 bay 할당 v2는 **Gurobi가 기본**이다. `x_ij` 이진변수, 정확한 float 계수의 `u_j·L_j`, `Wmax−Wmin`, 선호 손실, 혼잡 soft cap을 하나의 선형 MIP로 푼다. CP-SAT 경로는 정수 스케일링이 필요하므로 폴백이며, 두 결과 모두 constructor와 체커 실측 objective를 거쳐 비교한다. 이 구분은 Gurobi가 특히 강한 선형 0-1 할당에는 Gurobi를 적극 사용하고, 순수 정수 disjunctive retiming에는 두 엔진의 실제 성능으로 결정하려는 것이다.
+
+Gurobi 초기화는 T0 incumbent 등록 **후** 한 번만 수행한다. import, environment, license, size-limit, optimize 예외는 exact layer 내부에서 잡아 `backend_disabled_reason`으로 계측하고 CP-SAT/휴리스틱으로 폴백한다. Gurobi 모델 객체는 호출 간 공유하지 않으며, 해는 순수 정수 스케줄/할당으로 추출된 뒤에만 state에 전달한다.
 
 ### 4.5 LNS 개선 루프 (P3)
 
@@ -196,7 +201,7 @@ algorithm(prob_info, timelimit)
 | **bay-move / swap** | 환율표로 후보 선별(ΔS 작고 혼잡 bay의 大 블록), 대상 bay에 재삽입 + 두 bay retime, Δ(w2·Z2 + w3·Z3) 닫힌 식 + Z1 실측 | Z2, Z3, Z1 |
 | exit-extension unblock | (인터락/수리 상황) 막힌 반출을 방해자 반출 뒤로 지연; `e ≤ D`면 비용 0 | feasibility→Z1 |
 | orientation polish | 개별 블록 방향 교체로 공간 확보 | 간접 |
-| retime 호출 | 누적 변경 후 해당 bay CP-SAT 재실행 | Z1 |
+| retime 호출 | 누적 변경 후 해당 bay exact backend(Gurobi/CP-SAT) 재실행 | Z1 |
 
 - 수용: 엄격 개선(float, eps 1e-9 상대). 정체가 계측되면 record-to-record(임계 3%→0 선형)를 플래그로.
 - 파괴 크기 k: `max(2, 3%·n)`에서 시작해 정체 시 확대(적응).
@@ -206,7 +211,7 @@ algorithm(prob_info, timelimit)
 ### 4.6 할당 초기화 (P1)
 
 - v1(그리디): `w3·(S_i^max − S_ij)` + `w2`·Δrange 근사 + 혼잡 페널티(bay 부하율 `ρ_j = Σ area_i·P_i / (W_j·H_j·horizon)`가 임계 초과 시 w1 스케일 벌점)를 합산한 비용의 argmin으로 순차 배정, regret 순서.
-- v2(게이트, CP-SAT): min `w3·Σ pen + w2·D`, `D ≥ ±(u_a·L_a − u_b·L_b)` 전 쌍, fit 행렬 하드 제약, 부하율 소프트 캡. n·m 이진 변수 수천 개 규모이며, 타임박스는 S4 게이트에서 실측으로 정한다.
+- v2(게이트, **Gurobi 우선**): min `w3·Σ pen + w2·(Wmax−Wmin) + λ·Σ overload`, fit 행렬 하드 제약, `Wmax/Wmin`으로 정확한 float 부하 range를 선형화한다. CP-SAT 정수 스케일 모델은 폴백으로 유지한다. n·m 이진 변수 수천 개 규모이며, 타임박스는 S4 게이트에서 실측으로 정한다.
 - 정밀한 Z1 트레이드는 P3의 bay-move가 실측으로 담당한다(초기 할당은 출발점일 뿐).
 
 ### 4.7 인터락 densifier (S6, 게이트, 기본 off)
@@ -225,7 +230,7 @@ algorithm(prob_info, timelimit)
 
 ### 4.9 병렬 포트폴리오 (S5, 게이트, 기본 off)
 
-- 1차 병렬화는 CP-SAT 내부 워커(안전)로 이미 확보. 2차: 3 워커 프로세스(seed/프로파일 상이) + 오케스트레이터, 주기적 best 교환. Linux fork 전제, join timeout, 워커 죽음 = 무시(전체는 단일 프로세스 결과로도 완결). 서버 유사 환경 측정에서 이득이 증명될 때만 on.
+- 1차 병렬화는 선택된 exact backend 내부 워커(Gurobi `Threads=4` 또는 CP-SAT workers=4)로 확보한다. 2차: 3 워커 프로세스(seed/프로파일 상이) + 오케스트레이터, 주기적 best 교환. 이때 각 프로세스의 Gurobi/CP-SAT thread 수는 1로 강제한다. Linux fork 전제, join timeout, 워커 죽음 = 무시(전체는 단일 프로세스 결과로도 완결). 라이선스 동시 모델 수와 wall-clock 이득이 서버 유사 환경에서 증명될 때만 on.
 
 ### 4.10 메모리·결정성
 
@@ -240,9 +245,9 @@ algorithm(prob_info, timelimit)
 |---|---|---|
 | **S0 기반** | 의미론 계약 테스트(§2 정리·진리표·엣지 전부), 기하 커널+캐시, canonical serializer, T0+incumbent+예산 armor, 마이크로벤치(판정 비용 실측) | 전 훈련 인스턴스 5s에서 100% feasible; 계약 테스트 green; 판정 비용표 산출 |
 | **S1 constructor** | 삽입식 구성 + 다중 프로파일 + P1 v1 할당 | 300블록 구성 ≤ 5s(실측 재보정 허용); 전 블록 배치; T0 대비 대폭 개선; 100% feasible |
-| **S2 retiming** | bay별 CP-SAT + never-worse 가드 | 전 인스턴스에서 Z1 비악화 100%, 중앙값 개선 > 0; bay당 타임박스 준수 |
+| **S2 exact retiming** | Gurobi indicator-MIP + CP-SAT 동형 모델 + pilot selector + never-worse 가드 | 전 인스턴스에서 Z1 비악화 100%, 중앙값 개선 > 0; backend별 타임박스 준수; 강제 Gurobi 실패 시 CP-SAT 폴백 성공 |
 | **S3 LNS** | destroy-repair + retime 루프, anytime | 개선 곡선 단조; 300s 결과 ≥ 60s 결과(악화 0); 수용 카운트 > 0 구조 증거 |
-| **S4 할당 정밀화** | bay-move/swap + v2 초기 할당 | 고-w2/w3 프로파일 인스턴스 부분집합에서 개선; 나머지 비회귀 |
+| **S4 할당 정밀화** | bay-move/swap + Gurobi v2 초기 할당(CP-SAT 폴백) | 고-w2/w3 프로파일 인스턴스 부분집합에서 개선; 나머지 비회귀; checker 기준 float Z2 비악화 |
 | **S5 병렬 포트폴리오** | 프로세스 포트폴리오 (게이트) | 서버 유사 환경에서 wall-clock 이득 + 안정성(크래시 0) 증명 시에만 on |
 | **S6 인터락 + 하드닝** | densifier(게이트) + 제출 패키징·스트레스·보고서 초안 | 밀집 부분집합 개선 시에만 on; 스트레스 매트릭스 전 항목 feasible |
 
@@ -254,7 +259,7 @@ algorithm(prob_info, timelimit)
 
 1. **계약 테스트**(S0, 구현 전 작성): §2.4 진리표 각 행, union-서로소 임의 순서 안전성, 같은 날 손바뀜 합법성, `P=0` 체류≥1, exit 연장 합법성+Z1 반영, obj2 float(내림 없음) 패리티 — 전부 합성 소형 인스턴스 + `check_feasibility` 오라클.
 2. **패리티 테스트**: 내부 delta-objective vs 체커(±1e-6 상대); 표적 재검증 vs full check(무작위 후보 1,000건 판정 일치).
-3. **벤치 매트릭스**: 전 훈련 인스턴스 × timelimit {10s, 60s, 300s}(주기적으로 1800s), 지표: feasible율(=100% 의무), objective, 단계별 시간, 수용/반복 카운트, retiming 이득, 캐시 적중률. 기존 baseline 실행 스크립트(`baseline/run_baseline_greedy.py`, `baseline/run_myalgorithm.py`)를 출발점으로 계측 러너를 만든다.
+3. **벤치 매트릭스**: 전 훈련 인스턴스 × timelimit {10s, 60s, 300s}(주기적으로 1800s), 지표: feasible율(=100% 의무), objective, 단계별 시간, 수용/반복 카운트, retiming 이득, 캐시 적중률, backend별 build/solve 시간·상태·gap·최초 개선 시간. 기존 baseline 실행 스크립트(`baseline/run_baseline_greedy.py`, `baseline/run_myalgorithm.py`)를 출발점으로 계측 러너를 만든다.
 4. **개선 주장 규율**: 모든 개선 주장은 구조적 증거(수용 카운트, 단계별 시간)와 A/B(기능 플래그 on/off, 동일 커밋·동일 시드)를 동반한다. 재실행 잡음 대역 이내의 델타로 수용/기각하지 않는다.
 5. **스트레스**: timelimit {0.5s, 2s, 5s}, bay 1개, 단일 레이어 인스턴스, 선호 bay에 물리적으로 안 들어가는 블록, 대형 n. 전부 feasible 반환이 통과 조건.
 6. **제출 리허설**(S6): zip 루트 `myalgorithm.py`, 절대경로 없음, `utils.py` 무수정, 전 훈련 + 스트레스 인스턴스 격리 실행 all-feasible — 정의서 §5.1 체크리스트 전 항목.
@@ -266,9 +271,10 @@ algorithm(prob_info, timelimit)
 | 리스크 | 완화 |
 |---|---|
 | shapely 판정이 여전히 병목 | S0 실측으로 예산 산정; prepared+캐시+AABB 일괄; 그래도 부족하면 보수적 래스터(패리티 게이트) |
-| CP-SAT가 특정 bay에서 정체 | 타임박스 + hint + never-worse 가드; 실패는 무시되고 휴리스틱 해 유지 |
+| Gurobi 라이선스·환경·모델 크기 예외 | T0 등록 후 lazy probe; exact layer에서 예외 격리; CP-SAT/휴리스틱 자동 폴백; 제출 환경 smoke test |
+| 한 exact backend가 특정 bay에서 정체 | 동일 모델 pilot + 인스턴스별 backend 고정; 타임박스 + warm start/hint + never-worse 가드 |
 | 인터락 구현 결함 | 기본 off; 진리표 테스트 선행; serializer 위상 정렬 실패 시 후보 폐기 |
-| 멀티프로세스 서버 이슈 | 기본 off(S5 게이트); 단일 프로세스만으로 완결; CP-SAT 워커로 코어 활용 선확보 |
+| 멀티프로세스·thread 과구독 | 기본 off(S5 게이트); 단일 프로세스 exact solve는 threads=4, 3프로세스 모드에서는 backend별 threads=1 |
 | 극단 timelimit(짧음/김) | 짧음: T0+구성 경로 스트레스 통과 의무; 김: 재시작 다변화로 예산 소화 |
 | 숨은 인스턴스 분포 이탈 | 하드코딩 금지(P4); 모든 임계값은 가중치·규모·부하율에서 유도; 엣지 카탈로그(§2.6) 커버 |
 | 메모리 | 캐시 LRU 상한; 후보 검사 시 임시 객체 재사용 |
@@ -284,7 +290,7 @@ algorithm(prob_info, timelimit)
 | b | Z2에 floor 삽입 | §2.2: float 명시(utils.py:1409-1419); obj 패리티 테스트 의무 |
 | c | exit = entry + P 전역 고정 | §2.5: 지배성은 비-인터락 국소로만; 인터락·수리에서 e는 1급 레버 |
 | d | 같은 날 op 순서 과소평가 | §2.1/§2.4: Stage 5 리스트-순서 재생 + Stage 2 동시 진입 포함 의미론 명시; canonical serializer 단일 경로 |
-| e | "정수 자체 기하는 정확" 주장 | §1.4/§4.2: 허용 형태는 판정값 캐시(저장)와 보수적 프리필터뿐; 판정 권위는 shapely 단일 |
+| e | "정수 자체 기하는 정확" 주장 | §1 원칙 4/§4.2: 허용 형태는 판정값 캐시(저장)와 보수적 프리필터뿐; 판정 권위는 shapely 단일 |
 
 일반 원칙: 방향성 규칙은 진리표+오라클 테스트 선행 없이는 코드에 넣지 않는다. 의미론 서술에는 `utils.py:line` 앵커를 붙이고, 앵커가 무효화되면 같은 변경에서 문서를 갱신한다. operations dict는 canonical serializer 밖에서 만들지 않는다.
 
@@ -300,7 +306,9 @@ algorithm(prob_info, timelimit)
 | 앵커 상한 K | 32 | 에스컬레이션 16→48 |
 | 다중 시작 프로파일 | 4종 + 편향 무작위 | 구성 예산 ≤ 10%·TL (상한 30s) |
 | LNS 파괴 크기 | max(2, 3%·n), 정체 시 ×1.5 | |
-| retime 타임박스 | min(5s, 8%·잔여) / bay | workers=4, hint |
+| retime backend | `auto` | 첫 sweep Gurobi/CP-SAT pilot 후 인스턴스 내 고정 |
+| retime 타임박스 | min(5s, 10%·잔여) / bay | Gurobi MIP start / CP-SAT hint, threads=4 |
+| assignment backend | `gurobi` | unavailable/error면 CP-SAT, 둘 다 실패하면 greedy v1 |
 | 수용 | 엄격 개선; 정체 시 RRT 3%→0 | 플래그 |
 | 재시작 트리거 | 무개선 15%·TL | perturb 후 재출발 |
 | reserve | clamp(5%·TL, 3s, 60s) | 마감 방어 |
@@ -315,12 +323,12 @@ algorithm(prob_info, timelimit)
 | 삽입 1회 (평균) | 5–20ms (정확 판정 ≤ 50회) | 계측 필드 |
 | 구성 전체 (n=300) | ≤ 5s | S1 게이트 |
 | LNS 1반복 | 50–200ms | 계측 필드 |
-| bay retime (CP-SAT) | 1–5s | S2 게이트 |
+| bay retime (Gurobi/CP-SAT) | backend당 1–5s | S2 pilot과 backend별 계측 |
 | full check (n=300) | ~0.5–1.5s | 수용 시에만 발생, 계측 |
 
 ### 9.3 다른 문서와의 관계
 
-- 구현 수준 명세(모듈·데이터 구조·ALNS destroy/repair·SA 수용 기준·CP-SAT 모델 코드·파라미터·테스트 목록)는 `docs/fable/solver-implementation-plan.md`가 소유한다. 본 문서와 충돌 시 본 문서 §2(체커 의미론)가 우선하고, 그 외 구현 세부는 구현 명세가 우선한다.
+- 구현 수준 명세(모듈·데이터 구조·ALNS destroy/repair·SA 수용 기준·Gurobi/CP-SAT 동형 모델·backend 선택·파라미터·테스트 목록)는 `docs/fable/solver-implementation-plan.md`가 소유한다. 본 문서와 충돌 시 본 문서 §2(체커 의미론)가 우선하고, 그 외 구현 세부는 구현 명세가 우선한다.
 - 이 문서는 `docs/deprecated/m2-m4-execution-plan.md`(기존 코드 개선 트랙)를 설계 기준에서 대체한다. 그 문서의 평가기 의미론 계약은 본 문서 §2와 모순 없음을 확인했다(동일 소스에서 유도).
 - 벤치마크 세트/실험 로그 규율 등 운영 관행은 `docs/deprecated/operating-plan.md`와 `docs/deprecated/m2-experiment-playbook.md`의 형식을 계속 따른다.
-- 기존 `baseline/baseline_greedy.py`는 참조 구현·비교 기준으로 동결하고, 본 설계는 새 모듈 군(`solver/` 하위 권장: `geometry.py`, `constructor.py`, `retime.py`, `lns.py`, `serialize.py`, `budget.py`)으로 구현해 `myalgorithm.py`가 위임하게 한다. M1 안전 셸(검증-후-반환)은 유지한다.
+- 기존 `baseline/baseline_greedy.py`는 참조 구현·비교 기준으로 동결하고, 본 설계는 새 모듈 군(`solver/` 하위 권장: `geometry.py`, `constructor.py`, `exact.py`, `gurobi_backend.py`, `cpsat_backend.py`, `retime.py`, `lns.py`, `serialize.py`, `budget.py`)으로 구현해 `myalgorithm.py`가 위임하게 한다. M1 안전 셸(검증-후-반환)은 유지한다.
