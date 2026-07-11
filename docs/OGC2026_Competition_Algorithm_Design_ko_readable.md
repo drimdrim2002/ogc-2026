@@ -135,7 +135,7 @@ $$
 G(i\mid k)=1
 \iff
 \exists\ell, h\ge\ell:
-\operatorname{area}(P_{i\ell}\cap P_{kh})>0.
+\mathrm{area}(P_{i\ell}\cap P_{kh})>0.
 $$
 
 `G(i|k)`는 블록 `k`가 정지해 있을 때 블록 `i`가 수직으로 이동할 수 없음을 뜻한다. `h=ell`인 경우로서 같은 레이어 충돌도 포함한다.
@@ -144,10 +144,10 @@ $$
 
 | 상태 | 기하 | 정확히 허용되는 시간 관계 |
 |---|---|---|
-| `FREE` | `G(i|k)=0`, `G(k|i)=0` | 쌍별 시간 제약이 없다. |
-| `I_OUTER` | `G(i|k)=1`, `G(k|i)=0` | `i`가 `k`보다 먼저, `k`가 `i`보다 먼저, 또는 `k`가 `i` 안에 중첩. |
-| `K_OUTER` | `G(i|k)=0`, `G(k|i)=1` | `i`가 `k`보다 먼저, `k`가 `i`보다 먼저, 또는 `i`가 `k` 안에 중첩. |
-| `SEPARATE` | 양 방향 모두 방해 | `e_i <= a_k` 또는 `e_k <= a_i`. |
+| `FREE` | $G(i\mid k)=0$, $G(k\mid i)=0$ | 쌍별 시간 제약이 없다. |
+| `I_OUTER` | $G(i\mid k)=1$, $G(k\mid i)=0$ | `i`가 `k`보다 먼저, `k`가 `i`보다 먼저, 또는 `k`가 `i` 안에 중첩. |
+| `K_OUTER` | $G(i\mid k)=0$, $G(k\mid i)=1$ | `i`가 `k`보다 먼저, `k`가 `i`보다 먼저, 또는 `i`가 `k` 안에 중첩. |
+| `SEPARATE` | 양 방향 모두 방해 | $e_i \le a_k$ 또는 $e_k \le a_i$. |
 
 `I_OUTER`에서 중첩 대안은 다음과 같다.
 
@@ -174,7 +174,7 @@ $$
 G(i\mid k)=1
 \iff
 \exists\ell:
-\operatorname{area}(P_{i\ell}\cap U^k_\ell)>0.
+\mathrm{area}(P_{i\ell}\cap U^k_\ell)>0.
 $$
 
 이는 AABB 필터링 뒤 정확도를 바꾸지 않으면서 정확 크레인 검사를 모든 `O(K_i K_k)` 레이어 쌍에서 많아야 `O(K_i)`번의 Shapely 교차로 줄인다.
