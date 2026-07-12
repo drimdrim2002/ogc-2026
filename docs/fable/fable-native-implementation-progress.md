@@ -147,7 +147,7 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `IN_PROGRESS` | — | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/` | S0-01 atomic commit | training JSON absent; does not block early unit slices | execute S0-02 |
+| S0 | `IN_PROGRESS` | — | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/` | pending S0-02 atomic commit | training JSON absent; does not block early unit slices | execute S0-03 after S0-02 is committed and pushed |
 | S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
@@ -373,6 +373,146 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: native_solver=false until the full S0 gate passes
   next_action: commit and push S0-01, then stop; S0-02 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T20:46:59+09:00
+  stage: S0
+  slice: S0-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 6d2f08acbbee4e3a308111a562d67bfc6ba4e916
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S0-02\\b' docs/fable/implementation-steps/s0-foundation.md
+    - test -f benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/COMPLETE
+    - git merge-base --is-ancestor 814a716 HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; initial geometry cache cap is 262144 entries
+  next_action: add the S0-02 geometry test and demonstrate the intended GeomKernel-import RED
+```
+
+```yaml
+- timestamp: 2026-07-12T20:47:56+09:00
+  stage: S0
+  slice: S0-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 6d2f08acbbee4e3a308111a562d67bfc6ba4e916
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_geometry_kernel.GeometryKernelTests.test_contact_and_cache_identity -v
+  red_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.geometry is absent
+  feature_default_decision: native_solver=false until the full S0 gate passes; initial geometry cache cap is 262144 entries
+  next_action: implement ShapeInfo and GeomKernel with exact tuple identity, translated union and OBS predicates, AABB fast paths, bounded LRU, and counters
+```
+
+```yaml
+- timestamp: 2026-07-12T20:49:30+09:00
+  stage: S0
+  slice: S0-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 6d2f08acbbee4e3a308111a562d67bfc6ba4e916
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_geometry_kernel.GeometryKernelTests.test_contact_and_cache_identity -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_geometry_kernel -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel -v
+  red_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/green-targeted.txt
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; exact geometry behavior is implemented but not connected to solver behavior
+  next_action: serialize contact and positive-area overlap fixtures and verify them with official_check
+```
+
+```yaml
+- timestamp: 2026-07-12T20:49:50+09:00
+  stage: S0
+  slice: S0-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 6d2f08acbbee4e3a308111a562d67bfc6ba4e916
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c official-check-contact-and-overlap-fixtures
+  red_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/green-targeted.txt
+  checker_result: PASS; contact fixture feasible at Stage 5 and positive-area overlap rejected at Stage 2
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; OBS remains stored-only and disconnected
+  next_action: run the planned S0 predicate cache-cap measurement equivalent pending the S0-06 harness replay
+```
+
+```yaml
+- timestamp: 2026-07-12T20:52:24+09:00
+  stage: S0
+  slice: S0-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 6d2f08acbbee4e3a308111a562d67bfc6ba4e916
+  dirty: true
+  commands:
+    - for cap in 65536 262144 1048576 2097152; do /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/predicate_benchmark.py --cache-cap "$cap"; done
+  red_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/green-targeted.txt
+  checker_result: PASS; contact fixture feasible at Stage 5 and positive-area overlap rejected at Stage 2
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: select cache_cap=262144; projected cache RSS 88801280 bytes and measured peak process RSS 87408640 bytes are within limits, 65536 had 0% versus 50% hit rate, and larger caps projected above 256 MiB
+  next_action: run final regression, syntax, frozen-file, evidence, and selected-slice diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T20:53:27+09:00
+  stage: S0
+  slice: S0-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s0): add checker-exact geometry kernel and cache
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_geometry_kernel.GeometryKernelTests.test_contact_and_cache_identity -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/geometry.py baseline/tests/test_geometry_kernel.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c official-check-contact-and-overlap-fixtures
+    - for cap in 65536 262144 1048576 2097152; do /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/predicate_benchmark.py --cache-cap "$cap"; done
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/green-targeted.txt
+  checker_result: PASS; contact fixture feasible at Stage 5 and positive-area overlap rejected at Stage 2
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: cache_cap=262144 selected under the preregistered memory/hit-rate rule; native_solver=false until the full S0 gate passes; OBS remains stored-only and disconnected
+  next_action: commit and push S0-02, then stop; S0-03 is the next eligible slice
 ```
 
 ## 11. Planning quality audit
