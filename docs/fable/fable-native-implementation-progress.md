@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S2 in progress (S2-03 active)
+Planning status: complete; implementation status: S2 in progress (S2-04 active)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -149,7 +149,7 @@ S0 foundation
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
-| S2 | `IN_PROGRESS` | `S2-03` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/` | pending atomic S2-03 commit | — | commit and push S2-03; S2-04 becomes eligible only after upstream equality and a clean worktree |
+| S2 | `IN_PROGRESS` | `S2-04` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/` | pending atomic S2-04 commit | — | commit and push S2-04; S2-05 becomes eligible only after upstream equality and a clean worktree |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
@@ -2107,6 +2107,112 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: exact_retime=false; S2-03 COMPLETE with lazy CP-SAT import, bounded integer variables, enforced disjunctions, current-schedule hints, workers<=4, deterministic seed, no logs, bounded time, pure extraction, and zero 50-case parity mismatches; S2-04 behavior was not started
   next_action: stage only the five S2-03 implementation files, commit feat(s2): add isomorphic CP-SAT retiming, push, verify upstream equality and clean status, then create the S2-04 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T00:40:26+09:00
+  stage: S2
+  slice: S2-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: c3fc5c26dd591f85bc7b14b23d217cabd4c7e9dc
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S2-04(?: |$)' docs/fable/implementation-steps/s2-exact-retiming.md
+    - inspect benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/{COMPLETE,gate.json,summary.json}
+    - inspect benchmarks/evidence/s1/s1-05/20260712T134503Z-s1-05/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/COMPLETE
+    - inspect benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/COMPLETE
+    - inspect benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s2/parity/20260712T153644Z-4b05f8eb/COMPLETE
+    - verify S1/S2-01/S2-02/S2-03 commits are ancestors of HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-04 adds only bounded pilot selection, copy-based bay/sweep orchestration, corrupt/non-improving result rejection, checker-gated replacement, and backend-fault fallback without entry integration
+  next_action: add the S2-04 never-worse/fixed-pilot behavioral test and demonstrate the intended missing solver.retime orchestrator RED
+```
+
+```yaml
+- timestamp: 2026-07-13T00:41:51+09:00
+  stage: S2
+  slice: S2-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: c3fc5c26dd591f85bc7b14b23d217cabd4c7e9dc
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_retime.RetimeTests.test_never_worse_and_fixed_pilot -v
+  red_evidence: benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.retime and the S2-04 retime_sweep orchestrator are absent
+  feature_default_decision: exact_retime=false; pilot/sweep behavior remains unimplemented and disconnected
+  next_action: implement the minimum pure pilot selector and copy-based retime orchestrator with strict-Z1 and official-checker incumbent guards
+```
+
+```yaml
+- timestamp: 2026-07-13T00:45:53+09:00
+  stage: S2
+  slice: S2-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: c3fc5c26dd591f85bc7b14b23d217cabd4c7e9dc
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_retime.RetimeTests.test_never_worse_and_fixed_pilot -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends tests.test_retime -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s2 --instances example --timelimits 12 --seeds 20260710 --feature exact_retime=true --feature backend_fault=gurobi_import,gurobi_license,gurobi_optimize,gurobi_extract,both --rerun
+  red_evidence: benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/green-targeted.txt; benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/full-regression.txt
+  checker_result: PASS; valid strict improvements were full-checked at Stage 5 before replacement, corrupt and non-improving dates preserved the original verified incumbent, and all five stress outputs were Stage 5 feasible
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/stress/20260712T154643Z-95a31cad/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; pilot examined only the two tardiest bays, selected by improvement/first-solution/solve/backend ordering, fixed CP-SAT after each forced Gurobi fault, and both-fail preserved the constructor SHA
+  next_action: finalize structured S2-04 evidence and run syntax, frozen-file, cleanup, timebox, and selected-diff audits
+```
+
+```yaml
+- timestamp: 2026-07-13T00:46:55+09:00
+  stage: S2
+  slice: S2-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s2): guard and select exact retiming
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_retime.RetimeTests.test_never_worse_and_fixed_pilot -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s2 --instances example --timelimits 12 --seeds 20260710 --feature exact_retime=true --feature backend_fault=gurobi_import,gurobi_license,gurobi_optimize,gurobi_extract,both --rerun
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/exact.py baseline/solver/retime.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_retime.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/green-targeted.txt; benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/full-regression.txt
+  checker_result: PASS; strict improving bay copies were Stage 5 full-checked before atomic replacement, corrupt/non-improving results preserved the verified incumbent, and all five fault-stress outputs were Stage 5 feasible
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/summary.json; benchmarks/evidence/s2/stress/20260712T154643Z-95a31cad/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-04 COMPLETE with bounded two-bay pilot, deterministic fixed winner, copy-only application, per-call timeboxes, strict-Z1/checker guards, CP-SAT fallback for four Gurobi fault boundaries, and exact constructor-SHA preservation when both backends fail
+  next_action: stage only the six S2-04 implementation files, commit feat(s2): guard and select exact retiming, push, verify upstream equality and clean status, then create the S2-05 task without implementing it here
 ```
 
 ## 11. Planning quality audit

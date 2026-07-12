@@ -32,6 +32,7 @@ from .runner import (
     run_entry_case,
     run_escalation_stress_case,
     run_exact_probe_fault_case,
+    run_retime_fault_case,
     run_backend_parity_record,
     run_gurobi_retime_case,
     run_t0_case,
@@ -1153,7 +1154,10 @@ def _measure_predicate(
 
 def _stress(args: argparse.Namespace) -> int:
     if args.stage == "s2":
-        return _exact_probe_stress(args)
+        features = _features(args.feature)
+        if features.get("backend_fault") == "probe_all":
+            return _exact_probe_stress(args)
+        return _retime_fault_stress(args)
     if args.stage == "s1":
         return _constructor_stress(args)
     if args.stage != "s0":
@@ -1290,6 +1294,115 @@ def _exact_probe_stress(args: argparse.Namespace) -> int:
         ),
         byte_identical_count=sum(
             record.get("probe_output_byte_identical") is True for record in records
+        ),
+        timeout_count=sum(bool(record.get("timeout")) for record in records),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _retime_fault_stress(args: argparse.Namespace) -> int:
+    features = _features(args.feature)
+    required_faults = (
+        "gurobi_import",
+        "gurobi_license",
+        "gurobi_optimize",
+        "gurobi_extract",
+        "both",
+    )
+    expected_features = {
+        "exact_retime": "true",
+        "backend_fault": ",".join(required_faults),
+    }
+    if features != expected_features:
+        raise SelectorError(
+            "S2-04 stress requires exact_retime=true and backend_fault="
+            + ",".join(required_faults)
+        )
+    if args.instances != "example":
+        raise SelectorError("S2-04 stress requires --instances example")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (12.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S2-04 stress requires timelimits=12 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s2",
+        command="stress",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s2-04",
+            "selector": "example",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("example", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=12|seed=20260710|fault={fault}"
+        for ref in refs
+        for fault in required_faults
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for fault in required_faults:
+            record_id = f"{ref.instance_id}|tl=12|seed=20260710|fault={fault}"
+            if record_id not in run.pending_record_ids:
+                continue
+            record = run_retime_fault_case(
+                ref,
+                selector="example",
+                timelimit=12.0,
+                seed=20260710,
+                features=features,
+                fault=fault,
+            )
+            run.append_record(
+                _deduplicate(evidence_root, record, rerun=args.rerun)
+            )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("never_worse") is True
+            and record.get("unverified_return_count") == 0
+            and float(record.get("wall_seconds", 999.0)) <= 12.25
+            and (
+                record.get("selected_backend") == "cpsat"
+                if record.get("backend_fault") != "both"
+                else record.get("operations_byte_identical") is True
+            )
+            for record in records
+        )
+    )
+    summary = _solver_summary("stress", "example", records, passed, stage="s2")
+    summary.update(
+        slice="s2-04",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        faults=required_faults,
+        cpsat_fallback_count=sum(
+            record.get("selected_backend") == "cpsat" for record in records
+        ),
+        both_fail_sha_match_count=sum(
+            record.get("backend_fault") == "both"
+            and record.get("operations_byte_identical") is True
+            for record in records
+        ),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in records
+        ),
+        never_worse_failure_count=sum(
+            record.get("never_worse") is not True for record in records
         ),
         timeout_count=sum(bool(record.get("timeout")) for record in records),
         leak_count=0,

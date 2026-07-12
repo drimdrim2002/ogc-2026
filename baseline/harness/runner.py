@@ -31,6 +31,7 @@ try:
     )
     from baseline.solver.exact import (
         BackendProbe,
+        ExactResult,
         RetimeRequest,
         normalize_result,
         probe_backends,
@@ -42,6 +43,7 @@ try:
     )
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.instance import ProblemInstance
+    from baseline.solver.retime import retime_sweep
     from baseline.solver.serialize import serialize_non_interlock
     from baseline.solver.state import Placement, SolutionState
     from baseline.solver.trivial import build_t0
@@ -51,11 +53,18 @@ except ModuleNotFoundError:
     from solver.checker_adapter import official_check
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
-    from solver.exact import BackendProbe, RetimeRequest, normalize_result, probe_backends
+    from solver.exact import (
+        BackendProbe,
+        ExactResult,
+        RetimeRequest,
+        normalize_result,
+        probe_backends,
+    )
     from solver.cpsat_backend import retime_cpsat
     from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
+    from solver.retime import retime_sweep
     from solver.serialize import serialize_non_interlock
     from solver.state import Placement, SolutionState
     from solver.trivial import build_t0
@@ -1048,6 +1057,192 @@ def run_exact_probe_fault_case(
         "exception": None,
         "fallback_tier": "constructor" if constructor_tier else "t0",
         "fallback_reason": "probe_all",
+    }
+
+
+def run_retime_fault_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    fault: str,
+) -> dict[str, Any]:
+    """Exercise S2-04 backend fallback without risking the S1 incumbent."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="guarded-retime-fault-stress",
+        timelimit=timelimit,
+        seed=seed,
+        features={**features, "fault_case": fault},
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    t0_state = build_t0(parsed)
+    incumbent = VerifiedIncumbent(parsed)
+    incumbent.register_initial(t0_state)
+    current_state = t0_state
+    constructor_error = None
+    try:
+        remaining = max(0.0, timelimit - (time.monotonic() - started))
+        reserve = min(
+            DEFAULT_CONFIG.constructor_return_reserve_seconds,
+            max(remaining - 0.05, 0.0),
+        )
+        constructed = construct_multistart(
+            parsed,
+            incumbent,
+            Budget(remaining, reserve=reserve),
+            seed=seed,
+            profiles=DEFAULT_CONFIG.constructor_profiles,
+            biased_variants=False,
+            calibrated_entry=True,
+            time_cap=DEFAULT_CONFIG.constructor_time_cap,
+            anchor_cap=DEFAULT_CONFIG.constructor_anchor_cap,
+        )
+        if constructed.metrics.incumbent_updated:
+            current_state = constructed.state
+    except Exception as exc:
+        constructor_error = f"{type(exc).__name__}: {exc}"
+
+    before_bytes = json.dumps(
+        incumbent.solution,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    before_sha = hashlib.sha256(before_bytes).hexdigest()
+    before_z1 = incumbent.checker_result.obj1
+
+    def empty_gurobi(status: str, reason: str) -> ExactResult:
+        return ExactResult(
+            backend="gurobi",
+            status=status,
+            solution=None,
+            objective=None,
+            bound=None,
+            build_s=0.0,
+            solve_s=0.0,
+            first_solution_s=None,
+            reason=reason,
+        )
+
+    def faulted_gurobi(request: RetimeRequest, _timebox: float) -> ExactResult:
+        if fault == "gurobi_license":
+            return empty_gurobi("unavailable", "injected gurobi license fault")
+        if fault == "gurobi_extract":
+            return ExactResult(
+                backend="gurobi",
+                status="feasible",
+                solution=(),
+                objective=0.0,
+                bound=None,
+                build_s=0.0,
+                solve_s=0.0,
+                first_solution_s=0.0,
+                reason="injected gurobi extraction fault",
+            )
+        stage = "import" if fault == "gurobi_import" else "optimize"
+        raise RuntimeError(f"injected gurobi {stage} fault")
+
+    def maybe_faulted_cpsat(request: RetimeRequest, timebox: float) -> ExactResult:
+        if fault == "both":
+            raise RuntimeError("injected cpsat fault in both-backend case")
+        return retime_cpsat(request, timebox)
+
+    if fault == "both":
+        def both_faulted_gurobi(
+            _request: RetimeRequest, _timebox: float
+        ) -> ExactResult:
+            raise RuntimeError("injected gurobi fault in both-backend case")
+
+        gurobi_call = both_faulted_gurobi
+    else:
+        gurobi_call = faulted_gurobi
+
+    remaining = max(0.0, timelimit - (time.monotonic() - started))
+    exact_budget = Budget(remaining, reserve=0.0)
+    outcome = retime_sweep(
+        current_state,
+        incumbent,
+        {"gurobi": gurobi_call, "cpsat": maybe_faulted_cpsat},
+        available_backends=("gurobi", "cpsat"),
+        budget=exact_budget,
+        first_sweep_budget=exact_budget.remaining,
+        seed=seed,
+    )
+    after_bytes = json.dumps(
+        incumbent.solution,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    after_sha = hashlib.sha256(after_bytes).hexdigest()
+    after_z1 = incumbent.checker_result.obj1
+    checked = official_check(ref.prob_info, incumbent.solution)
+    wall_seconds = time.monotonic() - started
+    unchanged = before_sha == after_sha
+    never_worse = (
+        before_z1 is not None
+        and after_z1 is not None
+        and float(after_z1) <= float(before_z1) + 1e-9
+    )
+    expected_selection = (
+        outcome.pilot.backend == "gurobi"
+        if fault == "both"
+        else outcome.pilot.backend == "cpsat"
+    )
+    passed = (
+        constructor_error is None
+        and checked.feasible
+        and checked.stage == 5
+        and never_worse
+        and expected_selection
+        and (fault != "both" or unchanged)
+        and wall_seconds <= timelimit + 0.25
+    )
+    return {
+        "record_id": f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|fault={fault}",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "guarded-retime-fault-stress",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "backend_fault": fault,
+        "selected_backend": outcome.pilot.backend,
+        "pilot": asdict(outcome.pilot),
+        "attempts": [asdict(item) for item in outcome.attempts],
+        "accepted_bays": outcome.accepted_bays,
+        "wall_seconds": wall_seconds,
+        "checker": checker_payload(checked),
+        "before_z1": before_z1,
+        "after_z1": after_z1,
+        "never_worse": never_worse,
+        "constructor_error": constructor_error,
+        "incumbent_verification_count": incumbent.verification_count,
+        "unverified_return_count": 0,
+        "output_sha256_before_retime": before_sha,
+        "output_sha256_after_retime": after_sha,
+        "operations_byte_identical": unchanged,
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+        "fallback_tier": "constructor" if unchanged else "retime",
+        "fallback_reason": fault,
     }
 
 

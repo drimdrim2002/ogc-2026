@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 import math
 import time
@@ -113,6 +113,30 @@ class BackendHealth:
     elapsed_s: float
 
 
+@dataclass(frozen=True, slots=True)
+class PilotTrial:
+    """One bounded backend/bay pilot result used by the fixed selector."""
+
+    backend: str
+    block_ids: tuple[int, ...]
+    status: str
+    improvement: float | None
+    first_solution_s: float | None
+    solve_s: float
+    timebox: float
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PilotSelection:
+    """The backend fixed for one sweep and all pilot audit records."""
+
+    backend: str | None
+    total_budget: float
+    call_timebox: float
+    trials: tuple[PilotTrial, ...]
+
+
 class IncumbentStatus(Protocol):
     @property
     def has_incumbent(self) -> bool: ...
@@ -125,6 +149,7 @@ class ExactBackend(Protocol):
 
 
 ProbeStep = Callable[[], object]
+RetimeCall = Callable[[RetimeRequest, float], ExactResult]
 
 
 @dataclass(slots=True)
@@ -258,6 +283,89 @@ def deadline_bounded_call(
     return normalize_result(request, raw, timebox=allowance, observed_s=observed)
 
 
+def select_pilot_backend(
+    requests: Iterable[RetimeRequest],
+    backend_calls: Mapping[str, RetimeCall],
+    *,
+    available_backends: Iterable[str],
+    budget: Budget,
+    first_sweep_budget: float,
+) -> PilotSelection:
+    """Pilot at most two tardiest bays and fix one backend for the sweep.
+
+    The total pilot allowance is the S2 preregistered minimum of four seconds,
+    eight percent of the current safe budget, and half of the first-sweep
+    budget.  Successful trials rank by improvement, first solution, solve
+    time, and backend name.  With no usable pilot allowance/result, the
+    deterministic fallback is available Gurobi and then CP-SAT.
+    """
+
+    sweep_budget = _finite_nonnegative(first_sweep_budget, "first_sweep_budget")
+    names = tuple(available_backends)
+    if len(names) != len(set(names)) or any(name not in BACKENDS for name in names):
+        raise ValueError("available_backends must contain unique known backends")
+    missing = tuple(name for name in names if name not in backend_calls)
+    if missing:
+        raise ValueError(f"missing backend call(s): {', '.join(missing)}")
+
+    fallback = next(
+        (name for name in ("gurobi", "cpsat") if name in names),
+        None,
+    )
+    selected_requests = tuple(requests)[:2]
+    safe_remaining = budget.remaining
+    total_budget = min(4.0, 0.08 * safe_remaining, 0.5 * sweep_budget)
+    call_count = len(names) * len(selected_requests)
+    if total_budget <= 0.0 or call_count == 0:
+        return PilotSelection(fallback, total_budget, 0.0, ())
+
+    call_timebox = total_budget / call_count
+    trials: list[PilotTrial] = []
+    ranked: list[tuple[float, float, float, str]] = []
+    for request in selected_requests:
+        current_objective = _request_current_objective(request)
+        for backend in names:
+            result = deadline_bounded_call(
+                backend,
+                request,
+                backend_calls[backend],
+                timebox=call_timebox,
+                budget=budget,
+            )
+            improvement = (
+                current_objective - float(result.objective)
+                if result.status in SOLUTION_STATUSES and result.objective is not None
+                else None
+            )
+            trials.append(
+                PilotTrial(
+                    backend=backend,
+                    block_ids=request.block_ids,
+                    status=result.status,
+                    improvement=improvement,
+                    first_solution_s=result.first_solution_s,
+                    solve_s=result.solve_s,
+                    timebox=call_timebox,
+                    reason=result.reason,
+                )
+            )
+            if improvement is not None:
+                ranked.append(
+                    (
+                        -improvement,
+                        (
+                            float(result.first_solution_s)
+                            if result.first_solution_s is not None
+                            else math.inf
+                        ),
+                        float(result.solve_s),
+                        backend,
+                    )
+                )
+    winner = min(ranked)[3] if ranked else fallback
+    return PilotSelection(winner, total_budget, call_timebox, tuple(trials))
+
+
 def normalize_result(
     request: RetimeRequest,
     result: object,
@@ -363,6 +471,18 @@ def _validate_int_map(label: str, values: object, expected: set[int]) -> None:
     keys = [key for key, _ in values]
     if len(keys) != len(set(keys)) or set(keys) != expected:
         raise ValueError(f"{label} keys must exactly match block_ids")
+
+
+def _request_current_objective(request: RetimeRequest) -> float:
+    entries = dict(request.current_entries)
+    dues = dict(request.dues)
+    dwells = dict(request.dwells)
+    return float(
+        sum(
+            max(0, entries[block_id] + dwells[block_id] - dues[block_id])
+            for block_id in request.block_ids
+        )
+    )
 
 
 def _validate_probe_names(plans: tuple[BackendProbe, ...]) -> None:
