@@ -31,6 +31,7 @@ class OptionalPhaseResult:
     candidates: tuple[SolutionSnapshot, ...] = ()
     assignment_portfolio: Any | None = None
     precedence_provider: Any | None = None
+    retiming_results: tuple[Any, ...] = ()
 
 
 def load_optional_phase():
@@ -38,21 +39,26 @@ def load_optional_phase():
     from .assignment import try_assignment_portfolio
     from .construct import construct_portfolio
     from .geometry import GeometryKernel
+    from .retime import retime
 
     def assignment_phase(instance, snapshot, budget):
         del snapshot  # Seeds guide step 4; they never replace the incumbent directly.
         geometry = GeometryKernel.from_instance(instance)
         portfolio = try_assignment_portfolio(instance, geometry, budget)
         construction = construct_portfolio(instance, geometry, portfolio, budget)
-        candidates = tuple(
-            result.snapshot
-            for result in construction
-            if result.complete and result.snapshot is not None
-        )
+        candidates = []
+        retiming_results = []
+        for result in construction:
+            if not result.complete or result.snapshot is None:
+                continue
+            retimed = retime(result.snapshot, instance, geometry, budget)
+            retiming_results.append(retimed)
+            candidates.append(retimed.snapshot)
         return OptionalPhaseResult(
-            candidates=candidates,
+            candidates=tuple(candidates),
             assignment_portfolio=portfolio,
             precedence_provider=geometry,
+            retiming_results=tuple(retiming_results),
         )
 
     return assignment_phase

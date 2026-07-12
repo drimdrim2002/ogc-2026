@@ -11,6 +11,7 @@ from .construct import (
 from .entry import solve
 from .geometry import GeometryKernel, PairRelation, PairState, ShapeInfo, TemporalMode
 from .instance import Instance, NoValidPlacement, OrientationInfo, ReferenceRange, parse_instance
+from .retime import RetimingConfig, RetimingResult, nonfree_components, retime
 from .state import CandidateDraft, IndexedSolutionState, Placement, SolutionSnapshot
 
 __all__ = [
@@ -29,10 +30,14 @@ __all__ = [
     "PairState",
     "Placement",
     "ReferenceRange",
+    "RetimingConfig",
+    "RetimingResult",
     "SolutionSnapshot",
     "ShapeInfo",
     "TemporalMode",
     "construct_complete",
+    "nonfree_components",
     "parse_instance",
+    "retime",
     "solve",
 ]
