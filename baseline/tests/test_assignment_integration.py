@@ -118,7 +118,7 @@ class AssignmentIntegrationTests(unittest.TestCase):
         raw = load_example()
         parsed = parse_instance(raw)
         fallback = build_safe_candidate(parsed, Budget.start(5))
-        fallback_bytes = json.dumps(serialize(fallback), separators=(",", ":"))
+        fallback_result = checker(raw, serialize(fallback))
 
         class LicenseError(RuntimeError):
             pass
@@ -128,10 +128,10 @@ class AssignmentIntegrationTests(unittest.TestCase):
             with self.subTest(failure=type(failure).__name__):
                 with patch("solver.assignment._gurobi_backend_factory", side_effect=failure):
                     result = solve(raw, 5, checker=checker)
-                self.assertEqual(fallback_bytes, json.dumps(result, separators=(",", ":")))
                 checked = checker(raw, result)
                 self.assertTrue(checked["feasible"], checked)
                 self.assertEqual(5, checked["stage"])
+                self.assertLess(checked["objective"], fallback_result["objective"])
 
     def test_timeout_seed_is_only_guide(self):
         raw = instance([block(due=0, preferences=(1, 1))], bays=((10, 10), (10, 10)))

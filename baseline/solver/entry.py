@@ -30,30 +30,42 @@ class OptionalPhaseResult:
 
     candidates: tuple[SolutionSnapshot, ...] = ()
     assignment_portfolio: Any | None = None
+    precedence_provider: Any | None = None
 
 
 def load_optional_phase():
-    """Import assignment only after the safe incumbent has passed the checker."""
+    """Import optional assignment/constructor code after the safe full check."""
     from .assignment import try_assignment_portfolio
+    from .construct import construct_portfolio
     from .geometry import GeometryKernel
 
     def assignment_phase(instance, snapshot, budget):
         del snapshot  # Seeds guide step 4; they never replace the incumbent directly.
         geometry = GeometryKernel.from_instance(instance)
         portfolio = try_assignment_portfolio(instance, geometry, budget)
-        return OptionalPhaseResult(assignment_portfolio=portfolio)
+        construction = construct_portfolio(instance, geometry, portfolio, budget)
+        candidates = tuple(
+            result.snapshot
+            for result in construction
+            if result.complete and result.snapshot is not None
+        )
+        return OptionalPhaseResult(
+            candidates=candidates,
+            assignment_portfolio=portfolio,
+            precedence_provider=geometry,
+        )
 
     return assignment_phase
 
 
-def _candidate_stream(value: Any) -> Iterable[SolutionSnapshot]:
+def _candidate_stream(value: Any) -> Iterable[tuple[SolutionSnapshot, Any | None]]:
     if value is None:
         return ()
     if isinstance(value, OptionalPhaseResult):
-        return value.candidates
+        return tuple((candidate, value.precedence_provider) for candidate in value.candidates)
     if isinstance(value, SolutionSnapshot):
-        return (value,)
-    return value
+        return ((value, None),)
+    return tuple((candidate, None) for candidate in value)
 
 
 def solve(
@@ -87,13 +99,13 @@ def solve(
         if phase is None:
             return store.operations
         candidates = _candidate_stream(phase(instance, store.snapshot, budget))
-        for candidate in candidates:
+        for candidate, precedence_provider in candidates:
             if not budget.can_start(budget.checker_p95, margin=0.01):
                 break
             if not isinstance(candidate, SolutionSnapshot):
                 continue
             candidate = candidate.with_objective(compute_objective(instance, candidate))
-            candidate_operations = serialize(candidate)
+            candidate_operations = serialize(candidate, precedence_provider)
             check_started = time.monotonic()
             candidate_result = checker(copy.deepcopy(raw), copy.deepcopy(candidate_operations))
             budget.record_checker_duration(time.monotonic() - check_started)

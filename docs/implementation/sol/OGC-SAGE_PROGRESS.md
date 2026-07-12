@@ -10,16 +10,16 @@
 - 기준 브랜치: `start-point`
 - 작업 브랜치: `sol-native-implementation`
 - 계획 문서 상태: 작성 완료
-- 구현 상태: 3단계 assignment 완료
-- 테스트 상태: 1~3단계 단위·통합 및 `baseline/tests` 전체 51/51 PASS
-- 다음 단계 진입: 4단계 constructor 진입 가능(이번 세션에서는 시작하지 않음)
+- 구현 상태: 4단계 constructor 완료
+- 테스트 상태: 1~4단계 단위·통합 및 `baseline/tests` 전체 66/66 PASS
+- 다음 단계 진입: 5단계 retimer 진입 가능(이번 세션에서는 시작하지 않음)
 
 설계와 저장소가 충돌할 때 구현자가 임의로 해석하지 않는다. 이 문서의 “결정 및 미해결 사항”에 기록하고 결정권자의 승인을 받은 뒤 관련 단계 문서를 함께 갱신한다.
 
 ## 2. 현재 저장소 기준선
 
 - 공개 진입점 `baseline/myalgorithm.py`는 guarded import로 `solver.entry.solve`를 호출하고, 먼저 checker-validated safe incumbent를 만든다.
-- `baseline/solver/`에 1단계 기반 모듈, 2단계 checker-parity geometry kernel, 3단계 optional assignment master가 있고 `baseline/tests/`에 51개 `unittest` 계약·단위·통합 테스트가 있다. `baseline/` 자체의 `__init__.py`는 없으며 양쪽 import smoke가 통과한 상태다.
+- `baseline/solver/`에 1단계 기반 모듈, 2단계 checker-parity geometry kernel, 3단계 optional assignment master, 4단계 event-aware exact constructor가 있고 `baseline/tests/`에 66개 `unittest` 계약·단위·통합 테스트가 있다. `baseline/` 자체의 `__init__.py`는 없으며 양쪽 import smoke가 통과한 상태다.
 - `baseline/utils.py`와 `alg_tester/utils.py`는 현재 byte-for-byte 동일하다. checker 권위는 변경 금지 대상인 `baseline/utils.py::check_feasibility`로 고정한다.
 - `baseline/baseline_greedy.py`는 비교 기준으로 동결한다. 새 구현에서 import하거나 수정하지 않는다.
 - 환경 파일에는 Python 3.12, Shapely 2.1+, Gurobi 13.0.2가 있으나 별도 test dependency는 없다. 따라서 새 테스트는 표준 라이브러리 `unittest`를 사용한다.
@@ -33,8 +33,8 @@
 | 1 | 완료 | P0 최소 기반 + P1 | immutable parsing/AABB·integer anchor, checker 계약, serializer, budget, fallback, validated incumbent, exception armor | 23/23 green, 2단계 진입 가능 |
 | 2 | 완료 | P0 완성 | Shapely ShapeInfo, repaired layers, suffix union, exact obstruction, four-state, bounded cache | 13/13 전용·36/36 전체 green, 3단계 진입 가능 |
 | 3 | 완료 | P2 | optional Gurobi assignment lower bound와 diverse portfolio, congestion guide | 15/15 전용·51/51 전체 green, 4단계 진입 가능 |
-| 4 | 진입 가능 | P3 | event-aware union-safe regret constructor와 empty-bay fallback | constructor 후보·checker 통합 green 후 5 |
-| 5 | 차단(4) | P4 | indicator 기반 exact four-state retimer와 affected component | objective/checker 통합 green 후 6 |
+| 4 | 완료 | P3 | event-aware union-safe regret constructor와 empty-bay fallback | 15/15 전용·66/66 전체 green, 5단계 진입 가능 |
+| 5 | 진입 가능 | P4 | indicator 기반 exact four-state retimer와 affected component | objective/checker 통합 green 후 6 |
 | 6 | 차단(5) | P5 일부 | heuristic destroy/repair, current/best/candidate, adaptive acceptance | deterministic LNS 통합 green 후 7 |
 | 7 | 차단(6) | P5 완성 | bounded candidate-selection Gurobi repair와 cut loop | heuristic fallback 통합 green 후 8 |
 | 8 | 차단(7) | P6 | gate된 one-way interlock densifier와 final retiming | gate on/off 통합 green 후 9 |
@@ -108,6 +108,9 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | 2026-07-12 / 3 | Python 3.12.11, Shapely 2.1.2, Gurobi 13.0.2 restricted non-production(2027-11-29 만료), seed `20260710` | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment tests.test_assignment_integration -v` | 종료 0, 15/15 PASS; fit mask, request schema, zero objective, n=100 Hamming 3, status/config/timeout, guide slack 및 failure integration | 4-block/2-bay 전수열거 optimum `10.125` = Gurobi `ObjVal/ObjBound 10.125`, gap 0; serial realization Stage 5, `(Z2,Z3,weighted)=(3.375,0,10.125)` checker 상대 오차 0; synthetic overload positive slack `140.0` | 최초 구현 후 14/14 green; on-time 전체 범위를 cap이 제거하지 않는 계약을 보강해 최종 15/15 재검증 | `baseline/solver/assignment.py`, `baseline/tests/{test_assignment,test_assignment_integration}.py` |
 | 2026-07-12 / 3 | 동일 환경 | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v` | 종료 0, 전체 51/51 PASS | 1~2단계 checker/objective/four-state 회귀 포함; import/license/model status/timeout에서 safe Stage 5 incumbent 불변 | 실패 없음 | `baseline/tests/` |
 | 2026-07-12 / 3 | 동일 환경, tracked example | exact portfolio probe와 `algorithm(raw,5.0)` 양쪽 import smoke | exact `OPTIMAL`, variables 22, constraints 18, `ObjVal=1022.6988257889586`, `ObjBound=1022.698825788958`, gap 0, seed 3, 최소 Hamming 2; public entry 종료 0 | public 반환 Stage 5; `(121.0,183.68374331550805,0.0,323992.78620320855)`로 최초 fallback과 동일; safe 이전 `assignment/gurobipy` module load 모두 false | 첫 root smoke에서 top-level `solver.entry`를 잘못 사용해 `ModuleNotFoundError`; O-003 계약에 맞게 root는 `baseline.solver.entry`, `baseline/`은 `solver.entry`로 수정 후 양쪽 PASS | `alg_tester/example/example_B2_b10.json` |
+| 2026-07-12 / 4 | Python 3.12.11, Shapely 2.1.2, seed `20260710`; default caps time 12/32, anchor 48, lattice 512 | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct tests.test_construct_integration -v` | 종료 0, 15/15 PASS; event/contact/negative anchor/symmetric validation/delta/regret/transaction 및 5개 통합 gate | tracked example에서 master 없음과 AssignmentSeed 제공 6 profile 모두 complete Stage 5; overlapping same-bay pair 전부 exact `FREE`; 강제 cap 0은 fallback 10/10, Stage 5 | 최초 신규 suite는 fixture의 2-bay preference 길이 누락으로 13 PASS/2 ERROR; fixture 수정 후 15/15 재검증 | `baseline/solver/construct.py`, `baseline/tests/{test_construct,test_construct_integration}.py` |
+| 2026-07-12 / 4 | 동일 환경·seed | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v` | 종료 0, 전체 66/66 PASS | 1~3단계 checker/objective/four-state/Gurobi fallback 회귀 포함; invalid constructor candidate full-check 거부 시 initial safe best byte identity 보존 | 최종 재검증 명령을 저장소 root에서 잘못 1회 실행해 `tests` import error 2건; 지정된 `baseline/` cwd에서 재실행해 66/66 PASS | `baseline/tests/` |
+| 2026-07-12 / 4 | 동일 환경, tracked example, exact assignment `OPTIMAL` seed 3 | 6 profile constructor probe, public `algorithm(raw,5.0)` baseline/root 양쪽 import smoke, forbidden-file/diff audit | 6/6 complete, profile별 fallback 0, 참고 construction time `0.0304~0.0379s`; 양쪽 public smoke 종료 0; `git diff --check`, `cmp baseline/utils.py alg_tester/utils.py`, 금지 파일 diff 모두 통과 | 각 profile 및 public 반환 Stage 5; `(Z1,Z2,Z3,total)=(0.0,14.671260826994029,46.0,1022.6988257889582)`, 내부 대비 오차 0; 최초 fallback `323992.78620320855`보다 strict improvement로 full-check install | 실패 없음; daily-40 activation benchmark는 9단계 데이터 차단에 따라 미실행 | `alg_tester/example/example_B2_b10.json` |
 
 ## 9. 구현 중 결정 사항
 
@@ -118,6 +121,7 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | D-003 | 2026-07-12 | 1 | optional phase 연결 방식 | `entry.solve`의 lazy loader가 validated incumbent 설치 후에만 phase callable을 얻고, 반환 candidate stream을 fresh serialize/check/install 한다. 1단계 기본 loader는 no-op이다. | `baseline/solver/entry.py` | event-order 통합 테스트로 확정 |
 | D-004 | 2026-07-12 | 2 | geometry/serializer 연결과 cache canonicalization | repaired local layer에서 suffix union을 뒤에서 앞으로 만들고, `(canonical block/orientation pair, relative dx/dy)` bounded LRU에 exact 양방향 bit를 저장한다. `GeometryKernel`이 1단계 `ExitPrecedenceProvider`를 직접 구현하므로 canonical serializer 코드는 변경하지 않는다. | `baseline/solver/geometry.py`, `baseline/solver/__init__.py` | 2,000건 checker parity·cache symmetry·real-provider topology 테스트로 확정 |
 | D-005 | 2026-07-12 | 3 | assignment portfolio와 phase 경계 | solution pool 대신 deterministic solve-inspect-add-Hamming-cut loop를 기본으로 하고 canonical `(assignment_cost,bay_tuple)` 정렬을 적용한다. `entry`는 safe install 뒤에만 assignment를 lazy import하며 `OptionalPhaseResult`에 backend-neutral portfolio를 보관하되 seed를 incumbent candidate로 노출하지 않는다. | `baseline/solver/assignment.py`, `baseline/solver/entry.py` | zero-objective/diversity, lazy import, timeout-guide-only, Gurobi enumeration 테스트로 확정 |
+| D-006 | 2026-07-12 | 4 | vertex-edge integer rounding과 assignment seed bay 정책 | vertex/edge contact translation은 checker integer 좌표에 맞춰 floor/ceil 양쪽을 생성하고 exact kernel이 최종 판정한다. AssignmentSeed bay/start는 모든 profile에서 canonical tie guide로만 사용해 대체 bay를 허용하며, seed가 없거나 master가 실패해도 같은 pure-Python constructor를 실행한다. | `baseline/solver/{construct,entry}.py` | negative/contact, exact FREE, master-empty, seeded profile 통합 테스트로 확정 |
 
 ## 10. 차단 사유와 미해결 사항
 
@@ -136,7 +140,7 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | 1 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 1: foundation` | `baseline/myalgorithm.py`, `baseline/solver/{__init__,budget,entry,fallback,instance,serialize,state}.py`, `baseline/tests/{__init__,helpers,test_checker_contract,test_foundation}.py`, 본 진행 문서 | 1A~1D 및 23 tests |
 | 2 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 2: geometry` | `baseline/solver/{__init__,geometry}.py`, `baseline/tests/{test_geometry,test_four_state_parity}.py`, 본 진행 문서 | 2A~2C, 전용 13 tests, 전체 36 tests, random 2,000 parity |
 | 3 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 3: assignment` | `baseline/solver/{assignment,entry}.py`, `baseline/tests/{test_assignment,test_assignment_integration}.py`, 본 진행 문서 | 3A~3C, 전용 15 tests, 전체 51 tests, exact enumeration/objective parity/failure matrix |
-| 4 | 미작성 | `feat(solver): add event-aware exact constructor` | 실행 후 기록 | - |
+| 4 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 4: constructor` | `baseline/solver/{__init__,construct,entry,state}.py`, `baseline/tests/{test_assignment_integration,test_construct,test_construct_integration}.py`, 본 진행 문서 | 4A~4D, 전용 15 tests, 전체 66 tests, 6 profile/fallback/full-check gate |
 | 5 | 미작성 | `feat(solver): add exact four-state retiming` | 실행 후 기록 | - |
 | 6 | 미작성 | `feat(solver): add heuristic anytime lns` | 실행 후 기록 | - |
 | 7 | 미작성 | `feat(solver): add bounded candidate repair mip` | 실행 후 기록 | - |
@@ -150,13 +154,13 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | Gate | 설계 근거 | 적용 단계 | 합격 기준 | 상태/증거 |
 |---|---|---|---|---|
 | canonical serialization | §5, §11, §14.1 | 1,2,5,9 | 시간 key 오름차순, EXIT-first, exit DAG, simultaneous entry FREE | 1단계 checker contract 8 tests 및 2단계 actual geometry provider same-exit topology/simultaneous-entry gate PASS; 5·9단계 계속 추적 |
-| monotonic wall-clock | §12 | 1,3~9 | `time.monotonic()`만 사용, 모든 loop/model 경계 deadline 확인 | 1단계 fake clock 및 3단계 exact/guide cap·model boundary PASS; `rg 'time\.time'` 0건; 4~9단계 계속 추적 |
-| immutable validated best | §1, §5, §9 | 1,4~9 | full checker strict improvement만 atomic install | 1단계 PASS: equal/worse 거부, strict better atomic install, defensive copy 및 mutation rollback |
-| optional optimizer armor | §1, §5, §12, §14.1 | 1,3,5,7,9 | import/license/model/timeout 예외가 public entry 탈출 안 함 | 1단계 safe check→loader 순서와 3단계 lazy assignment import, ImportError/license error/neutral model status/TIME_LIMIT matrix PASS; public 반환 byte-identical Stage 5 incumbent |
-| Shapely/checker authority | §3, §7, §15 | 2,4,8,9 | approximate filter는 거부 권한 없음; exact survivor check | 2단계 PASS: checker와 같은 polygon repair/strict positive-area 판정, suffix-naive 및 direct `check_entry/check_exit` oracle 불일치 0; 4·8·9단계 계속 추적 |
+| monotonic wall-clock | §12 | 1,3~9 | `time.monotonic()`만 사용, 모든 loop/model 경계 deadline 확인 | 1단계 fake clock, 3단계 exact/guide cap·model boundary, 4단계 profile/candidate loop·serial tail PASS; `rg 'time\.time'` 0건; 5~9단계 계속 추적 |
+| immutable validated best | §1, §5, §9 | 1,4~9 | full checker strict improvement만 atomic install | 1단계 equal/worse 거부·defensive copy와 4단계 candidate transaction exception rollback, invalid full-check identity 보존, valid strict improvement install PASS |
+| optional optimizer armor | §1, §5, §12, §14.1 | 1,3,5,7,9 | import/license/model/timeout 예외가 public entry 탈출 안 함 | 1단계 safe check→loader 순서와 3단계 lazy assignment import, ImportError/license error/neutral model status/TIME_LIMIT matrix PASS; 4단계부터 master 실패 시 pure-Python constructor가 Stage 5 strict improvement를 설치하며 실패해도 initial validated best 보존 |
+| Shapely/checker authority | §3, §7, §15 | 2,4,8,9 | approximate filter는 거부 권한 없음; exact survivor check | 2단계 checker-parity kernel PASS; 4단계 모든 first-pass/row-grid survivor를 exact symmetric `FREE`로 판정하고 profile별 full checker Stage 5, overlapping pair 재감사 불일치 0; 8·9단계 계속 추적 |
 | contract edge cases | §14.1 | 1,2,9 | 지정 8개 계약 모두 regression green | 1단계 지정 계약 및 2단계 negative anchor/boundary/four-state/real exit provider 회귀 전체 PASS |
 | four-state parity | §3, §14.1 | 2,5,9 | 4상태와 수천 sample checker 불일치 0 | 2단계 PASS: seed `20260710`, 실제 fitting pair-placement/time 2,000건, directional·schedule checker 불일치 0; 5·9단계 계속 추적 |
-| objective/delta parity | §3, §9, §14.1 | 1,3,4,6,7,9 | 상대 오차 `<=1e-6` | 1단계 tracked example 전 항목과 3단계 4-block enumeration/serial realization assignment `(Z2,Z3,weighted)=(3.375,0,10.125)` 상대 오차 0; 4·6·7·9단계 계속 추적 |
+| objective/delta parity | §3, §9, §14.1 | 1,3,4,6,7,9 | 상대 오차 `<=1e-6` | 1단계 전 항목, 3단계 assignment, 4단계 telescoping exact insertion delta 및 tracked profile `(0.0,14.671260826994029,46.0,1022.6988257889582)` 내부/checker 오차 0; 6·7·9단계 계속 추적 |
 | constructor activation | §13, §14.2 | 4,9 | daily-40 60s: 40/40, p90 `<=8s`, max `<=12s`, deadline hit 0 | 미실행/데이터 차단 |
 | P5/P6 enable gate | §13 | 6~9 | 위 constructor gate 전 submission default disabled | 미실행 |
 | retiming safety | §8, §14.2 | 5,9 | Z1 비증가, bound/gap/time 기록, 실패 rollback | 미실행 |

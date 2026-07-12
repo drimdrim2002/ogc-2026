@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass, replace
+from collections.abc import Callable, Iterable
 from typing import Any, Mapping
 
 from .instance import Instance
@@ -62,6 +63,144 @@ class CandidateDraft:
 
     def freeze(self) -> SolutionSnapshot:
         return SolutionSnapshot(tuple(self.placements))
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentDelta:
+    """Exact partial-state change in the checker assignment components."""
+
+    z2: float
+    z3: float
+    weighted: float
+
+
+class IndexedSolutionState:
+    """Transactional constructor draft with bay interval and load indexes.
+
+    The constructor only commits complete placements.  Index mutations are
+    rolled back together if validation fails or raises, so a rejected geometry
+    operation cannot leave stale interval/load state behind.
+    """
+
+    def __init__(
+        self,
+        instance: Instance,
+        placements: Iterable[Placement] = (),
+        *,
+        time_cap: int = 12,
+        anchor_cap: int = 48,
+        lattice_cap: int = 512,
+    ) -> None:
+        self.instance = instance
+        self.time_cap = max(0, int(time_cap))
+        self.anchor_cap = max(0, int(anchor_cap))
+        self.lattice_cap = max(0, int(lattice_cap))
+        self.kernel: Any | None = None
+        self._by_id: dict[int, Placement] = {}
+        self._intervals: list[list[Placement]] = [list() for _ in instance.bays]
+        self._loads = [0.0 for _ in instance.bays]
+        self.version = 0
+        for placement in placements:
+            self._apply(placement)
+        self.version = 0
+
+    @property
+    def placements(self) -> tuple[Placement, ...]:
+        return tuple(self._by_id[key] for key in sorted(self._by_id))
+
+    @property
+    def block_ids(self) -> frozenset[int]:
+        return frozenset(self._by_id)
+
+    @property
+    def raw_bay_loads(self) -> tuple[float, ...]:
+        return tuple(self._loads)
+
+    def bay_intervals(self, bay_id: int) -> tuple[Placement, ...]:
+        return tuple(self._intervals[bay_id])
+
+    def co_present(
+        self, bay_id: int, interval: tuple[int, int]
+    ) -> tuple[Placement, ...]:
+        entry, exit_time = interval
+        return tuple(
+            placement
+            for placement in self._intervals[bay_id]
+            if placement.entry < exit_time and entry < placement.exit
+        )
+
+    def earliest_empty_window(self, bay_id: int, release: int, dwell: int) -> int:
+        start = int(release)
+        for placement in self._intervals[bay_id]:
+            if placement.exit <= start:
+                continue
+            if start + dwell <= placement.entry:
+                break
+            start = placement.exit
+        return start
+
+    def normalized_loads(self, *, extra: tuple[int, float] | None = None) -> tuple[float, ...]:
+        average_area = sum(bay.area for bay in self.instance.bays) / len(self.instance.bays)
+        values = list(self._loads)
+        if extra is not None:
+            bay_id, workload = extra
+            values[bay_id] += workload
+        return tuple(
+            average_area / bay.area * values[bay.index]
+            for bay in self.instance.bays
+        )
+
+    @staticmethod
+    def _load_range(values: tuple[float, ...]) -> float:
+        return max(values) - min(values) if len(values) > 1 else 0.0
+
+    def assignment_delta(self, block_id: int, bay_id: int) -> AssignmentDelta:
+        block = self.instance.block(block_id)
+        before = self._load_range(self.normalized_loads())
+        after = self._load_range(
+            self.normalized_loads(extra=(bay_id, block.workload))
+        )
+        z2 = after - before
+        z3 = max(block.bay_preferences) - block.bay_preferences[bay_id]
+        weighted = self.instance.weights.w2 * z2 + self.instance.weights.w3 * z3
+        return AssignmentDelta(z2=z2, z3=z3, weighted=weighted)
+
+    def _apply(self, placement: Placement) -> None:
+        if placement.block_id in self._by_id:
+            raise ValueError(f"block {placement.block_id} is already placed")
+        if not 0 <= placement.block_id < len(self.instance.blocks):
+            raise ValueError("invalid block id")
+        if not 0 <= placement.bay_id < len(self.instance.bays):
+            raise ValueError("invalid bay id")
+        self._by_id[placement.block_id] = placement
+        intervals = self._intervals[placement.bay_id]
+        intervals.append(placement)
+        intervals.sort(key=lambda item: (item.entry, item.exit, item.block_id))
+        self._loads[placement.bay_id] += self.instance.block(placement.block_id).workload
+
+    def _undo(self, placement: Placement) -> None:
+        del self._by_id[placement.block_id]
+        self._intervals[placement.bay_id].remove(placement)
+        self._loads[placement.bay_id] -= self.instance.block(placement.block_id).workload
+
+    def transactional_insert(
+        self,
+        placement: Placement,
+        validator: Callable[["IndexedSolutionState", Placement], bool] | None = None,
+    ) -> bool:
+        self._apply(placement)
+        try:
+            if validator is not None and validator(self, placement) is not True:
+                self._undo(placement)
+                return False
+        except Exception:
+            self._undo(placement)
+            raise
+        self.version += 1
+        return True
+
+    def freeze(self) -> SolutionSnapshot:
+        return SolutionSnapshot(self.placements)
 
 
 def compute_objective(instance: Instance, snapshot: SolutionSnapshot) -> ObjectiveParts:
