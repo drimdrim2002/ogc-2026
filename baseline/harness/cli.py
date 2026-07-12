@@ -22,7 +22,7 @@ from .compare import latency_summary
 from .gates import evaluate_s0, latest_summary
 from .package import StageUnsupportedError
 from .report import render_gate_report
-from .runner import repository_provenance, run_t0_case
+from .runner import repository_provenance, run_assignment_case, run_t0_case
 from .schema import EvidenceRun, find_completed_identity, new_run_id, record_identity
 from .selectors import REPO_ROOT, SelectorError, select_instances
 
@@ -68,6 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     _common(benchmark)
     benchmark.add_argument("--stage", required=True)
     benchmark.add_argument("--metric", default="solver")
+    benchmark.add_argument("--component")
     benchmark.add_argument("--instances", required=True)
     benchmark.add_argument("--timelimits", required=True)
     benchmark.add_argument("--seeds", required=True)
@@ -121,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.jobs != 1:
-            raise SelectorError("S0 supports --jobs 1 only")
+            raise SelectorError("the harness supports --jobs 1 only")
         if args.command == "contract":
             return _contract(args)
         if args.command == "parity":
@@ -341,8 +342,12 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 
 def _benchmark(args: argparse.Namespace) -> int:
+    if args.stage == "s1":
+        return _assignment_benchmark(args)
     if args.stage != "s0":
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
+    if args.component is not None:
+        raise SelectorError("S0 benchmark does not accept --component")
     features = _features(args.feature)
     if args.metric == "predicate":
         return _predicate_benchmark(args, features)
@@ -387,6 +392,82 @@ def _benchmark(args: argparse.Namespace) -> int:
     )
     summary = _solver_summary("benchmark", args.instances, records, passed)
     summary.update(metric="solver", timelimits=timelimits, seeds=seeds, features=features)
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _assignment_benchmark(args: argparse.Namespace) -> int:
+    if args.component != "assign_v1":
+        raise StageUnsupportedError("S1-01 benchmark only supports --component assign_v1")
+    if args.metric != "solver":
+        raise SelectorError("S1 assignment benchmark uses the default solver metric")
+    if args.instances != "smoke-3":
+        raise SelectorError("S1-01 assignment benchmark requires --instances smoke-3")
+    features = {**_features(args.feature), "component": "assign_v1"}
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={"component": "assign_v1", "selector": args.instances},
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        _case_id(ref.instance_id, timelimit, seed, "none")
+        for ref in refs for timelimit in timelimits for seed in seeds
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                record_id = _case_id(ref.instance_id, timelimit, seed, "none")
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_assignment_case(
+                    ref,
+                    selector=args.instances,
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=features,
+                )
+                run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    passed = all(
+        record.get("status") in {"passed", "deduplicated"}
+        and record.get("checker", {}).get("feasible") is True
+        and record.get("checker", {}).get("stage") == 5
+        and record.get("wall_seconds", 999.0) <= record.get("timelimit", 0.0)
+        and record.get("assigned") == record.get("block_count")
+        and record.get("fallback") == 0
+        and record.get("fit_failures") == 0
+        and record.get("float_z2_error", 1.0) <= 1e-9
+        and record.get("float_z3_error", 1.0) <= 1e-9
+        for record in records
+    )
+    summary = _solver_summary(
+        "benchmark", args.instances, records, passed, stage="s1"
+    )
+    summary.update(
+        component="assign_v1",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+        assigned=sum(int(record.get("assigned", 0)) for record in records),
+        fallback=sum(int(record.get("fallback", 0)) for record in records),
+        fit_failures=sum(int(record.get("fit_failures", 0)) for record in records),
+        max_float_z2_error=max(
+            (float(record.get("float_z2_error", 0.0)) for record in records),
+            default=0.0,
+        ),
+        max_float_z3_error=max(
+            (float(record.get("float_z3_error", 0.0)) for record in records),
+            default=0.0,
+        ),
+    )
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
@@ -650,6 +731,33 @@ def _start_run(
     return run, root
 
 
+def _start_stage_run(
+    args: argparse.Namespace,
+    *,
+    stage: str,
+    command: str,
+    expected_record_ids: Iterable[str],
+    metadata: Mapping[str, Any],
+    delayed_expected: bool = False,
+) -> tuple[EvidenceRun, Path]:
+    root = _evidence_root(args)
+    if args.resume:
+        return EvidenceRun.resume(root / stage / command / args.resume), root
+    run_id = new_run_id() if args.run_id == "auto" else args.run_id
+    expected = () if delayed_expected else tuple(expected_record_ids)
+    run = EvidenceRun.start(
+        root / stage / command / run_id,
+        command=[sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        expected_record_ids=expected,
+        metadata={
+            **repository_provenance(),
+            "stage": stage,
+            **dict(metadata),
+        },
+    )
+    return run, root
+
+
 def _set_expected(run: EvidenceRun, expected: tuple[str, ...]) -> None:
     if run.manifest.get("expected_record_ids"):
         if tuple(run.manifest["expected_record_ids"]) != expected:
@@ -747,10 +855,17 @@ def _effective_records(records: Iterable[Mapping[str, Any]]) -> tuple[dict[str, 
     return tuple(latest[key] for key in sorted(latest))
 
 
-def _solver_summary(command: str, selector: str, records: tuple[dict[str, Any], ...], passed: bool) -> dict[str, Any]:
+def _solver_summary(
+    command: str,
+    selector: str,
+    records: tuple[dict[str, Any], ...],
+    passed: bool,
+    *,
+    stage: str = "s0",
+) -> dict[str, Any]:
     return {
         "command": command,
-        "stage": "s0",
+        "stage": stage,
         "selector": selector,
         "status": "passed" if passed else "failed",
         "record_count": len(records),

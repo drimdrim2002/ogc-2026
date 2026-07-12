@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S0 complete
+Planning status: complete; implementation status: S1 in progress (S1-01 complete)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -147,8 +147,8 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T124757Z-fc60bcd9/` | pending atomic S0-06 commit | — | S1-01 is eligible after the S0-06 commit is pushed and the branch is clean |
-| S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
+| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1-01 in progress |
+| S1 | `IN_PROGRESS` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | `benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/` | pending atomic S1-01 commit | — | S1-02 is eligible after the S1-01 commit is pushed and the branch is clean |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
@@ -1020,6 +1020,147 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: cache_cap=262144; native_solver=true and pipeline=t0 by default; all S1-S6 features remain false
   next_action: audit the selected-slice diff, commit and push S0-06, then stop; S1-01 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T22:00:01+09:00
+  stage: S1
+  slice: S1-01
+  old_status: NOT_STARTED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3564a25a3915a9b19569c568d19a52e073add3c9
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S1-01\\b' docs/fable/implementation-steps/s1-constructor.md
+    - test -f benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/COMPLETE
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s0 --latest-complete
+    - git merge-base --is-ancestor 3564a25 HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-01 adds assignment diagnostics only and does not integrate the constructor entry path
+  next_action: add the S1-01 assignment-v1 behavioral test and demonstrate the intended missing AssignmentV1 RED
+```
+
+```yaml
+- timestamp: 2026-07-12T22:02:00+09:00
+  stage: S1
+  slice: S1-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3564a25a3915a9b19569c568d19a52e073add3c9
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assign_v1.AssignmentV1Tests.test_all_blocks_fit_and_replay -v
+  red_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.assign and AssignmentV1 are absent
+  feature_default_decision: constructor=false; assignment-v1 remains disconnected from the entry path
+  next_action: implement the minimum deterministic assignment-v1 and S1-01 assignment benchmark support
+```
+
+```yaml
+- timestamp: 2026-07-12T22:03:00+09:00
+  stage: S1
+  slice: S1-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3564a25a3915a9b19569c568d19a52e073add3c9
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assign_v1.AssignmentV1Tests.test_all_blocks_fit_and_replay -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/green-targeted.txt
+  checker_result: targeted GREEN; deterministic replay and all fitting assignments passed, with all 48 current tests green
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; assignment-v1 is available as a deterministic component but remains disconnected from entry
+  next_action: full-check tracked and synthetic one-/multi-bay sequential assignment proofs
+```
+
+```yaml
+- timestamp: 2026-07-12T22:03:30+09:00
+  stage: S1
+  slice: S1-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3564a25a3915a9b19569c568d19a52e073add3c9
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assign_v1 -v
+  red_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/checker-proof.txt
+  checker_result: PASS; tracked example and synthetic one- and multi-bay sequential assignment solutions were feasible at official checker Stage 5 with exact float Z2/Z3 parity
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; no insertion, anchor, profile, or entry behavior was added
+  next_action: run the exact S1-01 smoke-3 assignment benchmark
+```
+
+```yaml
+- timestamp: 2026-07-12T22:03:41+09:00
+  stage: S1
+  slice: S1-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3564a25a3915a9b19569c568d19a52e073add3c9
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s1 --component assign_v1 --instances smoke-3 --timelimits 5 --seeds 20260710
+  red_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/full-regression.txt
+  checker_result: PASS; all three smoke-3 records reached official checker Stage 5 with zero float Z2/Z3 parity error
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/benchmark/20260712T130341Z-570b8595/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; assignment-v1 assigned all 500 smoke-3 blocks with fallback=0 and fit_failures=0; maximum recorded wall time was 1.8006254590000026 seconds
+  next_action: finalize slice-local structured evidence and run cleanup, frozen-file, syntax, and selected-diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T22:06:00+09:00
+  stage: S1
+  slice: S1-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s1): add deterministic assignment v1
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assign_v1.AssignmentV1Tests.test_all_blocks_fit_and_replay -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assign_v1 -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s1 --component assign_v1 --instances smoke-3 --timelimits 5 --seeds 20260710
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/assign.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_assign_v1.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/full-regression.txt
+  checker_result: PASS; tracked example, synthetic one-/multi-bay fixtures, and all three smoke-3 cases were official checker Stage 5 feasible with exact float Z2/Z3 parity
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/benchmark/20260712T130457Z-1bdc2e73/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-01 completed with 500 assigned smoke blocks, fallback=0, fit_failures=0, and maximum wall time 1.7571109999844339 seconds; no S1-02 behavior was started
+  next_action: commit and push S1-01, then stop; S1-02 is the next eligible slice
 ```
 
 ## 11. Planning quality audit
