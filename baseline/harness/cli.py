@@ -20,7 +20,7 @@ from typing import Any, Iterable, Mapping
 from shapely.affinity import translate
 
 from .compare import latency_summary
-from .gates import evaluate_s0, evaluate_s1, latest_summary
+from .gates import evaluate_s0, evaluate_s1, evaluate_s2, latest_summary
 from .package import StageUnsupportedError
 from .report import render_gate_report
 from .runner import (
@@ -33,6 +33,8 @@ from .runner import (
     run_escalation_stress_case,
     run_exact_probe_fault_case,
     run_retime_fault_case,
+    run_s2_entry_case,
+    run_s2_matrix_records,
     run_backend_parity_record,
     run_gurobi_retime_case,
     run_t0_case,
@@ -48,11 +50,21 @@ if BASELINE_ROOT not in sys.path:
     sys.path.insert(0, BASELINE_ROOT)
 
 try:
-    from baseline.solver.config import CAP_CALIBRATION_MATRIX, DEFAULT_CONFIG
+    from baseline.solver.config import (
+        CAP_CALIBRATION_MATRIX,
+        DEFAULT_CONFIG,
+        RETIME_PILOT_MATRIX,
+        RETIME_TIMEBOX_MATRIX,
+    )
     from baseline.solver.geometry import GeomKernel, ShapeInfo
     from baseline.solver.instance import ProblemInstance
 except ModuleNotFoundError:
-    from solver.config import CAP_CALIBRATION_MATRIX, DEFAULT_CONFIG
+    from solver.config import (
+        CAP_CALIBRATION_MATRIX,
+        DEFAULT_CONFIG,
+        RETIME_PILOT_MATRIX,
+        RETIME_TIMEBOX_MATRIX,
+    )
     from solver.geometry import GeomKernel, ShapeInfo
     from solver.instance import ProblemInstance
 
@@ -448,7 +460,11 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 def _benchmark(args: argparse.Namespace) -> int:
     if args.stage == "s2":
-        return _gurobi_retime_benchmark(args)
+        return (
+            _gurobi_retime_benchmark(args)
+            if args.component is not None
+            else _s2_entry_benchmark(args)
+        )
     if args.stage == "s1":
         if args.component == "assign_v1":
             return _assignment_benchmark(args)
@@ -613,6 +629,85 @@ def _gurobi_retime_benchmark(args: argparse.Namespace) -> int:
         model_assertion_count=sum(
             len(record.get("model_assertions", {})) for record in records
         ),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s2_entry_benchmark(args: argparse.Namespace) -> int:
+    if args.metric != "solver" or args.instances != "training":
+        raise SelectorError("S2-05 benchmark requires default metric and training")
+    features = _features(args.feature)
+    if features != {"exact_retime": "true", "retime_backend": "auto"}:
+        raise SelectorError(
+            "S2-05 benchmark requires exact_retime=true and retime_backend=auto"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (60.0,) or seeds != (20260710,):
+        raise SelectorError("S2-05 benchmark requires timelimits=60 and seeds=20260710")
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s2",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s2-05",
+            "selector": "training",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("training", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=60|seed=20260710|run=benchmark" for ref in refs
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        record_id = f"{ref.instance_id}|tl=60|seed=20260710|run=benchmark"
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_s2_entry_case(
+            ref,
+            selector="training",
+            timelimit=60.0,
+            seed=20260710,
+            features=features,
+            exact_retime=True,
+            timebox=DEFAULT_CONFIG.retime_timebox_seconds,
+            pilot_budget=DEFAULT_CONFIG.retime_pilot_seconds,
+            run_label="benchmark",
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("never_worse") is True
+            and record.get("exact_calls_bounded") is True
+            and float(record.get("wall_seconds", 999.0)) <= 60.25
+            for record in records
+        )
+    )
+    summary = _solver_summary("benchmark", "training", records, passed, stage="s2")
+    summary.update(
+        slice="s2-05",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        selected_timebox=DEFAULT_CONFIG.retime_timebox_seconds,
+        selected_pilot_budget=DEFAULT_CONFIG.retime_pilot_seconds,
+        never_worse_failure_count=sum(
+            record.get("never_worse") is not True for record in records
+        ),
+        exact_timebox_failure_count=sum(
+            record.get("exact_calls_bounded") is not True for record in records
+        ),
+        timeout_count=sum(bool(record.get("timeout")) for record in records),
         leak_count=0,
     )
     run.finalize(summary)
@@ -1321,13 +1416,17 @@ def _retime_fault_stress(args: argparse.Namespace) -> int:
             "S2-04 stress requires exact_retime=true and backend_fault="
             + ",".join(required_faults)
         )
-    if args.instances != "example":
-        raise SelectorError("S2-04 stress requires --instances example")
     timelimits = _csv_floats(args.timelimits)
     seeds = _csv_ints(args.seeds)
-    if timelimits != (12.0,) or seeds != (20260710,):
+    slice_id = "s2-04" if args.instances == "example" else "s2-05"
+    valid_matrix = (
+        (args.instances == "example" and timelimits == (12.0,))
+        or (args.instances == "smoke-3" and timelimits == (12.0, 60.0))
+    )
+    if not valid_matrix or seeds != (20260710,):
         raise SelectorError(
-            "S2-04 stress requires timelimits=12 and seeds=20260710"
+            "S2 retime stress requires example/timelimits=12 or "
+            "smoke-3/timelimits=12,60 and seeds=20260710"
         )
     run, evidence_root = _start_stage_run(
         args,
@@ -1335,35 +1434,39 @@ def _retime_fault_stress(args: argparse.Namespace) -> int:
         command="stress",
         expected_record_ids=(),
         metadata={
-            "slice": "s2-04",
-            "selector": "example",
+            "slice": slice_id,
+            "selector": args.instances,
             "features": dict(features),
         },
         delayed_expected=True,
     )
-    refs = select_instances("example", fixture_dir=run.run_dir / "fixtures")
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
     expected = tuple(
-        f"{ref.instance_id}|tl=12|seed=20260710|fault={fault}"
+        f"{ref.instance_id}|tl={timelimit:g}|seed=20260710|fault={fault}"
         for ref in refs
+        for timelimit in timelimits
         for fault in required_faults
     )
     _set_expected(run, expected)
     for ref in refs:
-        for fault in required_faults:
-            record_id = f"{ref.instance_id}|tl=12|seed=20260710|fault={fault}"
-            if record_id not in run.pending_record_ids:
-                continue
-            record = run_retime_fault_case(
-                ref,
-                selector="example",
-                timelimit=12.0,
-                seed=20260710,
-                features=features,
-                fault=fault,
-            )
-            run.append_record(
-                _deduplicate(evidence_root, record, rerun=args.rerun)
-            )
+        for timelimit in timelimits:
+            for fault in required_faults:
+                record_id = (
+                    f"{ref.instance_id}|tl={timelimit:g}|seed=20260710|fault={fault}"
+                )
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_retime_fault_case(
+                    ref,
+                    selector=args.instances,
+                    timelimit=timelimit,
+                    seed=20260710,
+                    features=features,
+                    fault=fault,
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
     records = _effective_records(run.records)
     passed = (
         len(records) == len(expected)
@@ -1373,7 +1476,8 @@ def _retime_fault_stress(args: argparse.Namespace) -> int:
             and record.get("checker", {}).get("stage") == 5
             and record.get("never_worse") is True
             and record.get("unverified_return_count") == 0
-            and float(record.get("wall_seconds", 999.0)) <= 12.25
+            and float(record.get("wall_seconds", 999.0))
+            <= float(record.get("timelimit", 0.0)) + 0.25
             and (
                 record.get("selected_backend") == "cpsat"
                 if record.get("backend_fault") != "both"
@@ -1382,9 +1486,9 @@ def _retime_fault_stress(args: argparse.Namespace) -> int:
             for record in records
         )
     )
-    summary = _solver_summary("stress", "example", records, passed, stage="s2")
+    summary = _solver_summary("stress", args.instances, records, passed, stage="s2")
     summary.update(
-        slice="s2-04",
+        slice=slice_id,
         timelimits=timelimits,
         seeds=seeds,
         features=dict(features),
@@ -1600,6 +1704,8 @@ def _constructor_entry_stress(
 
 
 def _ab(args: argparse.Namespace) -> int:
+    if args.stage == "s2":
+        return _s2_ab(args)
     if args.stage != "s1":
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if args.instances != "dev-10":
@@ -1714,17 +1820,144 @@ def _ab(args: argparse.Namespace) -> int:
     return EXIT_PASS if passed else EXIT_GATE_FAILURE
 
 
+def _s2_ab(args: argparse.Namespace) -> int:
+    if args.instances != "dev-10":
+        raise SelectorError("S2-05 A/B requires --instances dev-10")
+    if tuple(args.feature) != ("exact_retime",):
+        raise SelectorError("S2-05 A/B requires --feature exact_retime")
+    if args.a != "false" or args.b != "true":
+        raise SelectorError("S2-05 A/B requires --a false --b true")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds) if args.seeds else (args.seed,)
+    if timelimits != (60.0,) or seeds != (20260710,):
+        raise SelectorError("S2-05 A/B requires timelimits=60 and seed=20260710")
+    features = {"feature": "exact_retime", "a": "false", "b": "true"}
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s2",
+        command="ab",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s2-05",
+            "selector": "dev-10",
+            "feature": "exact_retime",
+            "timebox_matrix": RETIME_TIMEBOX_MATRIX,
+            "pilot_matrix": RETIME_PILOT_MATRIX,
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("dev-10", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=60|seed=20260710|run={ordering}-tb{timebox:g}-pb{pilot:g}"
+        for ref in refs
+        for ordering in ("forward", "reverse")
+        for timebox in RETIME_TIMEBOX_MATRIX
+        for pilot in RETIME_PILOT_MATRIX
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        if not any(item.startswith(f"{ref.instance_id}|") for item in run.pending_record_ids):
+            continue
+        for record in run_s2_matrix_records(
+            ref,
+            selector="dev-10",
+            timelimit=60.0,
+            seed=20260710,
+            timeboxes=RETIME_TIMEBOX_MATRIX,
+            pilot_budgets=RETIME_PILOT_MATRIX,
+            features=features,
+        ):
+            if record["record_id"] in run.pending_record_ids:
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    candidates = []
+    for timebox in RETIME_TIMEBOX_MATRIX:
+        for pilot in RETIME_PILOT_MATRIX:
+            rows = tuple(
+                record
+                for record in records
+                if float(record.get("timebox", -1.0)) == timebox
+                and float(record.get("pilot_budget", -1.0)) == pilot
+            )
+            by_instance: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                by_instance.setdefault(str(row["instance_id"]), []).append(row)
+            gains = [
+                statistics.median(float(item["z1_gain"]) for item in instance_rows)
+                for instance_rows in by_instance.values()
+                if len(instance_rows) == 2
+            ]
+            walls = [float(row["wall_seconds"]) for row in rows]
+            all_feasible = (
+                len(rows) == 20
+                and len(gains) == 10
+                and all(row.get("checker", {}).get("feasible") is True for row in rows)
+                and all(row.get("never_worse") is True for row in rows)
+                and all(row.get("exact_calls_bounded") is True for row in rows)
+                and all(float(row.get("wall_seconds", 999.0)) <= 60.25 for row in rows)
+            )
+            candidates.append({
+                "timebox": timebox,
+                "pilot_budget": pilot,
+                "all_feasible": all_feasible,
+                "median_z1_gain": statistics.median(gains) if gains else 0.0,
+                "median_wall_seconds": statistics.median(walls) if walls else 999.0,
+                "record_count": len(rows),
+                "regression_count": sum(row.get("never_worse") is not True for row in rows),
+            })
+    selected = min(
+        candidates,
+        key=lambda item: (
+            not bool(item["all_feasible"]),
+            -float(item["median_z1_gain"]),
+            float(item["median_wall_seconds"]),
+            float(item["timebox"]),
+            float(item["pilot_budget"]),
+        ),
+    )
+    configured_match = (
+        selected["timebox"] == DEFAULT_CONFIG.retime_timebox_seconds
+        and selected["pilot_budget"] == DEFAULT_CONFIG.retime_pilot_seconds
+    )
+    passed = (
+        len(records) == len(expected)
+        and bool(selected["all_feasible"])
+        and float(selected["median_z1_gain"]) > 0.0
+        and int(selected["regression_count"]) == 0
+    )
+    summary = _solver_summary("ab", "dev-10", records, passed, stage="s2")
+    summary.update(
+        slice="s2-05",
+        feature="exact_retime",
+        a=False,
+        b=True,
+        timelimits=timelimits,
+        seeds=seeds,
+        timebox_matrix=list(RETIME_TIMEBOX_MATRIX),
+        pilot_matrix=list(RETIME_PILOT_MATRIX),
+        candidates=candidates,
+        selected_timebox=selected["timebox"],
+        selected_pilot_budget=selected["pilot_budget"],
+        median_z1_gain=selected["median_z1_gain"],
+        regression_count=selected["regression_count"],
+        configured_match=configured_match,
+        deterministic_orderings=["forward", "reverse"],
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_GATE_FAILURE
+
+
 def _gate(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1"}:
+    if args.stage not in {"s0", "s1", "s2"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} gate requires --latest-complete")
     requested_commit = repository_provenance()["commit"] if args.commit == "HEAD" else args.commit
-    decision = (
-        evaluate_s0(_evidence_root(args))
-        if args.stage == "s0"
-        else evaluate_s1(_evidence_root(args))
-    )
+    evaluators = {"s0": evaluate_s0, "s1": evaluate_s1, "s2": evaluate_s2}
+    decision = evaluators[args.stage](_evidence_root(args))
     decision["requested_commit"] = requested_commit
     record_id = f"{args.stage}-gate"
     if args.stage == "s0":
@@ -1735,7 +1968,7 @@ def _gate(args: argparse.Namespace) -> int:
     else:
         run, _ = _start_stage_run(
             args,
-            stage="s1",
+            stage=args.stage,
             command="gate",
             expected_record_ids=(record_id,),
             metadata={"stage": args.stage, "requested_commit": requested_commit},
@@ -1754,7 +1987,7 @@ def _gate(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1"}:
+    if args.stage not in {"s0", "s1", "s2"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} report requires --latest-complete")
@@ -1778,7 +2011,7 @@ def _report(args: argparse.Namespace) -> int:
     else:
         run, _ = _start_stage_run(
             args,
-            stage="s1",
+            stage=args.stage,
             command="report",
             expected_record_ids=(record_id,),
             metadata={"stage": args.stage, "gate_run": str(gate_dir)},

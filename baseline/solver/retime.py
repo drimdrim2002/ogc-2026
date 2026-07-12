@@ -43,6 +43,11 @@ class RetimeAttempt:
     before_z1: float
     candidate_z1: float | None
     timebox: float
+    objective: float | None
+    bound: float | None
+    build_s: float
+    solve_s: float
+    first_solution_s: float | None
     reason: str | None
 
 
@@ -131,11 +136,12 @@ def retime_bay(
     budget: Budget,
     seed: int = 20260710,
     threads: int = 4,
+    call_timebox_cap: float = 5.0,
 ) -> RetimeBayOutcome:
     """Run one backend within the S2 per-call timebox and return a copy."""
 
     request = _request_for_bay(state, bay_id, seed=seed, threads=threads)
-    timebox = min(5.0, 0.10 * budget.remaining)
+    timebox = min(call_timebox_cap, 0.10 * budget.remaining)
     result = deadline_bounded_call(
         backend,
         request,
@@ -163,6 +169,8 @@ def retime_sweep(
     first_sweep_budget: float,
     seed: int = 20260710,
     threads: int = 4,
+    call_timebox_cap: float = 5.0,
+    pilot_budget_cap: float = 4.0,
 ) -> RetimeSweepOutcome:
     """Pilot once, fix a winner, and checker-guard each improving bay copy."""
 
@@ -179,6 +187,8 @@ def retime_sweep(
         available_backends=available_backends,
         budget=budget,
         first_sweep_budget=first_sweep_budget,
+        pilot_budget_cap=pilot_budget_cap,
+        call_timebox_cap=call_timebox_cap,
     )
     current = _copy_state(state)
     if pilot.backend is None:
@@ -198,6 +208,7 @@ def retime_sweep(
             budget=budget,
             seed=seed,
             threads=threads,
+            call_timebox_cap=call_timebox_cap,
         )
         candidate_z1 = (
             outcome.candidate.z1 if outcome.candidate is not None else None
@@ -223,6 +234,11 @@ def retime_sweep(
                 before_z1=before_z1,
                 candidate_z1=candidate_z1,
                 timebox=outcome.timebox,
+                objective=outcome.result.objective,
+                bound=outcome.result.bound,
+                build_s=outcome.result.build_s,
+                solve_s=outcome.result.solve_s,
+                first_solution_s=outcome.result.first_solution_s,
                 reason=reason,
             )
         )

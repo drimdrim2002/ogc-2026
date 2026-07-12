@@ -29,6 +29,28 @@ class BudgetTests(unittest.TestCase):
 
 
 class EntryArmorTests(unittest.TestCase):
+    def test_retime_failure_keeps_constructor(self):
+        prob_info = instance(
+            [
+                block(release=0, due=2, processing=2),
+                block(release=0, due=3, processing=2),
+                block(release=1, due=4, processing=1),
+            ]
+        )
+        constructor = solve(prob_info, 12.0, _retime=False)
+
+        faulted = solve(
+            prob_info,
+            12.0,
+            _retime=True,
+            _fault="during_retime",
+        )
+
+        self.assertEqual(constructor, faulted)
+        checked = official_check(prob_info, faulted)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+
     def test_constructor_failure_keeps_t0(self):
         prob_info = instance(
             [

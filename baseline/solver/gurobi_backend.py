@@ -171,7 +171,10 @@ def retime_gurobi(request: RetimeRequest, timebox: float) -> ExactResult:
                 "Gurobi model construction consumed the exact timebox",
                 build_s=build_s,
             )
-        model.Params.TimeLimit = remaining
+        # Reserve adapter/extraction overhead inside the immutable call
+        # allowance so the common strict timebox normalizer can retain a
+        # time-limited incumbent instead of discarding it as overtime.
+        model.Params.TimeLimit = max(0.001, remaining - min(0.25, 0.25 * remaining))
 
         first_solution: list[float | None] = [None]
 
@@ -223,7 +226,13 @@ def retime_gurobi(request: RetimeRequest, timebox: float) -> ExactResult:
                 )
                 for block_id in request.block_ids
             )
-            objective = float(model.ObjVal)
+            dues = dict(request.dues)
+            objective = float(
+                sum(
+                    max(0, exit_time - dues[block_id])
+                    for block_id, _entry, exit_time in solution
+                )
+            )
             bound = _finite_attr(model, "ObjBound")
         except Exception as exc:
             return _empty(

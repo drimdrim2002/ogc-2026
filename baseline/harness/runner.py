@@ -42,6 +42,7 @@ try:
         retime_gurobi,
     )
     from baseline.solver.incumbent import VerifiedIncumbent
+    from baseline.solver.entry import solve
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.retime import retime_sweep
     from baseline.solver.serialize import serialize_non_interlock
@@ -63,6 +64,7 @@ except ModuleNotFoundError:
     from solver.cpsat_backend import retime_cpsat
     from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
     from solver.incumbent import VerifiedIncumbent
+    from solver.entry import solve
     from solver.instance import ProblemInstance
     from solver.retime import retime_sweep
     from solver.serialize import serialize_non_interlock
@@ -1244,6 +1246,309 @@ def run_retime_fault_case(
         "fallback_tier": "constructor" if unchanged else "retime",
         "fallback_reason": fault,
     }
+
+
+def run_s2_entry_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    exact_retime: bool,
+    timebox: float,
+    pilot_budget: float,
+    run_label: str,
+) -> dict[str, Any]:
+    """Run the S2 entry pipeline and expose checker/backend timing evidence."""
+
+    provenance = repository_provenance()
+    effective_features = {
+        **features,
+        "exact_retime": str(exact_retime).lower(),
+        "timebox": f"{timebox:g}",
+        "pilot_budget": f"{pilot_budget:g}",
+        "run": run_label,
+    }
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-exact-retime-entry" if exact_retime else "native-constructor-entry",
+        timelimit=timelimit,
+        seed=seed,
+        features=effective_features,
+    )
+    telemetry: dict[str, Any] = {}
+    started = time.monotonic()
+    solution = solve(
+        ref.prob_info,
+        timelimit,
+        _constructor=True,
+        _retime=exact_retime,
+        _seed=seed,
+        _retime_timebox=timebox,
+        _retime_pilot=pilot_budget,
+        _telemetry=telemetry,
+    )
+    wall_seconds = time.monotonic() - started
+    checked = official_check(ref.prob_info, solution)
+    output_sha = hashlib.sha256(
+        json.dumps(solution, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    attempts = tuple(telemetry.get("retime_attempts", ()))
+    pilot_payload = telemetry.get("retime_pilot") or {}
+    pilot_trials = tuple(pilot_payload.get("trials", ()))
+    exact_calls = attempts + pilot_trials
+    max_exact_call_seconds = max(
+        (
+            float(item.get("build_s", 0.0)) + float(item.get("solve_s", 0.0))
+            for item in exact_calls
+        ),
+        default=0.0,
+    )
+    max_requested_timebox = max(
+        (float(item.get("timebox", 0.0)) for item in exact_calls),
+        default=0.0,
+    )
+    before_z1 = telemetry.get("retime_before_z1", checked.obj1)
+    after_z1 = telemetry.get("retime_after_z1", checked.obj1)
+    never_worse = (
+        before_z1 is not None
+        and after_z1 is not None
+        and float(after_z1) <= float(before_z1) + 1e-9
+    )
+    bounded = (
+        max_exact_call_seconds <= max_requested_timebox + 0.25
+        if exact_calls
+        else True
+    )
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and never_worse
+        and bounded
+        and wall_seconds <= timelimit + 0.25
+    )
+    accepted = int(telemetry.get("retime_accepted_bays", 0)) + int(
+        telemetry.get("retime_final_accepted_bays", 0)
+    )
+    return {
+        "record_id": f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|run={run_label}",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "native-exact-retime-entry" if exact_retime else "native-constructor-entry",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(effective_features.items())),
+        "wall_seconds": wall_seconds,
+        "checker": checker_payload(checked),
+        "stage_timing": {
+            "t0_and_verify_seconds": telemetry.get("t0_and_verify_seconds", 0.0),
+            "constructor_seconds": telemetry.get("constructor_seconds", 0.0),
+            "retime_seconds": telemetry.get("retime_seconds", 0.0),
+        },
+        "constructor_updated": telemetry.get("constructor_updated", False),
+        "selected_backend": telemetry.get("retime_backend"),
+        "pilot": telemetry.get("retime_pilot"),
+        "attempts": list(attempts),
+        "accepted_bays": accepted,
+        "before_z1": before_z1,
+        "after_z1": after_z1,
+        "z1_gain": (
+            float(before_z1) - float(after_z1)
+            if before_z1 is not None and after_z1 is not None
+            else 0.0
+        ),
+        "final_objective": checked.objective,
+        "never_worse": never_worse,
+        "max_exact_call_seconds": max_exact_call_seconds,
+        "max_requested_timebox": max_requested_timebox,
+        "exact_calls_bounded": bounded,
+        "output_sha256": output_sha,
+        "timeout": wall_seconds > timelimit + 0.25,
+        "crash": False,
+        "exception": telemetry.get("fallback_reason"),
+        "incumbent_verification_count": int(
+            telemetry.get("incumbent_verification_count", 0)
+        ),
+        "unverified_return_count": 0,
+        "fallback_tier": "retime" if accepted else "constructor",
+        "fallback_reason": telemetry.get("fallback_reason") or (
+            "no_strict_retime_improvement" if exact_retime and accepted == 0 else None
+        ),
+    }
+
+
+def run_s2_matrix_records(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    timeboxes: tuple[float, ...],
+    pilot_budgets: tuple[float, ...],
+    features: Mapping[str, str],
+) -> tuple[dict[str, Any], ...]:
+    """Evaluate the preregistered S2 matrix from one verified S1 state."""
+
+    provenance = repository_provenance()
+    construction_started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    base_incumbent = VerifiedIncumbent(parsed)
+    t0_state = build_t0(parsed)
+    base_incumbent.register_initial(t0_state)
+    remaining = max(0.0, timelimit - (time.monotonic() - construction_started))
+    reserve = min(
+        DEFAULT_CONFIG.constructor_return_reserve_seconds,
+        max(remaining - 0.05, 0.0),
+    )
+    constructed = construct_multistart(
+        parsed,
+        base_incumbent,
+        Budget(remaining, reserve=reserve),
+        seed=seed,
+        profiles=DEFAULT_CONFIG.constructor_profiles,
+        biased_variants=False,
+        calibrated_entry=True,
+        time_cap=DEFAULT_CONFIG.constructor_time_cap,
+        anchor_cap=DEFAULT_CONFIG.constructor_anchor_cap,
+    )
+    state = constructed.state if constructed.metrics.incumbent_updated else t0_state
+    construction_seconds = time.monotonic() - construction_started
+    matrix = tuple(itertools.product(timeboxes, pilot_budgets))
+    records: list[dict[str, Any]] = []
+    for ordering, candidates in (("forward", matrix), ("reverse", tuple(reversed(matrix)))):
+        for timebox, pilot_budget in candidates:
+            candidate_started = time.monotonic()
+            incumbent = VerifiedIncumbent(parsed)
+            incumbent.register_initial(state)
+            before_z1 = incumbent.checker_result.obj1
+            exact_budget = Budget(
+                max(0.0, timelimit - construction_seconds), reserve=0.0
+            )
+            outcome = retime_sweep(
+                state,
+                incumbent,
+                {"gurobi": retime_gurobi, "cpsat": retime_cpsat},
+                available_backends=("gurobi", "cpsat"),
+                budget=exact_budget,
+                first_sweep_budget=exact_budget.remaining,
+                seed=seed,
+                threads=DEFAULT_CONFIG.retime_threads,
+                call_timebox_cap=timebox,
+                pilot_budget_cap=pilot_budget,
+            )
+            checked = official_check(ref.prob_info, incumbent.solution)
+            after_z1 = checked.obj1
+            attempts = tuple(
+                asdict(item)
+                for item in outcome.attempts
+            )
+            pilot = asdict(outcome.pilot)
+            exact_calls = attempts + tuple(pilot.get("trials", ()))
+            max_call = max(
+                (
+                    float(item.get("build_s", 0.0))
+                    + float(item.get("solve_s", 0.0))
+                    for item in exact_calls
+                ),
+                default=0.0,
+            )
+            max_requested = max(
+                (float(item.get("timebox", 0.0)) for item in exact_calls),
+                default=0.0,
+            )
+            wall_seconds = construction_seconds + time.monotonic() - candidate_started
+            never_worse = (
+                before_z1 is not None
+                and after_z1 is not None
+                and float(after_z1) <= float(before_z1) + 1e-9
+            )
+            bounded = not exact_calls or max_call <= max_requested + 0.25
+            passed = (
+                checked.feasible
+                and checked.stage == 5
+                and never_worse
+                and bounded
+                and wall_seconds <= timelimit + 0.25
+            )
+            run_label = f"{ordering}-tb{timebox:g}-pb{pilot_budget:g}"
+            effective_features = {
+                **features,
+                "timebox": f"{timebox:g}",
+                "pilot_budget": f"{pilot_budget:g}",
+                "ordering": ordering,
+            }
+            records.append({
+                "record_id": (
+                    f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|run={run_label}"
+                ),
+                "identity": record_identity(
+                    commit=provenance["commit"],
+                    dirty_diff_hash=provenance["dirty_diff_hash"],
+                    instance_sha=ref.sha256,
+                    solver="native-exact-retime-matrix",
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=effective_features,
+                ),
+                "complete": True,
+                "status": "passed" if passed else "checker_failed",
+                "timestamp": datetime.now().astimezone().isoformat(),
+                **provenance,
+                "instance_id": ref.instance_id,
+                "instance_path": str(ref.path),
+                "instance_sha": ref.sha256,
+                "selector": selector,
+                "solver": "native-exact-retime-matrix",
+                "timelimit": timelimit,
+                "seed": seed,
+                "features": dict(sorted(effective_features.items())),
+                "ordering": ordering,
+                "timebox": timebox,
+                "pilot_budget": pilot_budget,
+                "construction_seconds": construction_seconds,
+                "wall_seconds": wall_seconds,
+                "checker": checker_payload(checked),
+                "selected_backend": outcome.pilot.backend,
+                "pilot": pilot,
+                "attempts": attempts,
+                "accepted_bays": outcome.accepted_bays,
+                "before_z1": before_z1,
+                "after_z1": after_z1,
+                "z1_gain": (
+                    float(before_z1) - float(after_z1)
+                    if before_z1 is not None and after_z1 is not None
+                    else 0.0
+                ),
+                "never_worse": never_worse,
+                "max_exact_call_seconds": max_call,
+                "max_requested_timebox": max_requested,
+                "exact_calls_bounded": bounded,
+                "incumbent_verification_count": incumbent.verification_count,
+                "unverified_return_count": 0,
+                "timeout": wall_seconds > timelimit + 0.25,
+                "crash": False,
+                "exception": None,
+                "fallback_tier": (
+                    "retime" if outcome.accepted_bays > 0 else "constructor"
+                ),
+                "fallback_reason": (
+                    None if outcome.accepted_bays > 0 else "no_strict_retime_improvement"
+                ),
+            })
+    return tuple(records)
 
 
 def run_cap_calibration_case(

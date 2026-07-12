@@ -290,6 +290,8 @@ def select_pilot_backend(
     available_backends: Iterable[str],
     budget: Budget,
     first_sweep_budget: float,
+    pilot_budget_cap: float = 4.0,
+    call_timebox_cap: float | None = None,
 ) -> PilotSelection:
     """Pilot at most two tardiest bays and fix one backend for the sweep.
 
@@ -301,6 +303,12 @@ def select_pilot_backend(
     """
 
     sweep_budget = _finite_nonnegative(first_sweep_budget, "first_sweep_budget")
+    pilot_cap = _finite_nonnegative(pilot_budget_cap, "pilot_budget_cap")
+    call_cap = (
+        math.inf
+        if call_timebox_cap is None
+        else _finite_nonnegative(call_timebox_cap, "call_timebox_cap")
+    )
     names = tuple(available_backends)
     if len(names) != len(set(names)) or any(name not in BACKENDS for name in names):
         raise ValueError("available_backends must contain unique known backends")
@@ -314,12 +322,12 @@ def select_pilot_backend(
     )
     selected_requests = tuple(requests)[:2]
     safe_remaining = budget.remaining
-    total_budget = min(4.0, 0.08 * safe_remaining, 0.5 * sweep_budget)
+    total_budget = min(pilot_cap, 0.08 * safe_remaining, 0.5 * sweep_budget)
     call_count = len(names) * len(selected_requests)
     if total_budget <= 0.0 or call_count == 0:
         return PilotSelection(fallback, total_budget, 0.0, ())
 
-    call_timebox = total_budget / call_count
+    call_timebox = min(total_budget / call_count, call_cap)
     trials: list[PilotTrial] = []
     ranked: list[tuple[float, float, float, str]] = []
     for request in selected_requests:

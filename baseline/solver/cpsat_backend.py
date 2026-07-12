@@ -135,7 +135,12 @@ def retime_cpsat(request: RetimeRequest, timebox: float) -> ExactResult:
                 "CP-SAT model construction consumed the exact timebox",
                 build_s=build_s,
             )
-        solver.parameters.max_time_in_seconds = remaining
+        # Keep model teardown and pure-data extraction inside the caller's
+        # strict allowance; the outer gate separately permits 0.25s of
+        # pipeline scheduling noise.
+        solver.parameters.max_time_in_seconds = max(
+            0.001, remaining - min(0.25, 0.25 * remaining)
+        )
         solver.parameters.num_search_workers = spec.workers
         solver.parameters.random_seed = spec.seed
         solver.parameters.log_search_progress = spec.log_search_progress
@@ -184,7 +189,13 @@ def retime_cpsat(request: RetimeRequest, timebox: float) -> ExactResult:
                 )
                 for block_id in request.block_ids
             )
-            objective = float(solver.objective_value)
+            dues = dict(request.dues)
+            objective = float(
+                sum(
+                    max(0, exit_time - dues[block_id])
+                    for block_id, _entry, exit_time in solution
+                )
+            )
             bound = _finite_value(solver.best_objective_bound)
         except Exception as exc:
             return _empty(

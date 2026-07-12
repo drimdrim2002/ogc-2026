@@ -6,11 +6,13 @@ from dataclasses import dataclass
 
 
 CAP_CALIBRATION_MATRIX = ((8, 32), (8, 48), (16, 48), (16, 64))
+RETIME_TIMEBOX_MATRIX = (1.0, 2.0, 5.0)
+RETIME_PILOT_MATRIX = (0.0, 2.0, 4.0)
 
 
 @dataclass(frozen=True, slots=True)
 class SolverConfig:
-    """Central feature flags and S1 constructor calibration choices."""
+    """Central feature flags and evidence-selected pipeline choices."""
 
     constructor: bool = True
     constructor_seed: int = 20260710
@@ -18,6 +20,12 @@ class SolverConfig:
     constructor_time_cap: int = 16
     constructor_anchor_cap: int = 48
     constructor_return_reserve_seconds: float = 0.5
+    exact_retime: bool = True
+    retime_backend: str = "auto"
+    retime_timebox_seconds: float = 5.0
+    retime_pilot_seconds: float = 0.0
+    retime_threads: int = 1
+    retime_final_sweep: bool = True
 
 
 DEFAULT_CONFIG = SolverConfig()

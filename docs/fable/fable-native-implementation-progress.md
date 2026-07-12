@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S2 in progress (S2-04 active)
+Planning status: complete; implementation status: S2 complete
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -149,7 +149,7 @@ S0 foundation
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
-| S2 | `IN_PROGRESS` | `S2-04` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-04/20260712T154100Z-s2-04/` | pending atomic S2-04 commit | — | commit and push S2-04; S2-05 becomes eligible only after upstream equality and a clean worktree |
+| S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | pending atomic S2-05 commit | — | stop at S2-05 boundary; S3 is eligible only in a new task under its own orchestration |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
@@ -2213,6 +2213,108 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: exact_retime=false; S2-04 COMPLETE with bounded two-bay pilot, deterministic fixed winner, copy-only application, per-call timeboxes, strict-Z1/checker guards, CP-SAT fallback for four Gurobi fault boundaries, and exact constructor-SHA preservation when both backends fail
   next_action: stage only the six S2-04 implementation files, commit feat(s2): guard and select exact retiming, push, verify upstream equality and clean status, then create the S2-05 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T00:49:42+09:00
+  stage: S2
+  slice: S2-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 82dbcf562dc2089b54e7a8390951fabb1948e8f5
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S2-05\\b' docs/fable/implementation-steps/s2-exact-retiming.md
+    - inspect S1 gate and S1 incumbent evidence plus every S2-01 through S2-04 COMPLETE marker and summary
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s1 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_retime.RetimeTests.test_never_worse_and_fixed_pilot -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false until the S2-05 timebox/pilot matrix and full S2 gate pass; entry integration must preserve the verified constructor incumbent on every retime failure
+  next_action: add the S2-05 retime failure armor test and demonstrate the intended missing entry branch RED
+```
+
+```yaml
+- timestamp: 2026-07-13T00:50:26+09:00
+  stage: S2
+  slice: S2-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 82dbcf562dc2089b54e7a8390951fabb1948e8f5
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_retime_failure_keeps_constructor -v
+  red_evidence: benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solve has no _retime entry-integration argument or branch
+  feature_default_decision: exact_retime=false until the measured matrix and full S2 gate pass
+  next_action: implement the minimum guarded initial retime sweep, optional final sweep, backend/fallback telemetry, and measured configuration hooks
+```
+
+```yaml
+- timestamp: 2026-07-13T00:55:23+09:00
+  stage: S2
+  slice: S2-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 82dbcf562dc2089b54e7a8390951fabb1948e8f5
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_retime_failure_keeps_constructor -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry tests.test_exact_backends tests.test_retime -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/green-targeted.txt; benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/full-regression.txt
+  checker_result: targeted retime-failure armor GREEN and all 66 S0-S2 tests GREEN
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false pending the dev-10 matrix and full S2 gate; provisional timebox=2 and pilot=2 are not yet evidence-selected
+  next_action: run backend parity and the preregistered dev-10 timebox/pilot matrix, then configure the measured winner
+```
+
+```yaml
+- timestamp: 2026-07-13T04:19:24+09:00
+  stage: S2
+  slice: S2-05
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s2): integrate measured exact retiming
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_retime_failure_keeps_constructor -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind backend --cases 50 --instances synthetic --seed 20260710 --feature timebox=2
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s2 --instances training --timelimits 60 --seeds 20260710 --feature exact_retime=true --feature retime_backend=auto
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s2 --instances dev-10 --timelimits 60 --seed 20260710 --feature exact_retime --a false --b true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s2 --instances smoke-3 --timelimits 12,60 --seeds 20260710 --feature exact_retime=true --feature backend_fault=gurobi_import,gurobi_license,gurobi_optimize,gurobi_extract,both
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s2 --latest-complete --commit HEAD
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s2 --latest-complete
+  red_evidence: benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/green-targeted.txt; benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/full-regression.txt
+  checker_result: PASS; 40/40 training, 180/180 matrix, and 30/30 stress records checker-feasible with zero never-worse violations
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/summary.json; benchmarks/evidence/s2/benchmark/20260712T190422Z-20ec7fc4/; benchmarks/evidence/s2/ab/20260712T183525Z-389fd2ee/; benchmarks/evidence/s2/stress/20260712T183035Z-c7ce6af9/
+  gate_decision: PASS
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=true with retime_backend=auto, 5-second call cap, zero pilot, one thread, guarded initial sweep and optional budgeted final sweep; dev-10 median Z1 gain 445.5
+  next_action: clean backend/process artifacts, audit the selected-slice diff, commit and push S2-05, verify upstream equality and clean status, then stop without creating another task because S2-05 maps to END
 ```
 
 ## 11. Planning quality audit

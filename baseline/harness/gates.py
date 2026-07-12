@@ -194,3 +194,98 @@ def evaluate_s1(evidence_root: Path) -> dict[str, Any]:
         "selected_cap_pair": [16, 48] if not failures else None,
         "profile_budget": ["PF3"] if not failures else None,
     }
+
+
+def evaluate_s2(evidence_root: Path) -> dict[str, Any]:
+    """Evaluate the immutable S2 parity, gain, fallback, and timebox gate."""
+
+    requirements = (
+        ("parity", {"stage": "s2", "kind": "backend", "cases": 50}),
+        ("benchmark", {"stage": "s2", "slice": "s2-05", "selector": "training"}),
+        ("ab", {"stage": "s2", "slice": "s2-05", "selector": "dev-10"}),
+        ("stress", {"stage": "s2", "slice": "s2-05", "selector": "smoke-3"}),
+    )
+    selected: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for command, match in requirements:
+        found = latest_summary(
+            evidence_root,
+            stage="s2",
+            command=command,
+            match=match,
+        )
+        label = f"{command}:{','.join(f'{key}={value}' for key, value in match.items())}"
+        if found is None:
+            failures.append(f"missing complete evidence for {label}")
+            continue
+        run_dir, summary = found
+        selected.append({"requirement": label, "run_dir": str(run_dir), "summary": summary})
+        if summary.get("status") != "passed":
+            failures.append(f"non-passing evidence for {label}")
+
+    def chosen(prefix: str) -> dict[str, Any] | None:
+        return next(
+            (item["summary"] for item in selected if item["requirement"].startswith(prefix)),
+            None,
+        )
+
+    parity = chosen("parity:")
+    if parity is not None and any(
+        int(parity.get(key, 0)) != 0
+        for key in (
+            "semantic_mismatch_count",
+            "optimal_mismatch_count",
+            "backend_mismatch_count",
+        )
+    ):
+        failures.append("backend parity contains a semantic or optimal mismatch")
+
+    benchmark = chosen("benchmark:")
+    if benchmark is not None:
+        if benchmark.get("record_count") != 40 or benchmark.get("feasible_count") != 40:
+            failures.append("S2 training benchmark does not contain 40 feasible records")
+        if benchmark.get("never_worse_failure_count") != 0:
+            failures.append("S2 training benchmark contains a Z1 regression")
+        if benchmark.get("exact_timebox_failure_count") != 0:
+            failures.append("S2 training benchmark contains an exact timebox violation")
+        if benchmark.get("timeout_count") != 0 or benchmark.get("leak_count") != 0:
+            failures.append("S2 training benchmark contains a timeout or leak")
+
+    ab = chosen("ab:")
+    if ab is not None:
+        if float(ab.get("median_z1_gain", 0.0)) <= 0.0:
+            failures.append("S2 dev-10 median Z1 gain is not positive")
+        if ab.get("regression_count") != 0:
+            failures.append("S2 dev-10 matrix contains a Z1 regression")
+    if benchmark is not None and ab is not None:
+        if benchmark.get("selected_timebox") != ab.get("selected_timebox"):
+            failures.append("S2 benchmark timebox does not match the measured winner")
+        if benchmark.get("selected_pilot_budget") != ab.get("selected_pilot_budget"):
+            failures.append("S2 benchmark pilot budget does not match the measured winner")
+
+    stress = chosen("stress:")
+    if stress is not None:
+        if stress.get("record_count") != 30 or stress.get("feasible_count") != 30:
+            failures.append("S2 stress does not contain 30 feasible records")
+        if stress.get("cpsat_fallback_count") != 24:
+            failures.append("S2 stress did not select CP-SAT for every Gurobi fault")
+        if stress.get("both_fail_sha_match_count") != 6:
+            failures.append("S2 both-fail stress did not preserve every constructor SHA")
+        if stress.get("never_worse_failure_count") != 0:
+            failures.append("S2 stress contains a Z1 regression")
+        if stress.get("timeout_count") != 0 or stress.get("leak_count") != 0:
+            failures.append("S2 stress contains a timeout or leak")
+
+    selected_timebox = ab.get("selected_timebox") if ab is not None else None
+    selected_pilot = ab.get("selected_pilot_budget") if ab is not None else None
+    return {
+        "stage": "s2",
+        "status": "passed" if not failures else "failed",
+        "decision": "PASS" if not failures else "FAIL",
+        "selected_evidence": selected,
+        "failures": failures,
+        "exact_retime": not failures,
+        "retime_backend": "auto" if not failures else None,
+        "selected_timebox": selected_timebox if not failures else None,
+        "selected_pilot_budget": selected_pilot if not failures else None,
+    }
