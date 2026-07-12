@@ -26,7 +26,16 @@ try:
         construct_profile,
         escalate_insert,
     )
-    from baseline.solver.exact import BackendProbe, probe_backends
+    from baseline.solver.exact import (
+        BackendProbe,
+        RetimeRequest,
+        normalize_result,
+        probe_backends,
+    )
+    from baseline.solver.gurobi_backend import (
+        build_gurobi_model_spec,
+        retime_gurobi,
+    )
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.serialize import serialize_non_interlock
@@ -38,7 +47,8 @@ except ModuleNotFoundError:
     from solver.checker_adapter import official_check
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
-    from solver.exact import BackendProbe, probe_backends
+    from solver.exact import BackendProbe, RetimeRequest, normalize_result, probe_backends
+    from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
     from solver.serialize import serialize_non_interlock
@@ -513,6 +523,167 @@ def run_entry_case(
         "exception": fallback_reason,
         "fallback_tier": "t0" if fallback_reason or not constructor else "constructor",
         "fallback_reason": fallback_reason,
+    }
+
+
+def run_gurobi_retime_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Solve and full-check one synthetic fixed-layout retiming model."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="gurobi-indicator-retime",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    block_ids = tuple(block.block_id for block in parsed.blocks)
+    releases = tuple((block.block_id, block.release_time) for block in parsed.blocks)
+    dues = tuple((block.block_id, block.due_date) for block in parsed.blocks)
+    dwells = tuple((block.block_id, block.dwell) for block in parsed.blocks)
+    current_rows = []
+    cursor = 0
+    for block in parsed.blocks:
+        entry = max(cursor, block.release_time)
+        current_rows.append((block.block_id, entry))
+        cursor = entry + block.dwell
+    current_entries = tuple(current_rows)
+    conflict_pairs = tuple(
+        (left, right)
+        for left in block_ids
+        for right in block_ids
+        if left < right
+    )
+    request = RetimeRequest(
+        block_ids=block_ids,
+        releases=releases,
+        dues=dues,
+        dwells=dwells,
+        current_entries=current_entries,
+        conflict_pairs=conflict_pairs,
+        seed=seed,
+        threads=4,
+    )
+    spec = build_gurobi_model_spec(request, timebox=timelimit)
+    raw = retime_gurobi(request, timelimit)
+    result = normalize_result(request, raw, timebox=timelimit)
+    schedule = (
+        result.solution
+        if result.solution is not None
+        else tuple(
+            (block_id, entry, entry + dict(dwells)[block_id])
+            for block_id, entry in current_entries
+        )
+    )
+    state = SolutionState(parsed)
+    for block_id, entry, exit_time in schedule:
+        state.place(
+            Placement(
+                block_id=block_id,
+                bay_id=0,
+                x=0,
+                y=0,
+                orient_idx=0,
+                entry=entry,
+                exit=exit_time,
+            )
+        )
+    checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(state.placements.values()),
+    )
+    objective_matches = (
+        result.objective is None
+        or checked.obj1 is not None
+        and abs(float(result.objective) - float(checked.obj1)) <= 1e-9
+    )
+    model_assertions = {
+        "bounded_horizon": spec.horizon
+        == max(dict(releases).values(), default=0) + sum(dict(dwells).values()),
+        "integer_entries": all(item.variable_type == "integer" for item in spec.entries),
+        "integer_tardiness": all(
+            item.variable_type == "integer" for item in spec.tardiness
+        ),
+        "indicator_count": 2 * len(spec.disjunctions),
+        "mip_start_count": len(spec.entries) + len(spec.disjunctions),
+        "threads_at_most_four": spec.threads <= 4,
+        "logs_disabled": spec.output_flag == 0,
+    }
+    normalized_unavailable = (
+        result.status == "unavailable"
+        and result.solution is None
+        and result.objective is None
+        and "unavailable" in (result.reason or "").lower()
+    )
+    solved = result.status in {"optimal", "feasible"}
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and objective_matches
+        and all(
+            value is True or key in {"indicator_count", "mip_start_count"}
+            for key, value in model_assertions.items()
+        )
+        and model_assertions["indicator_count"] == 2 * len(conflict_pairs)
+        and model_assertions["mip_start_count"]
+        == len(block_ids) + len(conflict_pairs)
+        and (solved or normalized_unavailable)
+    )
+    gap = None
+    if result.objective is not None and result.bound is not None:
+        gap = abs(result.objective - result.bound) / max(1.0, abs(result.objective))
+    wall_seconds = time.monotonic() - started
+    return {
+        "record_id": f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|backend=gurobi",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "gurobi-indicator-retime",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "checker": checker_payload(checked),
+        "exact_z1_match": objective_matches,
+        "model_assertions": model_assertions,
+        "backend": {
+            "name": "gurobi",
+            "status": result.status,
+            "bound": result.bound,
+            "gap": gap,
+            "build_seconds": result.build_s,
+            "solve_seconds": result.solve_s,
+            "first_solution_seconds": result.first_solution_s,
+            "fallback": result.status == "unavailable",
+            "reason": result.reason,
+        },
+        "timeout": result.status == "time_limit",
+        "crash": result.status == "error",
+        "exception": result.reason if result.status in {"error", "invalid"} else None,
+        "incumbent_verification_count": 1,
+        "unverified_return_count": 0,
+        "fallback_tier": "synthetic-current" if result.status == "unavailable" else None,
+        "fallback_reason": result.reason if result.status == "unavailable" else None,
     }
 
 

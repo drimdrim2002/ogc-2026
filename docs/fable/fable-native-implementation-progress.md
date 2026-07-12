@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S2 in progress (S2-01 verification passed; atomic commit and push pending)
+Planning status: complete; implementation status: S2 in progress (S2-02 active)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -149,7 +149,7 @@ S0 foundation
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
-| S2 | `IN_PROGRESS` | `S2-01` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/` | pending atomic S2-01 commit | — | commit and push S2-01; S2-02 becomes eligible only after upstream equality and a clean worktree |
+| S2 | `IN_PROGRESS` | `S2-02` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/` | pending atomic S2-02 commit | — | commit and push S2-02; S2-03 becomes eligible only after upstream equality and a clean worktree |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
@@ -1898,6 +1898,112 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: exact_retime=false; S2-01 COMPLETE with no backend model, selector, assignment API, or later-stage integration added
   next_action: stage only the five S2-01 files, commit feat(s2): add isolated exact retiming contract, push, verify upstream equality and clean status, then create the S2-02 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T00:23:55+09:00
+  stage: S2
+  slice: S2-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 84ccef391a2533269c342214fad1b3486751e20a
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S2-02\\b' docs/fable/implementation-steps/s2-exact-retiming.md
+    - inspect benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/{COMPLETE,summary.json,gate.json}
+    - inspect benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s2/stress/20260712T152118Z-2075b343/{COMPLETE,summary.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s1 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-02 adds only the isolated Gurobi retiming adapter and does not add CP-SAT, backend selection, or retime orchestration
+  next_action: add the S2-02 equality-handoff model-builder test and demonstrate the intended missing retime_gurobi RED
+```
+
+```yaml
+- timestamp: 2026-07-13T00:25:38+09:00
+  stage: S2
+  slice: S2-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 84ccef391a2533269c342214fad1b3486751e20a
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends.GurobiRetimeTests.test_equality_handoff_optimum -v
+  red_evidence: benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.gurobi_backend and its required builder/retime functions are absent; no Gurobi import, environment, or license action executed
+  feature_default_decision: exact_retime=false; Gurobi remains disconnected from entry and orchestration
+  next_action: implement the bounded integer indicator model, MIP start, SolCount-aware extraction, telemetry, and normalized unavailability
+```
+
+```yaml
+- timestamp: 2026-07-13T00:29:28+09:00
+  stage: S2
+  slice: S2-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 84ccef391a2533269c342214fad1b3486751e20a
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends.GurobiRetimeTests.test_equality_handoff_optimum -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/gurobi_backend.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_exact_backends.py
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s2 --component retime --instances synthetic --timelimits 2 --seeds 20260710 --feature retime_backend=gurobi
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/green-targeted.txt
+  checker_result: PASS; equality handoff schedule full-checked at Stage 5 with exact Z1 1.0, and all 62 current tests passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/benchmark/20260712T152841Z-d1100bbf/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; licensed Gurobi returned OPTIMAL with objective/bound 0.0 on the four-block benchmark, zero gap, 0.000912s build, 0.000147s solve, and 0.000063s first solution; no CP-SAT or selector behavior added
+  next_action: finalize structured slice evidence, audit cleanup and the selected-slice diff, then create and push the atomic S2-02 commit
+```
+
+```yaml
+- timestamp: 2026-07-13T00:31:21+09:00
+  stage: S2
+  slice: S2-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s2): add Gurobi indicator retiming
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends.GurobiRetimeTests.test_equality_handoff_optimum -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s2 --component retime --instances synthetic --timelimits 2 --seeds 20260710 --feature retime_backend=gurobi
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/gurobi_backend.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_exact_backends.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - pgrep -fl 'gurobi|baseline.harness|test_exact_backends'
+  red_evidence: benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/full-regression.txt
+  checker_result: PASS; the extracted equality-handoff optimum and benchmark schedule were official-checker Stage 5 feasible with exact Z1 agreement
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/summary.json; benchmarks/evidence/s2/benchmark/20260712T153003Z-7af0263c/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-02 COMPLETE with bounded integer a/T variables, two indicator branches per conflict, MIP starts, SolCount-aware extraction, Threads<=4, deterministic seed, no logs, full telemetry, normalized license unavailability, and disposed Model/Env; no S2-03 behavior started
+  next_action: stage only the five S2-02 files, commit feat(s2): add Gurobi indicator retiming, push, verify upstream equality and clean status, then create the S2-03 task without implementing it here
 ```
 
 ## 11. Planning quality audit

@@ -32,6 +32,7 @@ from .runner import (
     run_entry_case,
     run_escalation_stress_case,
     run_exact_probe_fault_case,
+    run_gurobi_retime_case,
     run_t0_case,
 )
 from .schema import EvidenceRun, find_completed_identity, new_run_id, record_identity
@@ -389,6 +390,8 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 
 def _benchmark(args: argparse.Namespace) -> int:
+    if args.stage == "s2":
+        return _gurobi_retime_benchmark(args)
     if args.stage == "s1":
         if args.component == "assign_v1":
             return _assignment_benchmark(args)
@@ -443,6 +446,118 @@ def _benchmark(args: argparse.Namespace) -> int:
     )
     summary = _solver_summary("benchmark", args.instances, records, passed)
     summary.update(metric="solver", timelimits=timelimits, seeds=seeds, features=features)
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _gurobi_retime_benchmark(args: argparse.Namespace) -> int:
+    if args.component != "retime":
+        raise StageUnsupportedError("S2-02 benchmark only supports --component retime")
+    if args.metric != "solver":
+        raise SelectorError("S2 retime benchmark uses the default solver metric")
+    if args.instances != "synthetic":
+        raise SelectorError("S2-02 retime benchmark requires --instances synthetic")
+    features = _features(args.feature)
+    if features != {"retime_backend": "gurobi"}:
+        raise SelectorError("S2-02 benchmark requires retime_backend=gurobi")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (2.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S2-02 benchmark requires timelimits=2 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s2",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s2-02",
+            "component": "retime",
+            "selector": "synthetic",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("synthetic", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=2|seed=20260710|backend=gurobi"
+        for ref in refs
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        record_id = f"{ref.instance_id}|tl=2|seed=20260710|backend=gurobi"
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_gurobi_retime_case(
+            ref,
+            selector="synthetic",
+            timelimit=2.0,
+            seed=20260710,
+            features=features,
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    required_backend_fields = {
+        "status",
+        "bound",
+        "gap",
+        "build_seconds",
+        "solve_seconds",
+        "first_solution_seconds",
+    }
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("exact_z1_match") is True
+            and required_backend_fields <= set(record.get("backend", {}))
+            and record.get("backend", {}).get("status")
+            in {"optimal", "feasible", "unavailable"}
+            and float(record.get("wall_seconds", 999.0)) <= 2.25
+            for record in records
+        )
+    )
+    summary = _solver_summary(
+        "benchmark", "synthetic", records, passed, stage="s2"
+    )
+    summary.update(
+        slice="s2-02",
+        component="retime",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        backend_statuses=[
+            record.get("backend", {}).get("status") for record in records
+        ],
+        bounds=[record.get("backend", {}).get("bound") for record in records],
+        gaps=[record.get("backend", {}).get("gap") for record in records],
+        build_seconds=[
+            record.get("backend", {}).get("build_seconds") for record in records
+        ],
+        solve_seconds=[
+            record.get("backend", {}).get("solve_seconds") for record in records
+        ],
+        first_solution_seconds=[
+            record.get("backend", {}).get("first_solution_seconds")
+            for record in records
+        ],
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in records
+        ),
+        normalized_unavailable_count=sum(
+            record.get("backend", {}).get("status") == "unavailable"
+            for record in records
+        ),
+        model_assertion_count=sum(
+            len(record.get("model_assertions", {})) for record in records
+        ),
+        leak_count=0,
+    )
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE

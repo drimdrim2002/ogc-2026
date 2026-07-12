@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from solver.budget import Budget
+from solver.checker_adapter import official_check
 from solver.exact import (
     BackendProbe,
     ExactBackend,
@@ -16,6 +18,8 @@ from solver.exact import (
 )
 from solver.incumbent import VerifiedIncumbent
 from solver.instance import ProblemInstance
+from solver.serialize import serialize_non_interlock
+from solver.state import Placement, SolutionState
 from solver.trivial import build_t0
 from tests.fixtures import block, instance
 
@@ -194,6 +198,128 @@ class ExactContractTests(unittest.TestCase):
         )
         self.assertEqual("time_limit", overtime.status)
         self.assertIsNone(overtime.solution)
+
+
+class GurobiRetimeTests(unittest.TestCase):
+    def test_equality_handoff_optimum(self):
+        from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
+
+        request = RetimeRequest(
+            block_ids=(0, 1),
+            releases=((0, 0), (1, 0)),
+            dues=((0, 2), (1, 3)),
+            dwells=((0, 2), (1, 2)),
+            current_entries=((0, 0), (1, 2)),
+            conflict_pairs=((0, 1),),
+            seed=20260710,
+            threads=4,
+        )
+
+        spec = build_gurobi_model_spec(request, timebox=2.0)
+        self.assertEqual(4, spec.horizon)
+        self.assertEqual(
+            ((0, 0, 4, 0), (1, 0, 4, 2)),
+            tuple(
+                (item.block_id, item.lower_bound, item.upper_bound, item.start)
+                for item in spec.entries
+            ),
+        )
+        self.assertTrue(all(item.variable_type == "integer" for item in spec.entries))
+        self.assertTrue(all(item.variable_type == "integer" for item in spec.tardiness))
+        self.assertEqual((0, 1), spec.objective_blocks)
+        self.assertEqual(1, len(spec.disjunctions))
+        disjunction = spec.disjunctions[0]
+        self.assertEqual("binary", disjunction.variable_type)
+        self.assertEqual((0, 1), (disjunction.left, disjunction.right))
+        self.assertEqual(
+            ((1, 0, 1), (0, 1, 0)),
+            (
+                (
+                    disjunction.left_value,
+                    disjunction.first_before,
+                    disjunction.second_after,
+                ),
+                (
+                    disjunction.right_value,
+                    disjunction.second_before,
+                    disjunction.first_after,
+                ),
+            ),
+        )
+        self.assertEqual(0, spec.output_flag)
+        self.assertEqual(4, spec.threads)
+        self.assertEqual(20260710, spec.seed)
+        self.assertEqual(2.0, spec.time_limit)
+        self.assertEqual(1, spec.mip_focus)
+        self.assertEqual(0.0, spec.mip_gap)
+
+        prob_info = instance(
+            [
+                block(due=2, processing=2),
+                block(due=3, processing=2),
+            ]
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        copied = SolutionState(parsed)
+        copied.place(Placement(0, 0, 0, 0, 0, 0, 2))
+        copied.place(Placement(1, 0, 0, 0, 0, 2, 4))
+        checked = official_check(
+            prob_info,
+            serialize_non_interlock(copied.placements.values()),
+        )
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+        self.assertEqual(1.0, checked.obj1)
+
+        result = retime_gurobi(request, 2.0)
+        self.assertEqual("gurobi", result.backend)
+        if result.status == "unavailable":
+            self.assertIsNone(result.solution)
+            self.assertIsNone(result.objective)
+            self.assertIsNotNone(result.reason)
+            self.assertIn("unavailable", (result.reason or "").lower())
+            return
+
+        self.assertEqual("optimal", result.status)
+        self.assertEqual(1.0, result.objective)
+        self.assertEqual(1.0, result.bound)
+        self.assertEqual(((0, 0, 2), (1, 2, 4)), result.solution)
+        self.assertEqual(
+            result,
+            normalize_result(request, result, timebox=2.0),
+        )
+
+    def test_license_unavailability_is_a_normalized_record(self):
+        from solver.gurobi_backend import retime_gurobi
+
+        request = RetimeRequest(
+            block_ids=(0,),
+            releases=((0, 0),),
+            dues=((0, 2),),
+            dwells=((0, 2),),
+            current_entries=((0, 0),),
+            conflict_pairs=(),
+            seed=20260710,
+            threads=1,
+        )
+
+        class UnlicensedGurobi:
+            @staticmethod
+            def Env(*, empty):
+                self.assertTrue(empty)
+                raise RuntimeError("license unavailable")
+
+        with patch(
+            "solver.gurobi_backend.importlib.import_module",
+            return_value=UnlicensedGurobi,
+        ):
+            result = retime_gurobi(request, 2.0)
+        self.assertEqual("gurobi", result.backend)
+        self.assertEqual("unavailable", result.status)
+        self.assertIsNone(result.solution)
+        self.assertIsNone(result.objective)
+        self.assertIn("license", result.reason or "")
+        self.assertIn("unavailable", (result.reason or "").lower())
 
 
 if __name__ == "__main__":
