@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import random
 import resource
+import statistics
 import sys
 import time
 import unittest
@@ -19,14 +20,16 @@ from typing import Any, Iterable, Mapping
 from shapely.affinity import translate
 
 from .compare import latency_summary
-from .gates import evaluate_s0, latest_summary
+from .gates import evaluate_s0, evaluate_s1, latest_summary
 from .package import StageUnsupportedError
 from .report import render_gate_report
 from .runner import (
     make_escalation_stress_ref,
     repository_provenance,
     run_assignment_case,
+    run_cap_calibration_case,
     run_constructor_case,
+    run_entry_case,
     run_escalation_stress_case,
     run_t0_case,
 )
@@ -41,9 +44,11 @@ if BASELINE_ROOT not in sys.path:
     sys.path.insert(0, BASELINE_ROOT)
 
 try:
+    from baseline.solver.config import CAP_CALIBRATION_MATRIX, DEFAULT_CONFIG
     from baseline.solver.geometry import GeomKernel, ShapeInfo
     from baseline.solver.instance import ProblemInstance
 except ModuleNotFoundError:
+    from solver.config import CAP_CALIBRATION_MATRIX, DEFAULT_CONFIG
     from solver.geometry import GeomKernel, ShapeInfo
     from solver.instance import ProblemInstance
 
@@ -89,9 +94,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ab = subparsers.add_parser("ab")
     _common(ab)
+    ab.add_argument("--stage", required=True)
     ab.add_argument("--instances", required=True)
     ab.add_argument("--timelimits", required=True)
-    ab.add_argument("--seeds", required=True)
+    ab.add_argument("--seeds")
     ab.add_argument("--a", required=True)
     ab.add_argument("--b", required=True)
 
@@ -143,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "report":
             return _report(args)
         if args.command == "ab":
-            raise StageUnsupportedError("stage unsupported: A/B behavior begins after S0")
+            return _ab(args)
         if args.command == "submission-rehearsal":
             raise StageUnsupportedError("stage unsupported: submission rehearsal belongs to S6")
         raise SelectorError(f"unknown command: {args.command}")
@@ -385,6 +391,8 @@ def _benchmark(args: argparse.Namespace) -> int:
     if args.stage == "s1":
         if args.component == "assign_v1":
             return _assignment_benchmark(args)
+        if args.component == "cap_calibration":
+            return _cap_calibration_benchmark(args)
         return _constructor_benchmark(args)
     if args.stage != "s0":
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
@@ -515,7 +523,135 @@ def _assignment_benchmark(args: argparse.Namespace) -> int:
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
 
 
+def _cap_calibration_benchmark(args: argparse.Namespace) -> int:
+    if args.metric != "solver":
+        raise SelectorError("S1 cap calibration uses the default solver metric")
+    if args.instances != "synthetic":
+        raise SelectorError("S1 cap calibration requires --instances synthetic")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (5.0,) or seeds != (20260710,):
+        raise SelectorError("S1 cap calibration requires timelimits=5 and seeds=20260710")
+    features = {**_features(args.feature), "component": "cap_calibration"}
+    expected_pairs = tuple(f"{t}x{k}" for t, k in CAP_CALIBRATION_MATRIX)
+    supplied = features.get("matrix")
+    if supplied is not None and tuple(supplied.split(",")) != expected_pairs:
+        raise SelectorError("cap matrix must be " + ",".join(expected_pairs))
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s1-05",
+            "component": "cap_calibration",
+            "selector": "synthetic",
+            "features": features,
+        },
+        delayed_expected=True,
+    )
+    synthetic_refs = select_instances(
+        "synthetic", fixture_dir=run.run_dir / "fixtures"
+    )
+    dev_refs = select_instances("dev-10", fixture_dir=run.run_dir / "fixtures")
+    marginal_refs = tuple(ref for ref in dev_refs if ref.instance_id == "prob_13")
+    refs = (*synthetic_refs, *marginal_refs)
+    expected = tuple(
+        f"{ref.instance_id}|caps={time_cap}x{anchor_cap}"
+        for ref in refs
+        for time_cap, anchor_cap in CAP_CALIBRATION_MATRIX
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for time_cap, anchor_cap in CAP_CALIBRATION_MATRIX:
+            record_id = f"{ref.instance_id}|caps={time_cap}x{anchor_cap}"
+            if record_id not in run.pending_record_ids:
+                continue
+            record = run_cap_calibration_case(
+                ref,
+                time_cap=time_cap,
+                anchor_cap=anchor_cap,
+                seed=seeds[0],
+                features=features,
+            )
+            run.append_record(
+                _deduplicate(evidence_root, record, rerun=args.rerun)
+            )
+    records = _effective_records(run.records)
+    eligible_pairs = []
+    pair_rows: dict[str, list[dict[str, Any]]] = {}
+    for time_cap, anchor_cap in CAP_CALIBRATION_MATRIX:
+        label = f"{time_cap}x{anchor_cap}"
+        rows = [
+            record
+            for record in records
+            if record.get("time_cap") == time_cap
+            and record.get("anchor_cap") == anchor_cap
+        ]
+        pair_rows[label] = rows
+        if (
+            len(rows) == len(refs)
+            and all(
+                row.get("status") in {"passed", "deduplicated"}
+                and row.get("checker", {}).get("feasible") is True
+                and row.get("checker", {}).get("stage") == 5
+                and row.get("parity_loss") == 0
+                and float(row.get("reference_success_ratio", 0.0)) >= 0.99
+                for row in rows
+            )
+        ):
+            eligible_pairs.append((time_cap, anchor_cap))
+    selected_tuple = min(
+        eligible_pairs,
+        key=lambda pair: (pair[0] * pair[1], pair[0], pair[1]),
+        default=None,
+    )
+    selected_pair = list(selected_tuple) if selected_tuple is not None else None
+    configured_pair = [
+        DEFAULT_CONFIG.constructor_time_cap,
+        DEFAULT_CONFIG.constructor_anchor_cap,
+    ]
+    passed = (
+        len(records) == len(expected)
+        and selected_pair is not None
+        and selected_pair == configured_pair
+    )
+    selected_rows = (
+        pair_rows.get(f"{selected_tuple[0]}x{selected_tuple[1]}", [])
+        if selected_tuple is not None
+        else []
+    )
+    summary = _solver_summary(
+        "benchmark", "synthetic", records, passed, stage="s1"
+    )
+    summary.update(
+        slice="s1-05",
+        component="cap_calibration",
+        matrix=[list(pair) for pair in CAP_CALIBRATION_MATRIX],
+        selected_cap_pair=selected_pair,
+        configured_cap_pair=configured_pair,
+        marginal_training_probe=[ref.instance_id for ref in marginal_refs],
+        eligible_cap_pairs=[list(pair) for pair in eligible_pairs],
+        disqualified_cap_pairs=[
+            list(pair) for pair in CAP_CALIBRATION_MATRIX if pair not in eligible_pairs
+        ],
+        minimum_reference_success_ratio=min(
+            (float(record.get("reference_success_ratio", 0.0)) for record in selected_rows),
+            default=0.0,
+        ),
+        parity_loss_count=sum(int(record.get("parity_loss", 0)) for record in selected_rows),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True for record in selected_rows
+        ),
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_GATE_FAILURE
+
+
 def _constructor_benchmark(args: argparse.Namespace) -> int:
+    if args.instances == "training":
+        return _entry_benchmark(args)
     if args.component is not None:
         raise SelectorError("S1-04 constructor benchmark does not accept --component")
     if args.metric != "solver":
@@ -620,6 +756,102 @@ def _constructor_benchmark(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _entry_benchmark(args: argparse.Namespace) -> int:
+    if args.component is not None:
+        raise SelectorError("S1-05 training benchmark does not accept --component")
+    if args.metric != "solver":
+        raise SelectorError("S1-05 training benchmark uses the default solver metric")
+    features = _features(args.feature)
+    if features != {"constructor": "true"}:
+        raise SelectorError("S1-05 training benchmark requires constructor=true")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (5.0,) or seeds != (20260710,):
+        raise SelectorError("S1-05 training benchmark requires timelimits=5 and seeds=20260710")
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s1-05",
+            "selector": "training",
+            "features": features,
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("training", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=5|seed=20260710|run=training"
+        for ref in refs
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        record_id = f"{ref.instance_id}|tl=5|seed=20260710|run=training"
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_entry_case(
+            ref,
+            selector="training",
+            timelimit=5.0,
+            seed=20260710,
+            features=features,
+            constructor=True,
+            run_label="training",
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == 40
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("placed_count") == record.get("block_count")
+            and float(record.get("construction_seconds", 999.0)) <= 5.0
+            and float(record.get("wall_seconds", 999.0)) <= 5.0
+            and len(str(record.get("deterministic_output_sha256", ""))) == 64
+            and len(str(record.get("deterministic_metrics_sha256", ""))) == 64
+            for record in records
+        )
+    )
+    summary = _solver_summary(
+        "benchmark", "training", records, passed, stage="s1"
+    )
+    summary.update(
+        slice="s1-05",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+        selected_cap_pair=[
+            DEFAULT_CONFIG.constructor_time_cap,
+            DEFAULT_CONFIG.constructor_anchor_cap,
+        ],
+        profile_budget=list(DEFAULT_CONFIG.constructor_profiles),
+        max_construction_seconds=max(
+            (float(record.get("construction_seconds", 0.0)) for record in records),
+            default=0.0,
+        ),
+        placed_count=sum(int(record.get("placed_count", 0)) for record in records),
+        block_count=sum(int(record.get("block_count", 0)) for record in records),
+        fallback_count=sum(record.get("fallback_reason") is not None for record in records),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True for record in records
+        ),
+        output_sha256={
+            str(record.get("instance_id")): record.get("deterministic_output_sha256")
+            for record in records
+        },
+        metrics_sha256={
+            str(record.get("instance_id")): record.get("deterministic_metrics_sha256")
+            for record in records
+        },
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_GATE_FAILURE
 
 
 def _predicate_benchmark(args: argparse.Namespace, features: Mapping[str, str]) -> int:
@@ -804,9 +1036,11 @@ def _stress(args: argparse.Namespace) -> int:
 
 
 def _constructor_stress(args: argparse.Namespace) -> int:
+    features = _features(args.feature)
+    if features == {"constructor": "true"}:
+        return _constructor_entry_stress(args, features)
     if args.instances != "stress":
         raise SelectorError("S1-03 stress requires --instances stress")
-    features = _features(args.feature)
     scenarios = tuple(features.get("scenario", "").split(","))
     required = (
         "negative_origin",
@@ -902,20 +1136,235 @@ def _constructor_stress(args: argparse.Namespace) -> int:
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
 
 
+def _constructor_entry_stress(
+    args: argparse.Namespace,
+    features: Mapping[str, str],
+) -> int:
+    if args.instances != "stress":
+        raise SelectorError("S1-05 stress requires --instances stress")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (0.5, 2.0, 5.0, 12.0) or seeds != (20260710,):
+        raise SelectorError(
+            "S1-05 stress requires timelimits=0.5,2,5,12 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="stress",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s1-05",
+            "selector": "stress",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("stress", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|run=stress"
+        for ref in refs
+        for timelimit in timelimits
+        for seed in seeds
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                record_id = (
+                    f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|run=stress"
+                )
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_entry_case(
+                    ref,
+                    selector="stress",
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=features,
+                    constructor=True,
+                    run_label="stress",
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("placed_count") == record.get("block_count")
+            and float(record.get("wall_seconds", 999.0))
+            <= float(record.get("timelimit", 0.0)) + 0.25
+            and record.get("unverified_return_count") == 0
+            for record in records
+        )
+    )
+    summary = _solver_summary("stress", "stress", records, passed, stage="s1")
+    summary.update(
+        slice="s1-05",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        timeout_count=sum(bool(record.get("timeout")) for record in records),
+        safe_fallback_count=sum(
+            record.get("fallback_reason") is not None for record in records
+        ),
+        leak_count=0,
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True for record in records
+        ),
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _ab(args: argparse.Namespace) -> int:
+    if args.stage != "s1":
+        raise StageUnsupportedError(f"stage unsupported: {args.stage}")
+    if args.instances != "dev-10":
+        raise SelectorError("S1-05 A/B requires --instances dev-10")
+    if tuple(args.feature) != ("constructor",):
+        raise SelectorError("S1-05 A/B requires --feature constructor")
+    if args.a != "false" or args.b != "true":
+        raise SelectorError("S1-05 A/B requires --a false --b true")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds) if args.seeds else (args.seed,)
+    if timelimits != (5.0,) or seeds != (20260710,):
+        raise SelectorError("S1-05 A/B requires timelimits=5 and seed=20260710")
+    features = {"feature": "constructor", "a": "false", "b": "true"}
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="ab",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s1-05",
+            "selector": "dev-10",
+            "feature": "constructor",
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("dev-10", fixture_dir=run.run_dir / "fixtures")
+    orders = (("a", "b"), ("b", "a"))
+    expected = tuple(
+        f"{ref.instance_id}|tl=5|seed=20260710|run={first}{second}-{arm}"
+        for ref in refs
+        for first, second in orders
+        for arm in (first, second)
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for first, second in orders:
+            order_label = first + second
+            for arm in (first, second):
+                record_id = (
+                    f"{ref.instance_id}|tl=5|seed=20260710|run={order_label}-{arm}"
+                )
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_entry_case(
+                    ref,
+                    selector="dev-10",
+                    timelimit=5.0,
+                    seed=20260710,
+                    features={**features, "arm": arm, "order": order_label},
+                    constructor=arm == "b",
+                    run_label=f"{order_label}-{arm}",
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    by_instance: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for record in records:
+        arm = str(record.get("features", {}).get("arm"))
+        by_instance.setdefault(str(record["instance_id"]), {}).setdefault(arm, []).append(record)
+    comparisons = []
+    deterministic = True
+    for instance_id in sorted(by_instance):
+        a_rows = by_instance[instance_id].get("a", [])
+        b_rows = by_instance[instance_id].get("b", [])
+        if len(a_rows) != 2 or len(b_rows) != 2:
+            continue
+        a_objective = statistics.median(float(row["final_objective"]) for row in a_rows)
+        b_objective = statistics.median(float(row["final_objective"]) for row in b_rows)
+        relative = (a_objective - b_objective) / max(abs(a_objective), 1.0)
+        deterministic &= len({row["deterministic_output_sha256"] for row in b_rows}) == 1
+        deterministic &= len({row["deterministic_metrics_sha256"] for row in b_rows}) == 1
+        comparisons.append({
+            "instance_id": instance_id,
+            "a_objective": a_objective,
+            "b_objective": b_objective,
+            "relative_improvement": relative,
+            "improved": b_objective < a_objective - 1e-9 * max(abs(a_objective), 1.0),
+            "regressed": b_objective > a_objective + 1e-9 * max(abs(a_objective), 1.0),
+        })
+    improved_count = sum(bool(row["improved"]) for row in comparisons)
+    regression_count = sum(bool(row["regressed"]) for row in comparisons)
+    median_improvement = statistics.median(
+        row["relative_improvement"] for row in comparisons
+    ) if comparisons else 0.0
+    passed = (
+        len(records) == len(expected)
+        and len(comparisons) == 10
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and improved_count >= 8
+        and median_improvement >= 0.10
+        and regression_count == 0
+        and deterministic
+    )
+    summary = _solver_summary("ab", "dev-10", records, passed, stage="s1")
+    summary.update(
+        slice="s1-05",
+        feature="constructor",
+        a=False,
+        b=True,
+        timelimits=timelimits,
+        seeds=seeds,
+        comparisons=comparisons,
+        improved_count=improved_count,
+        regression_count=regression_count,
+        median_relative_improvement=median_improvement,
+        deterministic_replay=deterministic,
+        orderings=["ab", "ba"],
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_GATE_FAILURE
+
+
 def _gate(args: argparse.Namespace) -> int:
-    if args.stage != "s0":
+    if args.stage not in {"s0", "s1"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
-        raise SelectorError("S0 gate requires --latest-complete")
+        raise SelectorError(f"{args.stage.upper()} gate requires --latest-complete")
     requested_commit = repository_provenance()["commit"] if args.commit == "HEAD" else args.commit
-    decision = evaluate_s0(_evidence_root(args))
-    decision["requested_commit"] = requested_commit
-    run, _ = _start_run(
-        args, "gate", expected_record_ids=("s0-gate",),
-        metadata={"stage": "s0", "requested_commit": requested_commit},
+    decision = (
+        evaluate_s0(_evidence_root(args))
+        if args.stage == "s0"
+        else evaluate_s1(_evidence_root(args))
     )
+    decision["requested_commit"] = requested_commit
+    record_id = f"{args.stage}-gate"
+    if args.stage == "s0":
+        run, _ = _start_run(
+            args, "gate", expected_record_ids=(record_id,),
+            metadata={"stage": args.stage, "requested_commit": requested_commit},
+        )
+    else:
+        run, _ = _start_stage_run(
+            args,
+            stage="s1",
+            command="gate",
+            expected_record_ids=(record_id,),
+            metadata={"stage": args.stage, "requested_commit": requested_commit},
+        )
     run.append_record({
-        "record_id": "s0-gate",
+        "record_id": record_id,
         "status": "passed" if decision["decision"] == "PASS" else "failed",
         "complete": True,
         "decision": decision["decision"],
@@ -928,27 +1377,42 @@ def _gate(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    if args.stage != "s0":
+    if args.stage not in {"s0", "s1"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
-        raise SelectorError("S0 report requires --latest-complete")
-    found = latest_summary(_evidence_root(args), stage="s0", command="gate", match={"stage": "s0"})
+        raise SelectorError(f"{args.stage.upper()} report requires --latest-complete")
+    found = latest_summary(
+        _evidence_root(args),
+        stage=args.stage,
+        command="gate",
+        match={"stage": args.stage},
+    )
     if found is None:
-        raise SelectorError("no complete S0 gate evidence exists")
+        raise SelectorError(f"no complete {args.stage.upper()} gate evidence exists")
     gate_dir, gate_summary = found
     gate_path = gate_dir / "gate.json"
     gate = json.loads(gate_path.read_text(encoding="utf-8"))
-    run, _ = _start_run(
-        args, "report", expected_record_ids=("s0-report",),
-        metadata={"stage": "s0", "gate_run": str(gate_dir)},
-    )
+    record_id = f"{args.stage}-report"
+    if args.stage == "s0":
+        run, _ = _start_run(
+            args, "report", expected_record_ids=(record_id,),
+            metadata={"stage": args.stage, "gate_run": str(gate_dir)},
+        )
+    else:
+        run, _ = _start_stage_run(
+            args,
+            stage="s1",
+            command="report",
+            expected_record_ids=(record_id,),
+            metadata={"stage": args.stage, "gate_run": str(gate_dir)},
+        )
     markdown = render_gate_report(gate)
     (run.run_dir / "report.md").write_text(markdown, encoding="utf-8")
     (run.run_dir / "report.json").write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     passed = gate.get("decision") == "PASS"
-    run.append_record({"record_id": "s0-report", "status": "passed" if passed else "failed", "complete": True})
+    run.append_record({"record_id": record_id, "status": "passed" if passed else "failed", "complete": True})
     summary = {
-        "command": "report", "stage": "s0", "status": "passed" if passed else "failed",
+        "command": "report", "stage": args.stage, "status": "passed" if passed else "failed",
         "gate_run": str(gate_dir), "decision": gate.get("decision"),
     }
     run.finalize(summary)

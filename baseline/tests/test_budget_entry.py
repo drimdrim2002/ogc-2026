@@ -29,6 +29,28 @@ class BudgetTests(unittest.TestCase):
 
 
 class EntryArmorTests(unittest.TestCase):
+    def test_constructor_failure_keeps_t0(self):
+        prob_info = instance(
+            [
+                block(release=0, due=8, processing=2),
+                block(release=0, due=8, processing=2),
+                block(release=1, due=9, processing=1),
+            ]
+        )
+        t0 = solve(prob_info, 5.0, _constructor=False)
+
+        faulted = solve(
+            prob_info,
+            5.0,
+            _constructor=True,
+            _fault="during_constructor",
+        )
+
+        self.assertEqual(t0, faulted)
+        checked = official_check(prob_info, faulted)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+
     def test_exception_returns_verified_serial(self):
         prob_info = instance(
             [
@@ -47,8 +69,13 @@ class EntryArmorTests(unittest.TestCase):
         prob_info = instance([block(), block(release=1)])
         for timelimit in (0.0, 0.5, 2.0, 5.0, 12.0):
             with self.subTest(timelimit=timelimit):
-                normal = solve(prob_info, timelimit)
-                faulted = solve(prob_info, timelimit, _fault="after_incumbent")
+                normal = solve(prob_info, timelimit, _constructor=False)
+                faulted = solve(
+                    prob_info,
+                    timelimit,
+                    _constructor=False,
+                    _fault="after_incumbent",
+                )
                 self.assertEqual(normal, faulted)
                 self.assertTrue(official_check(prob_info, faulted).feasible)
 

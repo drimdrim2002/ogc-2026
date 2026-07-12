@@ -18,9 +18,14 @@ from .selectors import InstanceRef, REPO_ROOT
 
 try:
     from baseline.solver.assign import AssignmentV1
-    from baseline.solver.budget import Budget, deadline_reserve
+    from baseline.solver.budget import Budget, BudgetExpired, deadline_reserve
     from baseline.solver.checker_adapter import official_check
-    from baseline.solver.construct import construct_multistart, escalate_insert
+    from baseline.solver.config import DEFAULT_CONFIG
+    from baseline.solver.construct import (
+        construct_multistart,
+        construct_profile,
+        escalate_insert,
+    )
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.serialize import serialize_non_interlock
@@ -28,9 +33,10 @@ try:
     from baseline.solver.trivial import build_t0
 except ModuleNotFoundError:
     from solver.assign import AssignmentV1
-    from solver.budget import Budget, deadline_reserve
+    from solver.budget import Budget, BudgetExpired, deadline_reserve
     from solver.checker_adapter import official_check
-    from solver.construct import construct_multistart, escalate_insert
+    from solver.config import DEFAULT_CONFIG
+    from solver.construct import construct_multistart, construct_profile, escalate_insert
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
     from solver.serialize import serialize_non_interlock
@@ -354,6 +360,260 @@ def run_constructor_case(
         "exception": None,
         "fallback_tier": None,
         "fallback_reason": None,
+    }
+
+
+def run_entry_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    constructor: bool,
+    run_label: str = "none",
+) -> dict[str, Any]:
+    """Run the integrated entry policy and retain T0 on constructor failure."""
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-constructor-entry" if constructor else "native-t0",
+        timelimit=timelimit,
+        seed=seed,
+        features={**features, "constructor": str(constructor).lower(), "run": run_label},
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    incumbent = VerifiedIncumbent(parsed)
+    incumbent.register_initial(build_t0(parsed))
+    t0_objective = incumbent.checker_result.objective
+    result = None
+    fallback_reason = None
+    construction_seconds = 0.0
+    if constructor:
+        construction_started = time.monotonic()
+        try:
+            hard_remaining = max(0.0, timelimit - (construction_started - started))
+            reserve = min(
+                DEFAULT_CONFIG.constructor_return_reserve_seconds,
+                max(hard_remaining - 0.05, 0.0),
+            )
+            result = construct_multistart(
+                parsed,
+                incumbent,
+                Budget(hard_remaining, reserve=reserve),
+                seed=seed,
+                profiles=DEFAULT_CONFIG.constructor_profiles,
+                biased_variants=False,
+                calibrated_entry=True,
+                time_cap=DEFAULT_CONFIG.constructor_time_cap,
+                anchor_cap=DEFAULT_CONFIG.constructor_anchor_cap,
+            )
+            construction_seconds = result.construction_seconds
+            if not result.metrics.incumbent_updated:
+                fallback_reason = "candidate_rejected"
+        except BudgetExpired:
+            construction_seconds = time.monotonic() - construction_started
+            fallback_reason = "budget_expired"
+        except Exception as exc:
+            construction_seconds = time.monotonic() - construction_started
+            fallback_reason = f"{type(exc).__name__}: {exc}"
+
+    checked = incumbent.checker_result
+    wall_seconds = time.monotonic() - started
+    final_objective = checked.objective
+    relative_improvement = 0.0
+    if t0_objective is not None and final_objective is not None and t0_objective != 0.0:
+        relative_improvement = (t0_objective - final_objective) / abs(t0_objective)
+    solution_sha = hashlib.sha256(
+        json.dumps(
+            incumbent.solution,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    metrics_payload = (
+        asdict(result.metrics)
+        if result is not None
+        else {
+            "seed": seed,
+            "time_cap": DEFAULT_CONFIG.constructor_time_cap,
+            "anchor_cap": DEFAULT_CONFIG.constructor_anchor_cap,
+            "profile_budget": DEFAULT_CONFIG.constructor_profiles,
+            "fallback_reason": fallback_reason,
+        }
+    )
+    metrics_sha = hashlib.sha256(
+        json.dumps(metrics_payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    profile_metrics = (
+        [asdict(item) for item in result.metrics.profile_metrics]
+        if result is not None
+        else []
+    )
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and wall_seconds <= timelimit + 0.05
+        and incumbent.verification_count in {1, 2}
+    )
+    return {
+        "record_id": f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|run={run_label}",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "native-constructor-entry" if constructor else "native-t0",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "construction_seconds": construction_seconds,
+        "full_check_seconds": result.full_check_seconds if result is not None else 0.0,
+        "within_timelimit": wall_seconds <= timelimit + 0.05,
+        "checker": checker_payload(checked),
+        "block_count": len(parsed.blocks),
+        "placed_count": len(parsed.blocks),
+        "constructed_count": len(result.state.placements) if result is not None else 0,
+        "time_cap": DEFAULT_CONFIG.constructor_time_cap,
+        "anchor_cap": DEFAULT_CONFIG.constructor_anchor_cap,
+        "profile_budget": list(DEFAULT_CONFIG.constructor_profiles),
+        "profile_metrics": profile_metrics,
+        "exact_predicates": sum(
+            int(item.get("exact_predicates", 0)) for item in profile_metrics
+        ),
+        "anchor_attempts": sum(
+            sum(int(count) for _, count in item.get("attempt_counts", ()))
+            for item in profile_metrics
+        ),
+        "candidate_times": sum(len(item.get("order", ())) for item in profile_metrics),
+        "predicate_s": construction_seconds,
+        "t0_objective": t0_objective,
+        "final_objective": final_objective,
+        "relative_improvement": relative_improvement,
+        "incumbent_updated": bool(result and result.metrics.incumbent_updated),
+        "incumbent_verification_count": incumbent.verification_count,
+        "unverified_return_count": 0,
+        "deterministic_output_sha256": solution_sha,
+        "deterministic_metrics_sha256": metrics_sha,
+        "timeout": fallback_reason == "budget_expired",
+        "crash": False,
+        "exception": fallback_reason,
+        "fallback_tier": "t0" if fallback_reason or not constructor else "constructor",
+        "fallback_reason": fallback_reason,
+    }
+
+
+def run_cap_calibration_case(
+    ref: InstanceRef,
+    *,
+    time_cap: int,
+    anchor_cap: int,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Compare one preregistered cap pair with an uncapped synthetic reference."""
+    provenance = repository_provenance()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    assignment = AssignmentV1(parsed).assign()
+    started = time.monotonic()
+    reference = construct_profile(
+        parsed,
+        assignment,
+        "PF3",
+        time_cap=None,
+        anchor_cap=None,
+    )
+    candidate = construct_profile(
+        parsed,
+        assignment,
+        "PF3",
+        time_cap=time_cap,
+        anchor_cap=anchor_cap,
+    )
+    reference_checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(reference.state.placements.values()),
+    )
+    candidate_checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(candidate.state.placements.values()),
+    )
+    wall_seconds = time.monotonic() - started
+    synthetic_reference = ref.instance_id.startswith("synthetic-")
+    reference_success = (
+        len(reference.state.placements)
+        if synthetic_reference
+        else len(parsed.blocks)
+    )
+    candidate_success = len(candidate.state.placements)
+    success_ratio = candidate_success / max(reference_success, 1)
+    parity_loss = int(
+        candidate_checked.feasible is not True
+        or candidate_checked.stage != 5
+        or (
+            synthetic_reference
+            and reference_checked.feasible != candidate_checked.feasible
+        )
+    )
+    objective_loss = (
+        max(
+            0.0,
+            float(candidate_checked.objective or 0.0)
+            - float(reference_checked.objective or 0.0),
+        )
+        if synthetic_reference
+        else 0.0
+    )
+    passed = (
+        candidate_checked.feasible
+        and candidate_checked.stage == 5
+        and parity_loss == 0
+        and success_ratio >= 0.99
+    )
+    pair = f"{time_cap}x{anchor_cap}"
+    return {
+        "record_id": f"{ref.instance_id}|caps={pair}",
+        "identity": record_identity(
+            commit=provenance["commit"],
+            dirty_diff_hash=provenance["dirty_diff_hash"],
+            instance_sha=ref.sha256,
+            solver="constructor-cap-calibration",
+            timelimit=5.0,
+            seed=seed,
+            features={**features, "caps": pair},
+        ),
+        "complete": True,
+        "status": "passed" if passed else "failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "instance_id": ref.instance_id,
+        "instance_sha": ref.sha256,
+        "selector": "synthetic" if synthetic_reference else "dev-10",
+        "solver": "constructor-cap-calibration",
+        "seed": seed,
+        "time_cap": time_cap,
+        "anchor_cap": anchor_cap,
+        "wall_seconds": wall_seconds,
+        "reference_insertion_success": reference_success,
+        "reference_kind": "uncapped_synthetic" if synthetic_reference else "training_checker_probe",
+        "candidate_insertion_success": candidate_success,
+        "reference_success_ratio": success_ratio,
+        "parity_loss": parity_loss,
+        "objective_loss": objective_loss,
+        "checker": checker_payload(candidate_checked),
+        "exact_predicates": candidate.metrics.exact_predicates,
+        "fallback_count": candidate.metrics.fallback_count,
     }
 
 

@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 def render_gate_report(gate: Mapping[str, Any]) -> str:
     lines = [
-        "# S0 Foundation Gate Report",
+        f"# {str(gate.get('stage', 's0')).upper()} Gate Report",
         "",
         f"Decision: **{gate.get('decision', 'UNKNOWN')}**",
         "",

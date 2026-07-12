@@ -36,9 +36,14 @@ class Budget:
         timelimit: float,
         *,
         clock: Callable[[], float] = time.monotonic,
+        reserve: float | None = None,
     ) -> None:
         self.timelimit = _valid_timelimit(timelimit)
-        self.reserve = deadline_reserve(self.timelimit)
+        self.reserve = (
+            deadline_reserve(self.timelimit)
+            if reserve is None
+            else _valid_reserve(reserve, self.timelimit)
+        )
         self._clock = clock
         self.started_at = float(clock())
         self.deadline = self.started_at + self.timelimit - self.reserve
@@ -87,3 +92,15 @@ def _valid_timelimit(timelimit: float) -> float:
     if not math.isfinite(limit) or limit < 0.0:
         raise ValueError("timelimit must be a finite non-negative number")
     return limit
+
+
+def _valid_reserve(reserve: float, timelimit: float) -> float:
+    if isinstance(reserve, bool):
+        raise ValueError("reserve must be a finite non-negative number")
+    try:
+        value = float(reserve)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("reserve must be a finite non-negative number") from exc
+    if not math.isfinite(value) or value < 0.0 or value > timelimit:
+        raise ValueError("reserve must be between zero and timelimit")
+    return value

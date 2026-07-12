@@ -55,6 +55,9 @@ class ConstructionMetrics:
     """Replay-stable multi-start metrics excluding clocks and timestamps."""
 
     seed: int
+    time_cap: int | None
+    anchor_cap: int | None
+    profile_budget: tuple[str, ...]
     start_profiles: tuple[str, ...]
     selected_profile: str
     selected_order: tuple[int, ...]
@@ -79,6 +82,7 @@ class ConstructionResult:
     metrics: ConstructionMetrics
     checker_result: CheckerResult
     construction_seconds: float
+    full_check_seconds: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +118,8 @@ def construct_profile(
     shape_catalog: tuple[tuple[ShapeInfo, ...], ...] | None = None,
     geom: GeomKernel | None = None,
     budget: Budget | None = None,
+    time_cap: int | None = ESCALATED_TIME_CAP,
+    anchor_cap: int | None = ESCALATED_ANCHOR_CAP,
 ) -> ProfileConstruction:
     """Construct one full state through the shared escalation insertion path."""
     canonical_profile = profile.upper()
@@ -142,6 +148,8 @@ def construct_profile(
             block_id,
             preferred_bay_id=preferred.bay_id,
             preferred_orient_idx=preferred.orient_idx,
+            time_cap=time_cap,
+            anchor_cap=anchor_cap,
         )
         state.place(inserted.candidate.placement)
         attempts[inserted.attempt] += 1
@@ -179,6 +187,9 @@ def construct_multistart(
     seed: int,
     profiles: Sequence[str] = DETERMINISTIC_PROFILES,
     biased_variants: bool = True,
+    calibrated_entry: bool = False,
+    time_cap: int | None = ESCALATED_TIME_CAP,
+    anchor_cap: int | None = ESCALATED_ANCHOR_CAP,
 ) -> ConstructionResult:
     """Run deterministic starts, then budgeted PCG64-biased variants.
 
@@ -188,8 +199,17 @@ def construct_multistart(
     profile cannot alter the prior verified incumbent.
     """
     normalized = tuple(str(profile).upper() for profile in profiles)
-    if normalized != DETERMINISTIC_PROFILES:
+    if not calibrated_entry and normalized != DETERMINISTIC_PROFILES:
         raise ValueError("S1-04 requires deterministic profiles PF1,PF2,PF3,PF4")
+    if calibrated_entry and (
+        not normalized
+        or any(profile not in DETERMINISTIC_PROFILES for profile in normalized)
+        or biased_variants
+    ):
+        raise ValueError(
+            "calibrated entry requires a non-empty deterministic profile subset "
+            "and no biased variants"
+        )
     if isinstance(seed, bool) or not isinstance(seed, int):
         raise ValueError("seed must be an integer")
     if not incumbent.has_incumbent:
@@ -208,6 +228,9 @@ def construct_multistart(
                 profile,
                 shape_catalog=shape_catalog,
                 geom=geom,
+                budget=budget if calibrated_entry else None,
+                time_cap=time_cap,
+                anchor_cap=anchor_cap,
             )
         )
 
@@ -234,6 +257,8 @@ def construct_multistart(
                         shape_catalog=shape_catalog,
                         geom=geom,
                         budget=budget,
+                        time_cap=time_cap,
+                        anchor_cap=anchor_cap,
                     )
                 )
             except BudgetExpired:
@@ -248,10 +273,15 @@ def construct_multistart(
         json.dumps(output, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
     construction_seconds = time.monotonic() - construction_started
+    full_check_started = time.monotonic()
     updated = incumbent.try_update(best.state)
+    full_check_seconds = time.monotonic() - full_check_started
     checked = incumbent.last_checker_result
     metrics = ConstructionMetrics(
         seed=seed,
+        time_cap=time_cap,
+        anchor_cap=anchor_cap,
+        profile_budget=normalized,
         start_profiles=tuple(start.metrics.profile for start in starts),
         selected_profile=best.metrics.profile,
         selected_order=best.metrics.order,
@@ -259,7 +289,13 @@ def construct_multistart(
         output_sha256=output_sha256,
         incumbent_updated=updated,
     )
-    return ConstructionResult(best.state, metrics, checked, construction_seconds)
+    return ConstructionResult(
+        best.state,
+        metrics,
+        checked,
+        construction_seconds,
+        full_check_seconds,
+    )
 
 
 def _profile_order(
@@ -388,13 +424,15 @@ def escalate_insert(
     *,
     preferred_bay_id: int,
     preferred_orient_idx: int,
+    time_cap: int | None = ESCALATED_TIME_CAP,
+    anchor_cap: int | None = ESCALATED_ANCHOR_CAP,
 ) -> EscalationResult:
     """Run the bounded S1 insertion ladder and end in a valid solo window.
 
-    The ladder is constructor-local: preferred 8/32, preferred 16/64,
-    every fitting bay/orientation at 16/64, two explicit tardy probes, and an
-    empty-bay time window after all residents have exited.  No interlock API
-    is consulted.
+    The ladder is constructor-local: preferred 8/32, preferred calibrated
+    caps, every fitting bay/orientation at calibrated caps, two explicit
+    tardy probes, and an empty-bay time window after all residents have
+    exited.  No interlock API is consulted.
     """
     if not _plain_int(block_id) or not 0 <= block_id < len(state.instance.blocks):
         raise IndexError(f"block_id {block_id!r} is out of range")
@@ -419,19 +457,20 @@ def escalate_insert(
                 candidate, "preferred_bounded", None,
                 tuple(attempted_bays), DEFAULT_TIME_CAP, DEFAULT_ANCHOR_CAP,
             )
-        candidate = first_fit(
-            state,
-            block_id,
-            preferred_bay_id,
-            preferred_orient_idx,
-            time_cap=ESCALATED_TIME_CAP,
-            anchor_cap=ESCALATED_ANCHOR_CAP,
-        )
-        if candidate is not None:
-            return EscalationResult(
-                candidate, "escalated_caps", "bounded_caps_exhausted",
-                tuple(attempted_bays), ESCALATED_TIME_CAP, ESCALATED_ANCHOR_CAP,
+        if (time_cap, anchor_cap) != (DEFAULT_TIME_CAP, DEFAULT_ANCHOR_CAP):
+            candidate = first_fit(
+                state,
+                block_id,
+                preferred_bay_id,
+                preferred_orient_idx,
+                time_cap=time_cap,
+                anchor_cap=anchor_cap,
             )
+            if candidate is not None:
+                return EscalationResult(
+                    candidate, "escalated_caps", "bounded_caps_exhausted",
+                    tuple(attempted_bays), time_cap, anchor_cap,
+                )
 
     fitting_sites = _fitting_sites(state, block_id)
     for bay_id, orient_idx in fitting_sites:
@@ -447,13 +486,13 @@ def escalate_insert(
             block_id,
             bay_id,
             orient_idx,
-            time_cap=ESCALATED_TIME_CAP,
-            anchor_cap=ESCALATED_ANCHOR_CAP,
+            time_cap=time_cap,
+            anchor_cap=anchor_cap,
         )
         if candidate is not None:
             return EscalationResult(
                 candidate, "all_fitting_bays", "preferred_site_failed",
-                tuple(attempted_bays), ESCALATED_TIME_CAP, ESCALATED_ANCHOR_CAP,
+                tuple(attempted_bays), time_cap, anchor_cap,
             )
 
     block = state.instance.blocks[block_id]
@@ -467,7 +506,7 @@ def escalate_insert(
             block_id,
             bay_id,
             orient_idx,
-            cap=ESCALATED_ANCHOR_CAP,
+            cap=anchor_cap,
         ):
             for entry in tardy_entries:
                 candidate = _candidate_at(
@@ -476,7 +515,7 @@ def escalate_insert(
                 if candidate is not None:
                     return EscalationResult(
                         candidate, "tardy_expansion", "bounded_search_failed",
-                        tuple(attempted_bays), None, ESCALATED_ANCHOR_CAP,
+                        tuple(attempted_bays), None, anchor_cap,
                     )
 
     solo_candidates: list[InsertionCandidate] = []

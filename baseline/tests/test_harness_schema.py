@@ -19,7 +19,7 @@ class HarnessSchemaTests(unittest.TestCase):
             ["parity", "--kind", "geometry", "--cases", "1000", "--instances", "synthetic"],
             ["benchmark", "--stage", "s0", "--instances", "training", "--timelimits", "5", "--seeds", "20260710"],
             ["stress", "--stage", "s0", "--instances", "stress", "--timelimits", "0.5", "--seeds", "20260710"],
-            ["ab", "--instances", "training", "--timelimits", "5", "--seeds", "20260710", "--a", "off", "--b", "on"],
+            ["ab", "--stage", "s1", "--instances", "training", "--timelimits", "5", "--seeds", "20260710", "--a", "off", "--b", "on"],
             ["gate", "--stage", "s0", "--latest-complete", "--commit", "HEAD"],
             ["report", "--stage", "s0", "--latest-complete"],
             ["submission-rehearsal", "--instances", "training", "--timelimits", "5", "--seeds", "20260710", "--isolated"],
