@@ -34,6 +34,7 @@ from .runner import (
     run_exact_probe_fault_case,
     run_retime_fault_case,
     run_s3_operator_case,
+    run_s3_control_case,
     run_s2_entry_case,
     run_s2_matrix_records,
     run_backend_parity_record,
@@ -53,6 +54,7 @@ if BASELINE_ROOT not in sys.path:
 try:
     from baseline.solver.config import (
         CAP_CALIBRATION_MATRIX,
+        ALNS_DIRTY_TRIGGER_MATRIX,
         DEFAULT_CONFIG,
         RETIME_PILOT_MATRIX,
         RETIME_TIMEBOX_MATRIX,
@@ -62,6 +64,7 @@ try:
 except ModuleNotFoundError:
     from solver.config import (
         CAP_CALIBRATION_MATRIX,
+        ALNS_DIRTY_TRIGGER_MATRIX,
         DEFAULT_CONFIG,
         RETIME_PILOT_MATRIX,
         RETIME_TIMEBOX_MATRIX,
@@ -461,7 +464,11 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 def _benchmark(args: argparse.Namespace) -> int:
     if args.stage == "s3":
-        return _s3_operator_benchmark(args)
+        return (
+            _s3_control_benchmark(args)
+            if args.component == "controls"
+            else _s3_operator_benchmark(args)
+        )
     if args.stage == "s2":
         return (
             _gurobi_retime_benchmark(args)
@@ -676,6 +683,154 @@ def _s3_operator_benchmark(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s3_control_benchmark(args: argparse.Namespace) -> int:
+    if args.metric != "solver" or args.instances != "dev-10":
+        raise SelectorError(
+            "S3-04 control benchmark requires default metric and dev-10"
+        )
+    features = _features(args.feature)
+    required = {
+        "alns": "true",
+        "acceptor": DEFAULT_CONFIG.alns_acceptor,
+        "adaptive": str(DEFAULT_CONFIG.alns_adaptive).lower(),
+    }
+    if features != required:
+        raise SelectorError(
+            "S3-04 control benchmark requires alns=true, selected acceptor, "
+            "and selected adaptive flag"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (60.0,) or seeds != (20260710, 20260711, 20260712):
+        raise SelectorError(
+            "S3-04 control benchmark requires timelimits=60 and seeds="
+            "20260710,20260711,20260712"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s3",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s3-04",
+            "component": "controls",
+            "selector": "dev-10",
+            "dirty_matrix": ALNS_DIRTY_TRIGGER_MATRIX,
+            "features": features,
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("dev-10", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=60|seed={seed}|"
+        f"acceptor={DEFAULT_CONFIG.alns_acceptor}|"
+        f"adaptive={str(DEFAULT_CONFIG.alns_adaptive).lower()}|"
+        f"dirty={minimum}:{fraction:g}|order=matrix"
+        for ref in refs
+        for seed in seeds
+        for minimum, fraction in ALNS_DIRTY_TRIGGER_MATRIX
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for seed in seeds:
+            for minimum, fraction in ALNS_DIRTY_TRIGGER_MATRIX:
+                record_id = (
+                    f"{ref.instance_id}|tl=60|seed={seed}|"
+                    f"acceptor={DEFAULT_CONFIG.alns_acceptor}|"
+                    f"adaptive={str(DEFAULT_CONFIG.alns_adaptive).lower()}|"
+                    f"dirty={minimum}:{fraction:g}|order=matrix"
+                )
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_s3_control_case(
+                    ref,
+                    selector="dev-10",
+                    timelimit=60.0,
+                    seed=seed,
+                    acceptor_name=DEFAULT_CONFIG.alns_acceptor,
+                    adaptive=DEFAULT_CONFIG.alns_adaptive,
+                    dirty_minimum=minimum,
+                    dirty_fraction=fraction,
+                    features=features,
+                    run_label="matrix",
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    candidates = []
+    for minimum, fraction in ALNS_DIRTY_TRIGGER_MATRIX:
+        rows = tuple(
+            record
+            for record in records
+            if int(record["retime"]["dirty_minimum"]) == minimum
+            and float(record["retime"]["dirty_fraction"]) == fraction
+        )
+        eligible = (
+            len(rows) == 30
+            and all(record.get("checker", {}).get("feasible") is True for record in rows)
+            and all(record.get("never_worse") is True for record in rows)
+            and all(record.get("assignment_preserved") is True for record in rows)
+            and all(
+                int(record.get("metrics", {}).get("checker_failures", 0)) == 0
+                for record in rows
+            )
+            and all(
+                float(record["retime"]["search_wall_fraction"])
+                <= DEFAULT_CONFIG.alns_retime_wall_fraction_cap
+                for record in rows
+            )
+        )
+        candidates.append(
+            {
+                "minimum": minimum,
+                "fraction": fraction,
+                "eligible": eligible,
+                "median_objective": statistics.median(
+                    float(record["final_objective"]) for record in rows
+                )
+                if rows
+                else float("inf"),
+                "max_retime_wall_fraction": max(
+                    (float(record["retime"]["search_wall_fraction"]) for record in rows),
+                    default=1.0,
+                ),
+                "record_count": len(rows),
+            }
+        )
+    eligible = [candidate for candidate in candidates if candidate["eligible"]]
+    selected = min(
+        eligible,
+        key=lambda candidate: (
+            float(candidate["median_objective"]),
+            ALNS_DIRTY_TRIGGER_MATRIX.index(
+                (int(candidate["minimum"]), float(candidate["fraction"]))
+            ),
+        ),
+    ) if eligible else None
+    passed = len(records) == len(expected) and selected is not None
+    summary = _solver_summary(
+        "benchmark", "dev-10", records, passed, stage="s3"
+    )
+    summary.update(
+        slice="s3-04",
+        component="controls",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+        dirty_matrix=[list(item) for item in ALNS_DIRTY_TRIGGER_MATRIX],
+        candidates=candidates,
+        selected_dirty=(
+            [selected["minimum"], selected["fraction"]]
+            if selected is not None
+            else None
+        ),
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_GATE_FAILURE
 
 
 def _gurobi_retime_benchmark(args: argparse.Namespace) -> int:
@@ -1858,6 +2013,8 @@ def _constructor_entry_stress(
 
 
 def _ab(args: argparse.Namespace) -> int:
+    if args.stage == "s3":
+        return _s3_ab(args)
     if args.stage == "s2":
         return _s2_ab(args)
     if args.stage != "s1":
@@ -1972,6 +2129,234 @@ def _ab(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_GATE_FAILURE
+
+
+def _s3_ab(args: argparse.Namespace) -> int:
+    if args.instances != "dev-10":
+        raise SelectorError("S3-04 A/B requires --instances dev-10")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds) if args.seeds else (args.seed,)
+    required_seeds = (20260710, 20260711, 20260712)
+    if timelimits != (60.0,) or seeds != required_seeds:
+        raise SelectorError(
+            "S3-04 A/B requires timelimits=60 and seeds="
+            "20260710,20260711,20260712"
+        )
+    if tuple(args.feature) == ("acceptor",):
+        arms = (args.a, *_csv_strings(args.b))
+        if arms != ("strict", "rrt", "sa"):
+            raise SelectorError(
+                "S3-04 acceptor A/B requires --a strict --b rrt,sa"
+            )
+        feature_name = "acceptor"
+        arm_values: tuple[str | bool, ...] = arms
+    elif tuple(args.feature) == ("alns_adaptive",):
+        if args.a != "false" or args.b != "true":
+            raise SelectorError(
+                "S3-04 adaptive A/B requires --a false --b true"
+            )
+        feature_name = "alns_adaptive"
+        arm_values = (False, True)
+    else:
+        raise SelectorError(
+            "S3-04 A/B feature must be acceptor or alns_adaptive"
+        )
+
+    dirty_minimum = DEFAULT_CONFIG.alns_dirty_minimum
+    dirty_fraction = DEFAULT_CONFIG.alns_dirty_fraction
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s3",
+        command="ab",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s3-04",
+            "selector": "dev-10",
+            "feature": feature_name,
+            "dirty": [dirty_minimum, dirty_fraction],
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("dev-10", fixture_dir=run.run_dir / "fixtures")
+    orderings = (
+        ("forward", arm_values),
+        ("reverse", tuple(reversed(arm_values))),
+    )
+
+    def controls(arm: str | bool) -> tuple[str, bool]:
+        if feature_name == "acceptor":
+            return str(arm), False
+        return DEFAULT_CONFIG.alns_acceptor, bool(arm)
+
+    expected = tuple(
+        f"{ref.instance_id}|tl=60|seed={seed}|acceptor={acceptor}|"
+        f"adaptive={str(adaptive).lower()}|dirty={dirty_minimum}:"
+        f"{dirty_fraction:g}|order={order_label}"
+        for ref in refs
+        for seed in seeds
+        for order_label, ordering in orderings
+        for acceptor, adaptive in (controls(arm) for arm in ordering)
+    )
+    _set_expected(run, expected)
+    base_features = {
+        "feature": feature_name,
+        "a": args.a,
+        "b": args.b,
+    }
+    for ref in refs:
+        for seed in seeds:
+            for order_label, ordering in orderings:
+                for arm in ordering:
+                    acceptor, adaptive = controls(arm)
+                    record_id = (
+                        f"{ref.instance_id}|tl=60|seed={seed}|"
+                        f"acceptor={acceptor}|adaptive={str(adaptive).lower()}|"
+                        f"dirty={dirty_minimum}:{dirty_fraction:g}|"
+                        f"order={order_label}"
+                    )
+                    if record_id not in run.pending_record_ids:
+                        continue
+                    record = run_s3_control_case(
+                        ref,
+                        selector="dev-10",
+                        timelimit=60.0,
+                        seed=seed,
+                        acceptor_name=acceptor,
+                        adaptive=adaptive,
+                        dirty_minimum=dirty_minimum,
+                        dirty_fraction=dirty_fraction,
+                        features=base_features,
+                        run_label=order_label,
+                    )
+                    run.append_record(
+                        _deduplicate(evidence_root, record, rerun=args.rerun)
+                    )
+    records = _effective_records(run.records)
+    grouped: dict[str, dict[tuple[str, int], list[float]]] = {}
+    for record in records:
+        arm = (
+            str(record["features"]["acceptor"])
+            if feature_name == "acceptor"
+            else str(record["features"]["adaptive"])
+        )
+        key = (str(record["instance_id"]), int(record["seed"]))
+        grouped.setdefault(arm, {}).setdefault(key, []).append(
+            float(record["final_objective"])
+        )
+    aggregates = {
+        arm: {
+            key: statistics.median(values)
+            for key, values in keyed.items()
+            if len(values) == 2
+        }
+        for arm, keyed in grouped.items()
+    }
+    checker_rejections_by_arm: dict[str, int] = {}
+    for record in records:
+        arm = (
+            str(record["features"]["acceptor"])
+            if feature_name == "acceptor"
+            else str(record["features"]["adaptive"])
+        )
+        checker_rejections_by_arm[arm] = checker_rejections_by_arm.get(arm, 0) + int(
+            record.get("metrics", {}).get("checker_failures", 0)
+        )
+    all_feasible = (
+        len(records) == len(expected)
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and all(record.get("assignment_preserved") is True for record in records)
+        and all(record.get("never_worse") is True for record in records)
+        and all(
+            float(record.get("retime", {}).get("search_wall_fraction", 1.0))
+            <= DEFAULT_CONFIG.alns_retime_wall_fraction_cap
+            for record in records
+        )
+        and all(len(values) == 30 for values in aggregates.values())
+    )
+    decisions: dict[str, Any] = {}
+    if feature_name == "acceptor":
+        wins = {arm: 0 for arm in ("strict", "rrt", "sa")}
+        for key in next(iter(aggregates.values()), {}):
+            for left in wins:
+                for right in wins:
+                    if left < right and aggregates[left][key] != aggregates[right][key]:
+                        winner = (
+                            left
+                            if aggregates[left][key] < aggregates[right][key]
+                            else right
+                        )
+                        wins[winner] += 1
+        medians = {
+            arm: statistics.median(values.values())
+            for arm, values in aggregates.items()
+        }
+        tie_rank = {"strict": 0, "rrt": 1, "sa": 2}
+        safe_arms = tuple(
+            arm
+            for arm in ("strict", "rrt", "sa")
+            if checker_rejections_by_arm.get(arm, 0) == 0
+        )
+        selected = min(
+            safe_arms or ("strict",),
+            key=lambda arm: (medians[arm], -wins[arm], tie_rank[arm]),
+        )
+        decisions = {
+            "selected_acceptor": selected,
+            "median_objectives": medians,
+            "wins": wins,
+            "tie_break": "strict>rrt>sa",
+            "checker_rejections_by_arm": checker_rejections_by_arm,
+        }
+    else:
+        by_instance: dict[str, dict[str, list[float]]] = {}
+        for arm, keyed in aggregates.items():
+            for (instance_id, _seed), objective in keyed.items():
+                by_instance.setdefault(instance_id, {}).setdefault(arm, []).append(
+                    objective
+                )
+        instance_aggregates = {
+            instance_id: {
+                arm: statistics.median(values)
+                for arm, values in arm_values_by_instance.items()
+            }
+            for instance_id, arm_values_by_instance in by_instance.items()
+        }
+        false_median = statistics.median(aggregates["false"].values())
+        true_median = statistics.median(aggregates["true"].values())
+        adaptive_wins = sum(
+            values.get("true", float("inf")) < values.get("false", float("inf"))
+            for values in instance_aggregates.values()
+        )
+        selected_adaptive = (
+            checker_rejections_by_arm.get("true", 0) == 0
+            and true_median < false_median
+            and adaptive_wins >= 6
+        )
+        decisions = {
+            "selected_adaptive": selected_adaptive,
+            "median_false": false_median,
+            "median_true": true_median,
+            "instance_wins": adaptive_wins,
+            "required_wins": 6,
+            "instance_aggregates": instance_aggregates,
+            "checker_rejections_by_arm": checker_rejections_by_arm,
+        }
+    summary = _solver_summary("ab", "dev-10", records, all_feasible, stage="s3")
+    summary.update(
+        slice="s3-04",
+        feature=feature_name,
+        a=args.a,
+        b=args.b,
+        timelimits=timelimits,
+        seeds=seeds,
+        orderings=["forward", "reverse"],
+        aggregate_count=sum(len(values) for values in aggregates.values()),
+        all_feasible=all_feasible,
+        **decisions,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if all_feasible else EXIT_GATE_FAILURE
 
 
 def _s2_ab(args: argparse.Namespace) -> int:
@@ -2299,6 +2684,13 @@ def _csv_floats(raw: str) -> tuple[float, ...]:
     values = tuple(float(item) for item in str(raw).split(","))
     if not values or any(value < 0 for value in values):
         raise SelectorError("timelimits must be non-negative")
+    return values
+
+
+def _csv_strings(raw: str) -> tuple[str, ...]:
+    values = tuple(item.strip() for item in raw.split(",") if item.strip())
+    if not values:
+        raise SelectorError("expected at least one comma-separated value")
     return values
 
 

@@ -679,5 +679,172 @@ class AcceptanceTests(unittest.TestCase):
             self.assertEqual(result.incumbent_trace[-1].objective, checked.objective)
 
 
+class ControlTests(unittest.TestCase):
+    def test_retime_stall_and_acceptor_transitions(self):
+        trigger = alns.RetimeTrigger(
+            min_dirty=5,
+            dirty_fraction=0.05,
+            min_interval_fraction=0.03,
+        )
+        self.assertEqual(5, trigger.threshold(40))
+        for _ in range(5):
+            trigger.record_spatial_accept(0)
+        self.assertFalse(
+            trigger.should_retime(0, bay_size=40, elapsed=2.99, timelimit=100.0)
+        )
+        self.assertTrue(
+            trigger.should_retime(0, bay_size=40, elapsed=3.0, timelimit=100.0)
+        )
+        trigger.record_retime(0, elapsed=3.0, wall_seconds=0.25, improved=False)
+        self.assertEqual(0, trigger.dirty_count(0))
+        self.assertEqual(0.25, trigger.retime_wall_seconds)
+
+        rrt = alns.RRT_Acceptor(initial_deviation=0.03)
+        rrt.begin_iteration(progress=0.0, incumbent_obj=100.0)
+        self.assertTrue(rrt.accept(100.0, 102.0))
+        rrt.begin_iteration(progress=1.0, incumbent_obj=100.0)
+        self.assertFalse(rrt.accept(100.0, 100.01))
+
+        sa = alns.SAAcceptor(
+            Generator(PCG64(20260710)),
+            target_worse_acceptance=0.5,
+        )
+        sa.calibrate((1.0, 2.0, 4.0))
+        sa.begin_iteration(progress=0.5, incumbent_obj=100.0)
+        self.assertGreater(sa.temperature, 0.0)
+        cooled_temperature = sa.temperature
+        sa.reheat(2.0)
+        self.assertGreater(sa.temperature, cooled_temperature)
+        reheated_temperature = sa.temperature
+        sa.begin_iteration(progress=0.5, incumbent_obj=100.0)
+        self.assertEqual(reheated_temperature, sa.temperature)
+
+        static = alns.OperatorWeights(("d1", "d2"), adaptive=False)
+        adaptive = alns.OperatorWeights(
+            ("d1", "d2"), adaptive=True, segment_length=2, reaction=0.5
+        )
+        for weights in (static, adaptive):
+            weights.record("d1", "improving")
+            weights.record("d1", "improving")
+        self.assertEqual((1.0, 1.0), static.weights)
+        self.assertGreater(adaptive.weight("d1"), adaptive.weight("d2"))
+
+        stall = alns.StagnationController(
+            reheat_after=2,
+            expand_after=4,
+            restart_after=6,
+        )
+        self.assertEqual("none", stall.record(improved=False))
+        self.assertEqual("reheat", stall.record(improved=False))
+        self.assertEqual("none", stall.record(improved=False))
+        self.assertEqual("expand", stall.record(improved=False))
+        self.assertEqual("none", stall.record(improved=False))
+        self.assertEqual("restart", stall.record(improved=False))
+        self.assertEqual("none", stall.record(improved=True))
+
+    @staticmethod
+    def _copy_with_exit(state, exit_time):
+        candidate = SolutionState(
+            state.instance,
+            geom=state.geom,
+            shape_catalog=state.shape_catalog,
+        )
+        for placement in state.placements.values():
+            candidate.place(
+                Placement(
+                    placement.block_id,
+                    placement.bay_id,
+                    placement.x,
+                    placement.y,
+                    placement.orient_idx,
+                    exit_time - 1,
+                    exit_time,
+                )
+            )
+        return candidate
+
+    def test_guarded_retime_and_backend_failure_keep_incumbent(self):
+        for mode in ("improve", "worsen", "fail"):
+            prob_info, state, incumbent = AcceptanceTests._single_block_fixture()
+            before = state.capture_undo_token()
+            trigger = alns.RetimeTrigger(
+                min_dirty=1,
+                dirty_fraction=0.01,
+                min_interval_fraction=0.0,
+            )
+
+            def retime(current, bay_id, budget):
+                self.assertEqual(0, bay_id)
+                if mode == "fail":
+                    raise RuntimeError("forced backend failure")
+                return self._copy_with_exit(
+                    current,
+                    7 if mode == "improve" else 9,
+                )
+
+            result = alns.run_alns(
+                state,
+                incumbent,
+                Generator(PCG64(20260710)),
+                max_iterations=1,
+                registry=AcceptanceTests._scripted_registry((8,)),
+                remove_count=1,
+                retime_trigger=trigger,
+                retime_callback=retime,
+                timelimit_seconds=60.0,
+            )
+            expected = 7.0 if mode == "improve" else 8.0
+            self.assertEqual(expected, state.objective, mode)
+            checked = official_check(prob_info, result.solution)
+            self.assertTrue(checked.feasible, (mode, checked.violations))
+            self.assertEqual(expected, checked.objective, mode)
+            self.assertEqual(before.bay_members, state.bay_members, mode)
+            self.assertEqual(before.bay_loads, state.objective_diagnostics.bay_loads)
+            self.assertEqual(before.z2, state.z2, mode)
+            self.assertEqual(before.z3, state.z3, mode)
+            self.assertEqual(1, result.metrics.retime_attempts, mode)
+            self.assertEqual(int(mode == "improve"), result.metrics.retime_improvements)
+            self.assertEqual(int(mode == "fail"), result.metrics.retime_failures)
+
+    def test_rrt_worse_current_never_replaces_incumbent(self):
+        prob_info, state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        result = alns.run_alns(
+            state,
+            incumbent,
+            Generator(PCG64(20260710)),
+            max_iterations=1,
+            registry=AcceptanceTests._scripted_registry((102,)),
+            remove_count=1,
+            acceptor=alns.RRT_Acceptor(initial_deviation=0.03),
+            safety_sample_interval=1,
+        )
+        self.assertEqual(102.0, state.objective)
+        self.assertEqual(1, result.metrics.accepted_worsening)
+        checked = official_check(prob_info, result.solution)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(100.0, checked.objective)
+
+    def test_same_bay_restart_is_checker_feasible(self):
+        prob_info, state, _incumbent = AcceptanceTests._single_block_fixture()
+        before = state.capture_undo_token()
+        restarted = alns.same_bay_restart(
+            state,
+            Generator(PCG64(20260710)),
+            AcceptanceTests._scripted_registry((9,)),
+        )
+        self.assertTrue(restarted)
+        checked = official_check(
+            prob_info,
+            serialize_non_interlock(state.placements.values()),
+        )
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(before.bay_members, state.bay_members)
+        self.assertEqual(before.bay_loads, state.objective_diagnostics.bay_loads)
+        self.assertEqual(before.z2, state.z2)
+        self.assertEqual(before.z3, state.z3)
+
+
 if __name__ == "__main__":
     unittest.main()

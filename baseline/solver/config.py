@@ -8,6 +8,9 @@ from dataclasses import dataclass
 CAP_CALIBRATION_MATRIX = ((8, 32), (8, 48), (16, 48), (16, 64))
 RETIME_TIMEBOX_MATRIX = (1.0, 2.0, 5.0)
 RETIME_PILOT_MATRIX = (0.0, 2.0, 4.0)
+ALNS_DIRTY_TRIGGER_MATRIX = ((3, 0.03), (5, 0.05), (8, 0.08))
+ALNS_ACCEPTOR_MATRIX = ("strict", "rrt", "sa")
+ALNS_ADAPTIVE_MATRIX = (False, True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +33,12 @@ class SolverConfig:
     alns_destroy_min_fraction: float = 0.02
     alns_destroy_max_fraction: float = 0.06
     alns_destroy_cap_fraction: float = 0.15
+    alns_acceptor: str = "sa"
+    alns_adaptive: bool = False
+    alns_dirty_minimum: int = 3
+    alns_dirty_fraction: float = 0.03
+    alns_retime_interval_fraction: float = 0.03
+    alns_retime_wall_fraction_cap: float = 0.20
 
 
 DEFAULT_CONFIG = SolverConfig()

@@ -10,6 +10,7 @@ import hashlib
 import json
 import math
 from statistics import median
+import time
 from types import MappingProxyType
 from typing import Any
 
@@ -32,6 +33,9 @@ from .validate import validate_insertion
 
 MutationHook = Callable[[str, int], None]
 Acceptance = Callable[[ObjectiveDiagnostics, ObjectiveDiagnostics], bool]
+RetimeCallback = Callable[
+    [SolutionState, int, Budget | None], SolutionState | None
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +104,13 @@ class ALNSMetrics:
     checker_failures: int = 0
     faults: int = 0
     deadlines: int = 0
+    accepted_worsening: int = 0
+    retime_attempts: int = 0
+    retime_improvements: int = 0
+    retime_failures: int = 0
+    reheats: int = 0
+    expansions: int = 0
+    restarts: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +163,361 @@ class StrictAcceptor:
 
     def accept(self, previous_cur_obj: float, new_obj: float) -> bool:
         return self.classify(previous_cur_obj, new_obj) == "improving"
+
+    def begin_iteration(
+        self, *, progress: float, incumbent_obj: float
+    ) -> None:
+        """Accept the common controller hook without changing strict policy."""
+        _validate_progress(progress)
+        _validate_objective(incumbent_obj, "incumbent_obj")
+
+    def reheat(self, factor: float = 1.0) -> None:
+        """Strict acceptance has no temperature to reheat."""
+        if not math.isfinite(factor) or factor <= 0.0:
+            raise ValueError("reheat factor must be finite and positive")
+
+
+class RRT_Acceptor(StrictAcceptor):
+    """Record-to-record travel with a linear 3%-to-zero deviation."""
+
+    __slots__ = ("initial_deviation", "_threshold", "_record_obj")
+
+    def __init__(
+        self,
+        *,
+        initial_deviation: float = 0.03,
+        epsilon: float = 1e-9,
+    ) -> None:
+        super().__init__(epsilon=epsilon)
+        if (
+            not math.isfinite(initial_deviation)
+            or not 0.0 <= initial_deviation <= 1.0
+        ):
+            raise ValueError("initial_deviation must be in [0, 1]")
+        self.initial_deviation = float(initial_deviation)
+        self._threshold = 0.0
+        self._record_obj = 0.0
+
+    @property
+    def threshold(self) -> float:
+        return self._threshold
+
+    def begin_iteration(
+        self, *, progress: float, incumbent_obj: float
+    ) -> None:
+        _validate_progress(progress)
+        _validate_objective(incumbent_obj, "incumbent_obj")
+        self._record_obj = float(incumbent_obj)
+        self._threshold = (
+            self.initial_deviation
+            * (1.0 - float(progress))
+            * max(1.0, abs(float(incumbent_obj)))
+        )
+
+    def accept(self, previous_cur_obj: float, new_obj: float) -> bool:
+        _validate_objective(previous_cur_obj, "previous_cur_obj")
+        _validate_objective(new_obj, "new_obj")
+        return new_obj <= self._record_obj + self._threshold
+
+
+class SAAcceptor(StrictAcceptor):
+    """Seeded simulated annealing with explicit warmup calibration."""
+
+    __slots__ = (
+        "rng",
+        "target_worse_acceptance",
+        "minimum_temperature",
+        "_initial_temperature",
+        "_temperature",
+        "_reheat_multiplier",
+    )
+
+    def __init__(
+        self,
+        rng: Generator,
+        *,
+        target_worse_acceptance: float = 0.5,
+        minimum_temperature: float = 1e-12,
+        epsilon: float = 1e-9,
+    ) -> None:
+        super().__init__(epsilon=epsilon)
+        if not isinstance(rng, Generator):
+            raise TypeError("rng must be a numpy.random.Generator")
+        if (
+            not math.isfinite(target_worse_acceptance)
+            or not 0.0 < target_worse_acceptance < 1.0
+        ):
+            raise ValueError("target_worse_acceptance must be in (0, 1)")
+        if not math.isfinite(minimum_temperature) or minimum_temperature <= 0.0:
+            raise ValueError("minimum_temperature must be finite and positive")
+        self.rng = rng
+        self.target_worse_acceptance = float(target_worse_acceptance)
+        self.minimum_temperature = float(minimum_temperature)
+        self._initial_temperature = self.minimum_temperature
+        self._temperature = self.minimum_temperature
+        self._reheat_multiplier = 1.0
+
+    @property
+    def temperature(self) -> float:
+        return self._temperature
+
+    def calibrate(self, worsening_deltas: Iterable[float]) -> float:
+        samples = tuple(
+            float(delta)
+            for delta in worsening_deltas
+            if math.isfinite(float(delta)) and float(delta) > 0.0
+        )
+        representative = median(samples) if samples else 1.0
+        self._initial_temperature = max(
+            self.minimum_temperature,
+            -representative / math.log(self.target_worse_acceptance),
+        )
+        self._temperature = self._initial_temperature
+        return self._temperature
+
+    def begin_iteration(
+        self, *, progress: float, incumbent_obj: float
+    ) -> None:
+        _validate_progress(progress)
+        _validate_objective(incumbent_obj, "incumbent_obj")
+        self._temperature = max(
+            self.minimum_temperature,
+            self._initial_temperature
+            * (1.0 - float(progress))
+            * self._reheat_multiplier,
+        )
+
+    def accept(self, previous_cur_obj: float, new_obj: float) -> bool:
+        outcome = self.classify(previous_cur_obj, new_obj)
+        if outcome != "worse":
+            return True
+        delta = new_obj - previous_cur_obj
+        probability = math.exp(-delta / self._temperature)
+        return bool(self.rng.random() < probability)
+
+    def reheat(self, factor: float = 2.0) -> None:
+        if not math.isfinite(factor) or factor <= 0.0:
+            raise ValueError("reheat factor must be finite and positive")
+        self._temperature = max(
+            self.minimum_temperature,
+            self._temperature * float(factor),
+        )
+        self._reheat_multiplier *= float(factor)
+
+
+class OperatorWeights:
+    """Static uniform or segmented adaptive operator selection weights."""
+
+    _SCORES = {
+        "incumbent": 12.0,
+        "improving": 8.0,
+        "accepted": 3.0,
+        "current_equal": 1.0,
+        "worse": 0.0,
+        "rejected": 0.0,
+        "not_applicable": 0.0,
+        "repair_failed": 0.0,
+    }
+
+    def __init__(
+        self,
+        names: Sequence[str],
+        *,
+        adaptive: bool = False,
+        segment_length: int = 25,
+        reaction: float = 0.2,
+        minimum_weight: float = 1e-6,
+    ) -> None:
+        ordered = tuple(names)
+        if not ordered or len(set(ordered)) != len(ordered):
+            raise ValueError("operator names must be non-empty and unique")
+        if any(not isinstance(name, str) or not name for name in ordered):
+            raise ValueError("operator names must be non-empty strings")
+        if (
+            isinstance(segment_length, bool)
+            or not isinstance(segment_length, int)
+            or segment_length <= 0
+        ):
+            raise ValueError("segment_length must be a positive integer")
+        if not math.isfinite(reaction) or not 0.0 < reaction <= 1.0:
+            raise ValueError("reaction must be in (0, 1]")
+        if not math.isfinite(minimum_weight) or minimum_weight <= 0.0:
+            raise ValueError("minimum_weight must be finite and positive")
+        self.names = ordered
+        self.adaptive = bool(adaptive)
+        self.segment_length = segment_length
+        self.reaction = float(reaction)
+        self.minimum_weight = float(minimum_weight)
+        self._weights = {name: 1.0 for name in ordered}
+        self._scores = {name: 0.0 for name in ordered}
+        self._uses = {name: 0 for name in ordered}
+        self._records = 0
+
+    @property
+    def weights(self) -> tuple[float, ...]:
+        return tuple(self._weights[name] for name in self.names)
+
+    def weight(self, name: str) -> float:
+        return self._weights[name]
+
+    def select(self, rng: Generator) -> str:
+        if not isinstance(rng, Generator):
+            raise TypeError("rng must be a numpy.random.Generator")
+        probabilities = self.weights
+        total = sum(probabilities)
+        index = int(rng.choice(len(self.names), p=[item / total for item in probabilities]))
+        return self.names[index]
+
+    def record(self, name: str, outcome: str) -> None:
+        if name not in self._weights:
+            raise KeyError(name)
+        if outcome not in self._SCORES:
+            raise ValueError(f"unknown operator outcome {outcome!r}")
+        if not self.adaptive:
+            return
+        self._uses[name] += 1
+        self._scores[name] += self._SCORES[outcome]
+        self._records += 1
+        if self._records % self.segment_length == 0:
+            self._update_segment()
+
+    def _update_segment(self) -> None:
+        for name in self.names:
+            uses = self._uses[name]
+            if uses:
+                target = self._scores[name] / uses
+                self._weights[name] = max(
+                    self.minimum_weight,
+                    (1.0 - self.reaction) * self._weights[name]
+                    + self.reaction * target,
+                )
+            self._uses[name] = 0
+            self._scores[name] = 0.0
+
+
+class StagnationController:
+    """Emit one reheat, expansion, and same-bay restart milestone."""
+
+    def __init__(
+        self,
+        *,
+        reheat_after: int = 100,
+        expand_after: int = 250,
+        restart_after: int = 500,
+    ) -> None:
+        values = (reheat_after, expand_after, restart_after)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in values
+        ) or not reheat_after < expand_after < restart_after:
+            raise ValueError(
+                "stagnation thresholds must be positive and strictly increasing"
+            )
+        self.reheat_after = reheat_after
+        self.expand_after = expand_after
+        self.restart_after = restart_after
+        self.stalled_iterations = 0
+
+    def record(self, *, improved: bool) -> str:
+        if improved:
+            self.stalled_iterations = 0
+            return "none"
+        self.stalled_iterations += 1
+        if self.stalled_iterations == self.reheat_after:
+            return "reheat"
+        if self.stalled_iterations == self.expand_after:
+            return "expand"
+        if self.stalled_iterations == self.restart_after:
+            self.stalled_iterations = 0
+            return "restart"
+        return "none"
+
+
+class RetimeTrigger:
+    """Per-bay dirty counters with an elapsed-time retime interval guard."""
+
+    def __init__(
+        self,
+        *,
+        min_dirty: int = 5,
+        dirty_fraction: float = 0.05,
+        min_interval_fraction: float = 0.03,
+    ) -> None:
+        if isinstance(min_dirty, bool) or not isinstance(min_dirty, int) or min_dirty <= 0:
+            raise ValueError("min_dirty must be a positive integer")
+        if not math.isfinite(dirty_fraction) or not 0.0 < dirty_fraction <= 1.0:
+            raise ValueError("dirty_fraction must be in (0, 1]")
+        if (
+            not math.isfinite(min_interval_fraction)
+            or not 0.0 <= min_interval_fraction <= 1.0
+        ):
+            raise ValueError("min_interval_fraction must be in [0, 1]")
+        self.min_dirty = min_dirty
+        self.dirty_fraction = float(dirty_fraction)
+        self.min_interval_fraction = float(min_interval_fraction)
+        self._dirty: dict[int, int] = {}
+        self._last_retime_elapsed: dict[int, float] = {}
+        self.retime_wall_seconds = 0.0
+        self.attempts = 0
+        self.improvements = 0
+        self.failures = 0
+
+    def threshold(self, bay_size: int) -> int:
+        if isinstance(bay_size, bool) or not isinstance(bay_size, int) or bay_size < 0:
+            raise ValueError("bay_size must be a non-negative integer")
+        return max(self.min_dirty, math.ceil(self.dirty_fraction * bay_size))
+
+    def dirty_count(self, bay_id: int) -> int:
+        return self._dirty.get(bay_id, 0)
+
+    def record_spatial_accept(self, bay_id: int) -> None:
+        self._dirty[bay_id] = self.dirty_count(bay_id) + 1
+
+    def should_retime(
+        self,
+        bay_id: int,
+        *,
+        bay_size: int,
+        elapsed: float,
+        timelimit: float,
+    ) -> bool:
+        if not math.isfinite(elapsed) or elapsed < 0.0:
+            raise ValueError("elapsed must be finite and non-negative")
+        if not math.isfinite(timelimit) or timelimit < 0.0:
+            raise ValueError("timelimit must be finite and non-negative")
+        previous = self._last_retime_elapsed.get(bay_id, 0.0)
+        return (
+            self.dirty_count(bay_id) >= self.threshold(bay_size)
+            and elapsed - previous >= self.min_interval_fraction * timelimit
+        )
+
+    def record_retime(
+        self,
+        bay_id: int,
+        *,
+        elapsed: float,
+        wall_seconds: float,
+        improved: bool,
+        failed: bool = False,
+    ) -> None:
+        if not math.isfinite(wall_seconds) or wall_seconds < 0.0:
+            raise ValueError("wall_seconds must be finite and non-negative")
+        self._last_retime_elapsed[bay_id] = float(elapsed)
+        self._dirty[bay_id] = 0
+        self.retime_wall_seconds += float(wall_seconds)
+        self.attempts += 1
+        self.improvements += int(improved)
+        self.failures += int(failed)
+
+
+def _validate_progress(progress: float) -> None:
+    if not math.isfinite(progress) or not 0.0 <= progress <= 1.0:
+        raise ValueError("progress must be in [0, 1]")
+
+
+def _validate_objective(value: float, name: str) -> None:
+    if isinstance(value, bool) or not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
 
 
 def sample_destroy_count(
@@ -770,8 +1136,14 @@ def run_alns(
     safety_sample_interval: int = 0,
     budget: Budget | None = None,
     on_event: Callable[[ALNSIterationEvent], None] | None = None,
+    destroy_weights: OperatorWeights | None = None,
+    repair_weights: OperatorWeights | None = None,
+    stagnation: StagnationController | None = None,
+    retime_trigger: RetimeTrigger | None = None,
+    retime_callback: RetimeCallback | None = None,
+    timelimit_seconds: float = 0.0,
 ) -> ALNSRunResult:
-    """Run the S3-03 strict loop while returning only a verified incumbent.
+    """Run the checker-safe S3 loop while returning only a verified incumbent.
 
     Candidate state stays inside a ``MoveTransaction`` until strict acceptance,
     optional safety checking, and any potential incumbent full check complete.
@@ -807,6 +1179,24 @@ def run_alns(
     operators = OperatorRegistry() if registry is None else registry
     if not isinstance(operators, OperatorRegistry):
         raise TypeError("registry must be an OperatorRegistry")
+    destroy_control = (
+        OperatorWeights(operators.destroy_names)
+        if destroy_weights is None
+        else destroy_weights
+    )
+    repair_control = (
+        OperatorWeights(operators.repair_names)
+        if repair_weights is None
+        else repair_weights
+    )
+    if destroy_control.names != operators.destroy_names:
+        raise ValueError("destroy weights do not match the operator registry")
+    if repair_control.names != operators.repair_names:
+        raise ValueError("repair weights do not match the operator registry")
+    if not math.isfinite(timelimit_seconds) or timelimit_seconds < 0.0:
+        raise ValueError("timelimit_seconds must be finite and non-negative")
+    if (retime_trigger is None) != (retime_callback is None):
+        raise ValueError("retime trigger and callback must be configured together")
 
     metrics = ALNSMetrics()
     cur_obj = state.objective
@@ -815,19 +1205,30 @@ def run_alns(
         raise ValueError("incumbent must have a feasible checker objective")
     trace = [_trace_entry(0, incumbent.solution, initial)]
     stopped_reason = "max_iterations"
+    destroy_scale = 1.0
 
     for iteration in range(1, max_iterations + 1):
         metrics.iterations += 1
         destroy_name: str | None = None
         repair_name: str | None = None
         operator_outcome_recorded = False
+        source_bay: int | None = None
+        incumbent_updated = False
         try:
             _checkpoint(budget, "S3 iteration start")
-            destroy_name = _uniform_name(operators.destroy_names, rng)
-            repair_name = _uniform_name(operators.repair_names, rng)
+            incumbent_objective = incumbent.checker_result.objective
+            if incumbent_objective is None:
+                raise AssertionError("verified incumbent objective disappeared")
+            progress = (iteration - 1) / max(max_iterations - 1, 1)
+            strict.begin_iteration(
+                progress=progress,
+                incumbent_obj=incumbent_objective,
+            )
+            destroy_name = destroy_control.select(rng)
+            repair_name = repair_control.select(rng)
             destroy = operators.destroys[destroy_name]
             repair = operators.repairs[repair_name]
-            count = (
+            base_count = (
                 sample_destroy_count(
                     len(state.placements),
                     rng,
@@ -838,6 +1239,7 @@ def run_alns(
                 if remove_count is None
                 else remove_count
             )
+            count = max(1, math.ceil(base_count * destroy_scale))
             for name in (destroy_name, repair_name):
                 operators._metrics[name].attempts += 1
 
@@ -848,15 +1250,30 @@ def run_alns(
                     metrics.not_applicable += 1
                     metrics.rejected += 1
                     _record_operator_failure(operators, destroy_name, repair_name)
+                    _record_weight_outcome(
+                        destroy_control,
+                        repair_control,
+                        destroy_name,
+                        repair_name,
+                        "not_applicable",
+                    )
                     operator_outcome_recorded = True
                     continue
                 source_bays = {item.bay_id for item in removed}
                 if len(source_bays) != 1:
                     raise AssertionError("destroy escaped its single-bay boundary")
+                source_bay = next(iter(source_bays))
                 if not repair.repair(transaction, removed, budget=budget):
                     metrics.repair_failures += 1
                     metrics.rejected += 1
                     _record_operator_failure(operators, destroy_name, repair_name)
+                    _record_weight_outcome(
+                        destroy_control,
+                        repair_control,
+                        destroy_name,
+                        repair_name,
+                        "repair_failed",
+                    )
                     operator_outcome_recorded = True
                     continue
                 state.assert_invariants()
@@ -868,9 +1285,6 @@ def run_alns(
                 metrics.proposals += 1
                 setattr(metrics, outcome, getattr(metrics, outcome) + 1)
                 accepted = strict.accept(previous_cur_obj, new_obj)
-                incumbent_objective = incumbent.checker_result.objective
-                if incumbent_objective is None:
-                    raise AssertionError("verified incumbent objective disappeared")
                 potential_incumbent = (
                     new_obj
                     < incumbent_objective - strict.tolerance(incumbent_objective)
@@ -891,6 +1305,13 @@ def run_alns(
                 if not accepted:
                     metrics.rejected += 1
                     _record_operator_failure(operators, destroy_name, repair_name)
+                    _record_weight_outcome(
+                        destroy_control,
+                        repair_control,
+                        destroy_name,
+                        repair_name,
+                        "rejected",
+                    )
                     operator_outcome_recorded = True
                     continue
 
@@ -922,6 +1343,7 @@ def run_alns(
                             "official checker rejected an accepted candidate"
                         )
                     if updated:
+                        incumbent_updated = True
                         entry = _trace_entry(
                             iteration,
                             incumbent.solution,
@@ -939,10 +1361,54 @@ def run_alns(
                 transaction.commit()
                 cur_obj = new_obj
                 metrics.accepted += 1
+                metrics.accepted_worsening += int(outcome == "worse")
                 for name in (destroy_name, repair_name):
                     operators._metrics[name].successes += 1
+                _record_weight_outcome(
+                    destroy_control,
+                    repair_control,
+                    destroy_name,
+                    repair_name,
+                    "incumbent" if incumbent_updated else outcome,
+                )
                 operator_outcome_recorded = True
             _checkpoint(budget, "S3 after candidate commit")
+            if source_bay is not None and retime_trigger is not None:
+                retime_trigger.record_spatial_accept(source_bay)
+                elapsed = progress * timelimit_seconds
+                bay_size = len(state.bay_members[source_bay])
+                if retime_trigger.should_retime(
+                    source_bay,
+                    bay_size=bay_size,
+                    elapsed=elapsed,
+                    timelimit=timelimit_seconds,
+                ):
+                    cur_obj, retime_updated = _run_guarded_retime(
+                        state,
+                        incumbent,
+                        source_bay,
+                        budget,
+                        retime_trigger,
+                        retime_callback,
+                        elapsed=elapsed,
+                        metrics=metrics,
+                        trace=trace,
+                        iteration=iteration,
+                        acceptor=strict,
+                    )
+                    incumbent_updated = incumbent_updated or retime_updated
+            if stagnation is not None:
+                action = stagnation.record(improved=incumbent_updated)
+                if action == "reheat":
+                    strict.reheat(2.0)
+                    metrics.reheats += 1
+                elif action == "expand":
+                    destroy_scale = min(2.0, destroy_scale * 1.5)
+                    metrics.expansions += 1
+                elif action == "restart":
+                    if same_bay_restart(state, rng, operators, budget=budget):
+                        cur_obj = state.objective
+                        metrics.restarts += 1
         except BudgetExpired:
             metrics.deadlines += 1
             stopped_reason = "deadline"
@@ -967,6 +1433,172 @@ def run_alns(
         incumbent_trace=tuple(trace),
         stopped_reason=stopped_reason,
     )
+
+
+def _run_guarded_retime(
+    state: SolutionState,
+    incumbent: VerifiedIncumbent,
+    bay_id: int,
+    budget: Budget | None,
+    trigger: RetimeTrigger,
+    callback: RetimeCallback | None,
+    *,
+    elapsed: float,
+    metrics: ALNSMetrics,
+    trace: list[IncumbentTraceEntry],
+    iteration: int,
+    acceptor: StrictAcceptor,
+) -> tuple[float, bool]:
+    """Apply only a checker-feasible, assignment-neutral, never-worse retime."""
+    if callback is None:
+        raise AssertionError("retime callback disappeared")
+    before = state.capture_undo_token()
+    started = time.monotonic()
+    improved = False
+    failed = False
+    incumbent_updated = False
+    metrics.retime_attempts += 1
+    try:
+        _checkpoint(budget, "S3 before retime")
+        candidate = callback(state, bay_id, budget)
+        _checkpoint(budget, "S3 after retime backend")
+        if state.capture_undo_token() != before:
+            state.restore_undo_token(before)
+            raise AssertionError("retime callback mutated current state")
+        if candidate is None:
+            return state.objective, False
+        if not isinstance(candidate, SolutionState):
+            raise TypeError("retime callback must return SolutionState or None")
+        if candidate.instance.raw != state.instance.raw:
+            raise ValueError("retime candidate belongs to another instance")
+        _assert_candidate_assignment_unchanged(before, candidate)
+        tolerance = acceptor.tolerance(state.objective)
+        if candidate.objective > state.objective + tolerance:
+            return state.objective, False
+        checked = official_check(
+            state.instance.raw,
+            serialize_non_interlock(candidate.placements.values()),
+        )
+        metrics.full_checks += 1
+        if not checked.feasible or checked.objective is None:
+            metrics.checker_failures += 1
+            return state.objective, False
+        with MoveTransaction(state, _detached_rng()) as transaction:
+            for block_id in tuple(state.placements):
+                state.remove(block_id)
+            for placement in candidate.placements.values():
+                state.place(placement)
+            _assert_assignment_unchanged(before, state)
+            state.assert_invariants()
+            transaction.commit()
+        improved = state.objective < before.objective - acceptor.tolerance(
+            before.objective
+        )
+        if improved:
+            metrics.retime_improvements += 1
+        if incumbent.try_update(state):
+            incumbent_updated = True
+            entry = _trace_entry(
+                iteration,
+                incumbent.solution,
+                incumbent.checker_result,
+            )
+            if entry.objective >= trace[-1].objective - acceptor.tolerance(
+                trace[-1].objective
+            ):
+                raise AssertionError("retimed incumbent trace is not decreasing")
+            trace.append(entry)
+        return state.objective, incumbent_updated
+    except BudgetExpired:
+        if state.capture_undo_token() != before:
+            state.restore_undo_token(before)
+        raise
+    except Exception:
+        if state.capture_undo_token() != before:
+            state.restore_undo_token(before)
+        failed = True
+        metrics.retime_failures += 1
+        return state.objective, False
+    finally:
+        trigger.record_retime(
+            bay_id,
+            elapsed=elapsed,
+            wall_seconds=time.monotonic() - started,
+            improved=improved,
+            failed=failed,
+        )
+
+
+def same_bay_restart(
+    state: SolutionState,
+    rng: Generator,
+    registry: OperatorRegistry | None = None,
+    *,
+    budget: Budget | None = None,
+) -> bool:
+    """Commit one randomized same-bay perturbation only after a full check."""
+    operators = OperatorRegistry() if registry is None else registry
+    before = state.capture_undo_token()
+    eligible = tuple(len(members) for members in state.bay_members if members)
+    if not eligible:
+        return False
+    remove_count = min(2, max(eligible))
+    destroy_name = _uniform_name(operators.destroy_names, rng)
+    repair_name = _uniform_name(operators.repair_names, rng)
+    destroy = operators.destroys[destroy_name]
+    repair = operators.repairs[repair_name]
+    try:
+        with MoveTransaction(state, rng) as transaction:
+            removed = destroy.destroy(transaction, remove_count, budget=budget)
+            if len(removed) != remove_count:
+                return False
+            if not repair.repair(transaction, removed, budget=budget):
+                return False
+            _assert_assignment_unchanged(before, state)
+            checked = official_check(
+                state.instance.raw,
+                serialize_non_interlock(state.placements.values()),
+            )
+            if not checked.feasible:
+                return False
+            transaction.commit()
+            return True
+    except BudgetExpired:
+        raise
+    except Exception:
+        if state.capture_undo_token() != before:
+            state.restore_undo_token(before)
+        return False
+
+
+def _detached_rng() -> Generator:
+    """Use a private deterministic stream for copy installation bookkeeping."""
+    from numpy.random import PCG64
+
+    return Generator(PCG64(0))
+
+
+def _assert_candidate_assignment_unchanged(
+    before: StateUndoToken, candidate: SolutionState
+) -> None:
+    diagnostics = candidate.objective_diagnostics
+    if before.bay_members != candidate.bay_members:
+        raise AssertionError("S3 retime changed bay membership")
+    if before.bay_loads != diagnostics.bay_loads:
+        raise AssertionError("S3 retime changed bay loads")
+    if before.z2 != candidate.z2 or before.z3 != candidate.z3:
+        raise AssertionError("S3 retime changed Z2 or Z3")
+
+
+def _record_weight_outcome(
+    destroy: OperatorWeights,
+    repair: OperatorWeights,
+    destroy_name: str,
+    repair_name: str,
+    outcome: str,
+) -> None:
+    destroy.record(destroy_name, outcome)
+    repair.record(repair_name, outcome)
 
 
 def _checkpoint(budget: Budget | None, label: str) -> None:

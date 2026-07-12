@@ -23,7 +23,17 @@ from .schema import record_identity
 from .selectors import InstanceRef, REPO_ROOT
 
 try:
-    from baseline.solver.alns import OperatorRegistry, sample_destroy_count
+    from baseline.solver.alns import (
+        OperatorRegistry,
+        OperatorWeights,
+        RRT_Acceptor,
+        RetimeTrigger,
+        SAAcceptor,
+        StagnationController,
+        StrictAcceptor,
+        run_alns,
+        sample_destroy_count,
+    )
     from baseline.solver.assign import AssignmentV1
     from baseline.solver.budget import Budget, BudgetExpired, deadline_reserve
     from baseline.solver.checker_adapter import official_check
@@ -48,12 +58,22 @@ try:
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.entry import solve
     from baseline.solver.instance import ProblemInstance
-    from baseline.solver.retime import retime_sweep
+    from baseline.solver.retime import retime_bay, retime_sweep
     from baseline.solver.serialize import serialize_non_interlock
     from baseline.solver.state import Placement, SolutionState
     from baseline.solver.trivial import build_t0
 except ModuleNotFoundError:
-    from solver.alns import OperatorRegistry, sample_destroy_count
+    from solver.alns import (
+        OperatorRegistry,
+        OperatorWeights,
+        RRT_Acceptor,
+        RetimeTrigger,
+        SAAcceptor,
+        StagnationController,
+        StrictAcceptor,
+        run_alns,
+        sample_destroy_count,
+    )
     from solver.assign import AssignmentV1
     from solver.budget import Budget, BudgetExpired, deadline_reserve
     from solver.checker_adapter import official_check
@@ -71,7 +91,7 @@ except ModuleNotFoundError:
     from solver.incumbent import VerifiedIncumbent
     from solver.entry import solve
     from solver.instance import ProblemInstance
-    from solver.retime import retime_sweep
+    from solver.retime import retime_bay, retime_sweep
     from solver.serialize import serialize_non_interlock
     from solver.state import Placement, SolutionState
     from solver.trivial import build_t0
@@ -797,6 +817,192 @@ def _copy_solution_state(state: SolutionState) -> SolutionState:
         copied.place(placement)
     copied.assert_invariants()
     return copied
+
+
+def run_s3_control_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    acceptor_name: str,
+    adaptive: bool,
+    dirty_minimum: int,
+    dirty_fraction: float,
+    features: Mapping[str, str],
+    run_label: str = "forward",
+) -> dict[str, Any]:
+    """Run a bounded S3-04 component search with guarded S2 retiming."""
+    provenance = repository_provenance()
+    control_features = {
+        **features,
+        "acceptor": acceptor_name,
+        "adaptive": str(adaptive).lower(),
+        "dirty_minimum": str(dirty_minimum),
+        "dirty_fraction": str(dirty_fraction),
+        "order": run_label,
+    }
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="s3-retimed-controls",
+        timelimit=timelimit,
+        seed=seed,
+        features=control_features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    state = build_t0(parsed)
+    before = state.capture_undo_token()
+    incumbent = VerifiedIncumbent(parsed)
+    incumbent.register_initial(state)
+    initial_objective = incumbent.checker_result.objective
+    rng = Generator(PCG64(seed))
+    if acceptor_name == "strict":
+        acceptor = StrictAcceptor()
+    elif acceptor_name == "rrt":
+        acceptor = RRT_Acceptor(initial_deviation=0.03)
+    elif acceptor_name == "sa":
+        acceptor = SAAcceptor(rng)
+        scale = max(1.0, abs(float(initial_objective or 1.0)))
+        acceptor.calibrate((0.0025 * scale, 0.005 * scale, 0.01 * scale))
+    else:
+        raise ValueError(f"unsupported S3 acceptor {acceptor_name!r}")
+    registry = OperatorRegistry()
+    destroy_weights = OperatorWeights(
+        registry.destroy_names,
+        adaptive=adaptive,
+        segment_length=8,
+    )
+    repair_weights = OperatorWeights(
+        registry.repair_names,
+        adaptive=adaptive,
+        segment_length=8,
+    )
+    trigger = RetimeTrigger(
+        min_dirty=dirty_minimum,
+        dirty_fraction=dirty_fraction,
+        min_interval_fraction=DEFAULT_CONFIG.alns_retime_interval_fraction,
+    )
+    budget = Budget(timelimit, reserve=0.0)
+    backend_retime_calls = 0
+
+    def guarded_retime(
+        current: SolutionState,
+        bay_id: int,
+        active_budget: Budget | None,
+    ) -> SolutionState | None:
+        nonlocal backend_retime_calls
+        if active_budget is None:
+            raise ValueError("S3 control retime requires a budget")
+        if backend_retime_calls >= 1:
+            return None
+        backend_retime_calls += 1
+        outcome = retime_bay(
+            current,
+            bay_id,
+            "gurobi",
+            retime_gurobi,
+            budget=active_budget,
+            seed=seed,
+            threads=1,
+            call_timebox_cap=0.02,
+        )
+        return outcome.candidate
+
+    result = run_alns(
+        state,
+        incumbent,
+        rng,
+        max_iterations=20,
+        registry=registry,
+        acceptor=acceptor,
+        safety_sample_interval=8,
+        budget=budget,
+        destroy_weights=destroy_weights,
+        repair_weights=repair_weights,
+        stagnation=StagnationController(
+            reheat_after=6,
+            expand_after=12,
+            restart_after=18,
+        ),
+        retime_trigger=trigger,
+        retime_callback=guarded_retime,
+        timelimit_seconds=timelimit,
+    )
+    wall_seconds = time.monotonic() - started
+    checked = official_check(ref.prob_info, result.solution)
+    assignment_preserved = (
+        before.bay_members == state.bay_members
+        and before.bay_loads == state.objective_diagnostics.bay_loads
+        and before.z2 == state.z2
+        and before.z3 == state.z3
+    )
+    retime_fraction = trigger.retime_wall_seconds / max(wall_seconds, 1e-12)
+    final_objective = checked.objective
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and final_objective is not None
+        and initial_objective is not None
+        and final_objective <= initial_objective
+        and assignment_preserved
+        and retime_fraction <= DEFAULT_CONFIG.alns_retime_wall_fraction_cap
+        and result.metrics.checker_failures == 0
+    )
+    return {
+        "record_id": (
+            f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|"
+            f"acceptor={acceptor_name}|adaptive={str(adaptive).lower()}|"
+            f"dirty={dirty_minimum}:{dirty_fraction:g}|order={run_label}"
+        ),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "s3-retimed-controls",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(control_features.items())),
+        "wall_seconds": wall_seconds,
+        "checker": checker_payload(checked),
+        "initial_objective": initial_objective,
+        "final_objective": final_objective,
+        "never_worse": final_objective is not None and initial_objective is not None
+        and final_objective <= initial_objective,
+        "assignment_preserved": assignment_preserved,
+        "metrics": asdict(result.metrics),
+        "operator_weights": {
+            "destroy": list(destroy_weights.weights),
+            "repair": list(repair_weights.weights),
+        },
+        "retime": {
+            "dirty_minimum": dirty_minimum,
+            "dirty_fraction": dirty_fraction,
+            "attempts": trigger.attempts,
+            "backend_calls": backend_retime_calls,
+            "improvements": trigger.improvements,
+            "failures": trigger.failures,
+            "wall_seconds": trigger.retime_wall_seconds,
+            "search_wall_fraction": retime_fraction,
+        },
+        "incumbent_trace": [asdict(item) for item in result.incumbent_trace],
+        "stopped_reason": result.stopped_reason,
+        "incumbent_verification_count": incumbent.verification_count,
+        "unverified_return_count": 0,
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+    }
 
 
 def run_entry_case(
