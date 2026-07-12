@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import time
+from dataclasses import dataclass
 from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
@@ -23,14 +24,33 @@ class SafeIncumbentError(RuntimeError):
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class OptionalPhaseResult:
+    """Forward-compatible optional-phase output; assignment seeds are guides only."""
+
+    candidates: tuple[SolutionSnapshot, ...] = ()
+    assignment_portfolio: Any | None = None
+
+
 def load_optional_phase():
-    """Step-1 orchestration hook; later steps may lazily supply a phase."""
-    return None
+    """Import assignment only after the safe incumbent has passed the checker."""
+    from .assignment import try_assignment_portfolio
+    from .geometry import GeometryKernel
+
+    def assignment_phase(instance, snapshot, budget):
+        del snapshot  # Seeds guide step 4; they never replace the incumbent directly.
+        geometry = GeometryKernel.from_instance(instance)
+        portfolio = try_assignment_portfolio(instance, geometry, budget)
+        return OptionalPhaseResult(assignment_portfolio=portfolio)
+
+    return assignment_phase
 
 
 def _candidate_stream(value: Any) -> Iterable[SolutionSnapshot]:
     if value is None:
         return ()
+    if isinstance(value, OptionalPhaseResult):
+        return value.candidates
     if isinstance(value, SolutionSnapshot):
         return (value,)
     return value
