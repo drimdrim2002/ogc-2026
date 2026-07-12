@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S2 in progress (S2-02 active)
+Planning status: complete; implementation status: S2 in progress (S2-03 active)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -149,7 +149,7 @@ S0 foundation
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
-| S2 | `IN_PROGRESS` | `S2-02` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/` | pending atomic S2-02 commit | — | commit and push S2-02; S2-03 becomes eligible only after upstream equality and a clean worktree |
+| S2 | `IN_PROGRESS` | `S2-03` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/` | pending atomic S2-03 commit | — | commit and push S2-03; S2-04 becomes eligible only after upstream equality and a clean worktree |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
@@ -2004,6 +2004,109 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: exact_retime=false; S2-02 COMPLETE with bounded integer a/T variables, two indicator branches per conflict, MIP starts, SolCount-aware extraction, Threads<=4, deterministic seed, no logs, full telemetry, normalized license unavailability, and disposed Model/Env; no S2-03 behavior started
   next_action: stage only the five S2-02 files, commit feat(s2): add Gurobi indicator retiming, push, verify upstream equality and clean status, then create the S2-03 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T00:34:00+09:00
+  stage: S2
+  slice: S2-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc11bd1f662e0dde4814fb8366a643003e8ed96e
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S2-03 —' docs/fable/implementation-steps/s2-exact-retiming.md
+    - inspect benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/{COMPLETE,gate.json}
+    - inspect benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/COMPLETE
+    - inspect benchmarks/evidence/s2/s2-02/20260712T152355Z-s2-02/COMPLETE
+    - inspect commits 84ccef391a2533269c342214fad1b3486751e20a and cc11bd1f662e0dde4814fb8366a643003e8ed96e
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-03 adds only the isolated CP-SAT retiming adapter and backend parity proof, without pilot, sweep, entry integration, or later-stage behavior
+  next_action: add the S2-03 small-optima parity test and demonstrate the intended missing solver.cpsat_backend RED
+```
+
+```yaml
+- timestamp: 2026-07-13T00:35:00+09:00
+  stage: S2
+  slice: S2-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc11bd1f662e0dde4814fb8366a643003e8ed96e
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends.BackendParityTests.test_small_optima_match -v
+  red_evidence: benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.cpsat_backend and its required model-spec/retime functions are absent
+  feature_default_decision: exact_retime=false; CP-SAT remains disconnected from pilot, sweep, entry, and later stages
+  next_action: implement the bounded integer CP-SAT model, enforced pair disjunctions, current-schedule hints, deterministic seed/workers/timebox, pure extraction, and cleanup
+```
+
+```yaml
+- timestamp: 2026-07-13T00:38:00+09:00
+  stage: S2
+  slice: S2-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc11bd1f662e0dde4814fb8366a643003e8ed96e
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends.BackendParityTests.test_small_optima_match -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind backend --cases 50 --instances synthetic --seed 20260710 --feature timebox=2
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/full-regression.txt
+  checker_result: PASS; the unique two-block optimum from both available backends full-checked at Stage 5 with exact Z1 1.0, and all 64 current tests passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/parity/20260712T153644Z-4b05f8eb/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; 50 Gurobi and 50 CP-SAT solves were optimal with zero semantic, manual-optimum, or backend-objective mismatches; pilot/sweep/integration remain deferred to S2-04/S2-05
+  next_action: audit structured evidence, process/backend cleanup, frozen files, and selected-slice diff, then create and push the atomic S2-03 commit
+```
+
+```yaml
+- timestamp: 2026-07-13T00:38:03+09:00
+  stage: S2
+  slice: S2-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s2): add isomorphic CP-SAT retiming
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/cpsat_backend.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_exact_backends.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - verify benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/COMPLETE
+    - verify benchmarks/evidence/s2/parity/20260712T153644Z-4b05f8eb/COMPLETE
+    - verify baseline/solver/retime.py remains absent
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/full-regression.txt
+  checker_result: PASS; all available backend schedules full-checked, all 64 tests passed, and no checker/reference file changed
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/s2-03/20260712T153400Z-s2-03/summary.json; benchmarks/evidence/s2/parity/20260712T153644Z-4b05f8eb/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-03 COMPLETE with lazy CP-SAT import, bounded integer variables, enforced disjunctions, current-schedule hints, workers<=4, deterministic seed, no logs, bounded time, pure extraction, and zero 50-case parity mismatches; S2-04 behavior was not started
+  next_action: stage only the five S2-03 implementation files, commit feat(s2): add isomorphic CP-SAT retiming, push, verify upstream equality and clean status, then create the S2-04 task without implementing it here
 ```
 
 ## 11. Planning quality audit

@@ -1,0 +1,296 @@
+"""Lazy, bounded CP-SAT adapter for fixed-layout retiming."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import importlib
+import math
+import time
+from typing import Any
+
+from .exact import ExactResult, RetimeRequest
+
+
+@dataclass(frozen=True, slots=True)
+class CpSatVariableSpec:
+    block_id: int
+    lower_bound: int
+    upper_bound: int
+    start: int
+    variable_type: str
+
+
+@dataclass(frozen=True, slots=True)
+class CpSatDisjunctionSpec:
+    left: int
+    right: int
+    start: int
+    variable_type: str = "binary"
+
+
+@dataclass(frozen=True, slots=True)
+class CpSatModelSpec:
+    horizon: int
+    entries: tuple[CpSatVariableSpec, ...]
+    tardiness: tuple[CpSatVariableSpec, ...]
+    disjunctions: tuple[CpSatDisjunctionSpec, ...]
+    objective_blocks: tuple[int, ...]
+    workers: int
+    seed: int
+    time_limit: float
+    log_search_progress: bool
+
+
+def build_cpsat_model_spec(
+    request: RetimeRequest,
+    *,
+    timebox: float,
+) -> CpSatModelSpec:
+    """Build the solver-independent CP-SAT model description."""
+
+    limit = _timebox(timebox)
+    releases = dict(request.releases)
+    dues = dict(request.dues)
+    dwells = dict(request.dwells)
+    current = dict(request.current_entries)
+    horizon = max(releases.values(), default=0) + sum(dwells.values())
+    entries = tuple(
+        CpSatVariableSpec(
+            block_id=block_id,
+            lower_bound=releases[block_id],
+            upper_bound=horizon,
+            start=current[block_id],
+            variable_type="integer",
+        )
+        for block_id in request.block_ids
+    )
+    tardiness = tuple(
+        CpSatVariableSpec(
+            block_id=block_id,
+            lower_bound=0,
+            upper_bound=horizon + dwells[block_id],
+            start=max(0, current[block_id] + dwells[block_id] - dues[block_id]),
+            variable_type="integer",
+        )
+        for block_id in request.block_ids
+    )
+    disjunctions = tuple(
+        CpSatDisjunctionSpec(
+            left=left,
+            right=right,
+            start=1 if current[left] + dwells[left] <= current[right] else 0,
+        )
+        for left, right in request.conflict_pairs
+    )
+    return CpSatModelSpec(
+        horizon=horizon,
+        entries=entries,
+        tardiness=tardiness,
+        disjunctions=disjunctions,
+        objective_blocks=request.block_ids,
+        workers=min(request.threads, 4),
+        seed=request.seed,
+        time_limit=limit,
+        log_search_progress=False,
+    )
+
+
+def retime_cpsat(request: RetimeRequest, timebox: float) -> ExactResult:
+    """Solve one immutable retiming request without exposing solver objects."""
+
+    limit = _timebox(timebox)
+    total_started = time.monotonic()
+    spec = build_cpsat_model_spec(request, timebox=limit)
+    if limit <= 0.0:
+        return _empty("time_limit", "no CP-SAT retiming time remains")
+
+    try:
+        cp_model = importlib.import_module("ortools.sat.python.cp_model")
+    except Exception as exc:
+        return _empty(
+            "unavailable",
+            f"CP-SAT unavailable at import: {type(exc).__name__}: {exc}",
+            build_s=time.monotonic() - total_started,
+        )
+
+    model: Any | None = None
+    solver: Any | None = None
+    try:
+        try:
+            model = cp_model.CpModel()
+            entries, tardiness = _populate_model(cp_model, model, request, spec)
+            solver = cp_model.CpSolver()
+        except Exception as exc:
+            return _empty(
+                "error",
+                f"CP-SAT model build error: {type(exc).__name__}: {exc}",
+                build_s=time.monotonic() - total_started,
+            )
+
+        build_s = time.monotonic() - total_started
+        remaining = max(0.0, limit - build_s)
+        if remaining <= 0.0:
+            return _empty(
+                "time_limit",
+                "CP-SAT model construction consumed the exact timebox",
+                build_s=build_s,
+            )
+        solver.parameters.max_time_in_seconds = remaining
+        solver.parameters.num_search_workers = spec.workers
+        solver.parameters.random_seed = spec.seed
+        solver.parameters.log_search_progress = spec.log_search_progress
+
+        first_solution: list[float | None] = [None]
+        solve_started = time.monotonic()
+
+        class FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
+            def on_solution_callback(self) -> None:
+                if first_solution[0] is None:
+                    first_solution[0] = time.monotonic() - solve_started
+
+        callback = FirstSolutionCallback()
+        try:
+            status_code = solver.solve(model, callback)
+        except Exception as exc:
+            return _empty(
+                "error",
+                f"CP-SAT optimize error: {type(exc).__name__}: {exc}",
+                build_s=build_s,
+                solve_s=time.monotonic() - solve_started,
+            )
+        solve_s = time.monotonic() - solve_started
+        if status_code not in {cp_model.OPTIMAL, cp_model.FEASIBLE}:
+            if status_code == cp_model.UNKNOWN:
+                status = "time_limit"
+            elif status_code == cp_model.MODEL_INVALID:
+                status = "error"
+            else:
+                status = "no_solution"
+            return _empty(
+                status,
+                f"CP-SAT finished without a solution (status={solver.status_name(status_code)})",
+                bound=_finite_value(solver.best_objective_bound),
+                build_s=build_s,
+                solve_s=solve_s,
+            )
+
+        try:
+            dwells = dict(request.dwells)
+            solution = tuple(
+                (
+                    block_id,
+                    int(solver.value(entries[block_id])),
+                    int(solver.value(entries[block_id])) + dwells[block_id],
+                )
+                for block_id in request.block_ids
+            )
+            objective = float(solver.objective_value)
+            bound = _finite_value(solver.best_objective_bound)
+        except Exception as exc:
+            return _empty(
+                "error",
+                f"CP-SAT extraction error: {type(exc).__name__}: {exc}",
+                build_s=build_s,
+                solve_s=solve_s,
+            )
+        first = first_solution[0]
+        if first is None:
+            first = solve_s
+        first = min(max(0.0, float(first)), solve_s)
+        return ExactResult(
+            backend="cpsat",
+            status="optimal" if status_code == cp_model.OPTIMAL else "feasible",
+            solution=solution,
+            objective=objective,
+            bound=bound,
+            build_s=build_s,
+            solve_s=solve_s,
+            first_solution_s=first,
+            reason=None,
+        )
+    finally:
+        model = None
+        solver = None
+
+
+def _populate_model(
+    cp_model: Any,
+    model: Any,
+    request: RetimeRequest,
+    spec: CpSatModelSpec,
+) -> tuple[dict[int, Any], dict[int, Any]]:
+    releases = dict(request.releases)
+    dues = dict(request.dues)
+    dwells = dict(request.dwells)
+    entry_spec = {item.block_id: item for item in spec.entries}
+    tardiness_spec = {item.block_id: item for item in spec.tardiness}
+    entries = {
+        block_id: model.new_int_var(
+            releases[block_id], spec.horizon, f"a_{block_id}"
+        )
+        for block_id in request.block_ids
+    }
+    tardiness = {
+        block_id: model.new_int_var(
+            0, tardiness_spec[block_id].upper_bound, f"T_{block_id}"
+        )
+        for block_id in request.block_ids
+    }
+    for block_id in request.block_ids:
+        model.add(
+            tardiness[block_id]
+            >= entries[block_id] + dwells[block_id] - dues[block_id]
+        )
+        model.add_hint(entries[block_id], entry_spec[block_id].start)
+        model.add_hint(tardiness[block_id], tardiness_spec[block_id].start)
+    for item in spec.disjunctions:
+        order = model.new_bool_var(f"before_{item.left}_{item.right}")
+        model.add(
+            entries[item.left] + dwells[item.left] <= entries[item.right]
+        ).only_enforce_if(order)
+        model.add(
+            entries[item.right] + dwells[item.right] <= entries[item.left]
+        ).only_enforce_if(order.negated())
+        model.add_hint(order, item.start)
+    model.minimize(sum(tardiness[block_id] for block_id in spec.objective_blocks))
+    return entries, tardiness
+
+
+def _empty(
+    status: str,
+    reason: str,
+    *,
+    bound: float | None = None,
+    build_s: float = 0.0,
+    solve_s: float = 0.0,
+) -> ExactResult:
+    return ExactResult(
+        backend="cpsat",
+        status=status,
+        solution=None,
+        objective=None,
+        bound=bound,
+        build_s=max(0.0, float(build_s)),
+        solve_s=max(0.0, float(solve_s)),
+        first_solution_s=None,
+        reason=reason,
+    )
+
+
+def _finite_value(value: object) -> float | None:
+    try:
+        result = float(value)
+    except Exception:
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _timebox(value: float) -> float:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(float(value))
+        or float(value) < 0.0
+    ):
+        raise ValueError("timebox must be finite and non-negative")
+    return float(value)

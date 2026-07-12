@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import datetime
 import hashlib
+import itertools
 import json
+import math
 from pathlib import Path
+import random
 import subprocess
 import sys
 import time
@@ -32,6 +35,7 @@ try:
         normalize_result,
         probe_backends,
     )
+    from baseline.solver.cpsat_backend import retime_cpsat
     from baseline.solver.gurobi_backend import (
         build_gurobi_model_spec,
         retime_gurobi,
@@ -48,6 +52,7 @@ except ModuleNotFoundError:
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
     from solver.exact import BackendProbe, RetimeRequest, normalize_result, probe_backends
+    from solver.cpsat_backend import retime_cpsat
     from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
@@ -75,6 +80,223 @@ def repository_provenance() -> dict[str, Any]:
         "commit": commit,
         "dirty": bool(status),
         "dirty_diff_hash": hashlib.sha256(dirty_payload).hexdigest() if status else "clean",
+    }
+
+
+def run_backend_parity_record(
+    *,
+    cases: int,
+    seed: int,
+    timebox: float,
+) -> dict[str, Any]:
+    """Compare both exact adapters with manual optima and the official checker."""
+
+    rng = random.Random(seed)
+    case_records: list[dict[str, Any]] = []
+    semantic_mismatches = 0
+    optimal_mismatches = 0
+    backend_mismatches = 0
+    cpsat_available = True
+    started = time.monotonic()
+    for case_id in range(cases):
+        block_count = 2 + rng.randrange(3)
+        block_ids = tuple(range(block_count))
+        releases = tuple((item, rng.randrange(4)) for item in block_ids)
+        dwells = tuple((item, 1 + rng.randrange(3)) for item in block_ids)
+        release_map = dict(releases)
+        dwell_map = dict(dwells)
+        dues = tuple(
+            (
+                item,
+                release_map[item] + dwell_map[item] + rng.randrange(4),
+            )
+            for item in block_ids
+        )
+        conflicts = tuple(itertools.combinations(block_ids, 2))
+        current = _serial_schedule(block_ids, release_map, dwell_map)
+        request = RetimeRequest(
+            block_ids=block_ids,
+            releases=releases,
+            dues=dues,
+            dwells=dwells,
+            current_entries=tuple((item, current[item][0]) for item in block_ids),
+            conflict_pairs=conflicts,
+            seed=seed + case_id,
+            threads=4,
+        )
+        manual_objective, manual_schedule = _manual_single_bay_optimum(request)
+        prob_info = _retime_prob_info(request, case_id)
+        parsed = ProblemInstance.parse(prob_info)
+        results = (
+            normalize_result(
+                request,
+                retime_gurobi(request, timebox),
+                timebox=timebox,
+            ),
+            normalize_result(
+                request,
+                retime_cpsat(request, timebox),
+                timebox=timebox,
+            ),
+        )
+        objectives: list[float] = []
+        backend_rows: list[dict[str, Any]] = []
+        for result in results:
+            available = result.status != "unavailable"
+            if result.backend == "cpsat" and not available:
+                cpsat_available = False
+            semantic_ok = True
+            checker_z1 = None
+            if available:
+                semantic_ok = result.status == "optimal" and result.solution is not None
+                if semantic_ok:
+                    state = SolutionState(parsed)
+                    for block_id, entry, exit_time in result.solution or ():
+                        state.place(
+                            Placement(block_id, 0, 0, 0, 0, entry, exit_time)
+                        )
+                    checked = official_check(
+                        prob_info,
+                        serialize_non_interlock(state.placements.values()),
+                    )
+                    checker_z1 = checked.obj1
+                    semantic_ok = checked.feasible and checked.stage == 5
+                    semantic_ok = semantic_ok and checker_z1 is not None and math.isclose(
+                        float(checker_z1),
+                        float(result.objective),
+                        rel_tol=1e-9,
+                        abs_tol=1e-9,
+                    )
+                if result.objective is not None:
+                    objectives.append(float(result.objective))
+                if not semantic_ok:
+                    semantic_mismatches += 1
+                if result.objective is None or not math.isclose(
+                    float(result.objective or 0.0),
+                    float(manual_objective),
+                    rel_tol=1e-9,
+                    abs_tol=1e-9,
+                ):
+                    optimal_mismatches += 1
+            backend_rows.append(
+                {
+                    "backend": result.backend,
+                    "status": result.status,
+                    "objective": result.objective,
+                    "bound": result.bound,
+                    "solution": result.solution,
+                    "checker_z1": checker_z1,
+                    "build_seconds": result.build_s,
+                    "solve_seconds": result.solve_s,
+                    "first_solution_seconds": result.first_solution_s,
+                    "reason": result.reason,
+                }
+            )
+        if len(objectives) > 1 and any(
+            not math.isclose(value, objectives[0], rel_tol=1e-9, abs_tol=1e-9)
+            for value in objectives[1:]
+        ):
+            backend_mismatches += 1
+        case_records.append(
+            {
+                "case_id": case_id,
+                "request": {
+                    "releases": releases,
+                    "dues": dues,
+                    "dwells": dwells,
+                    "current_entries": request.current_entries,
+                    "conflict_pairs": conflicts,
+                },
+                "manual_objective": manual_objective,
+                "manual_solution": tuple(
+                    (item, *manual_schedule[item]) for item in block_ids
+                ),
+                "backends": backend_rows,
+            }
+        )
+    passed = (
+        cpsat_available
+        and semantic_mismatches == 0
+        and optimal_mismatches == 0
+        and backend_mismatches == 0
+    )
+    return {
+        "record_id": "backend",
+        "status": "passed" if passed else "failed",
+        "complete": True,
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **repository_provenance(),
+        "interpreter": sys.executable,
+        "cases": cases,
+        "seed": seed,
+        "timebox": timebox,
+        "semantic_mismatches": semantic_mismatches,
+        "optimal_mismatches": optimal_mismatches,
+        "backend_mismatches": backend_mismatches,
+        "cpsat_available": cpsat_available,
+        "wall_seconds": time.monotonic() - started,
+        "case_records": case_records,
+    }
+
+
+def _serial_schedule(
+    order: tuple[int, ...],
+    releases: Mapping[int, int],
+    dwells: Mapping[int, int],
+) -> dict[int, tuple[int, int]]:
+    schedule: dict[int, tuple[int, int]] = {}
+    cursor = 0
+    for block_id in order:
+        entry = max(cursor, releases[block_id])
+        cursor = entry + dwells[block_id]
+        schedule[block_id] = (entry, cursor)
+    return schedule
+
+
+def _manual_single_bay_optimum(
+    request: RetimeRequest,
+) -> tuple[int, dict[int, tuple[int, int]]]:
+    releases = dict(request.releases)
+    dues = dict(request.dues)
+    dwells = dict(request.dwells)
+    best: tuple[int, tuple[tuple[int, int, int], ...]] | None = None
+    for order in itertools.permutations(request.block_ids):
+        schedule = _serial_schedule(tuple(order), releases, dwells)
+        objective = sum(
+            max(0, schedule[block_id][1] - dues[block_id])
+            for block_id in request.block_ids
+        )
+        rows = tuple(
+            (block_id, schedule[block_id][0], schedule[block_id][1])
+            for block_id in request.block_ids
+        )
+        candidate = (objective, rows)
+        if best is None or candidate < best:
+            best = candidate
+    assert best is not None
+    return best[0], {block_id: (entry, exit_time) for block_id, entry, exit_time in best[1]}
+
+
+def _retime_prob_info(request: RetimeRequest, case_id: int) -> dict[str, Any]:
+    releases = dict(request.releases)
+    dues = dict(request.dues)
+    dwells = dict(request.dwells)
+    square = [[[0, 0], [2, 0], [2, 2], [0, 2]]]
+    return {
+        "name": f"synthetic-backend-parity-{case_id}",
+        "bays": [{"width": 10, "height": 10}],
+        "blocks": [
+            {
+                "release_time": releases[block_id],
+                "due_date": dues[block_id],
+                "processing_time": dwells[block_id],
+                "workload": 1,
+                "bay_preferences": [1],
+                "shape": [{"orientation": 0, "layers": square}],
+            }
+            for block_id in request.block_ids
+        ],
+        "weights": {"w1": 1.0, "w2": 1.0, "w3": 1.0},
     }
 
 

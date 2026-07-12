@@ -32,6 +32,7 @@ from .runner import (
     run_entry_case,
     run_escalation_stress_case,
     run_exact_probe_fault_case,
+    run_backend_parity_record,
     run_gurobi_retime_case,
     run_t0_case,
 )
@@ -74,7 +75,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     parity = subparsers.add_parser("parity")
     _common(parity)
-    parity.add_argument("--kind", choices=("objective", "targeted", "geometry"), required=True)
+    parity.add_argument(
+        "--kind", choices=("objective", "targeted", "geometry", "backend"), required=True
+    )
     parity.add_argument("--cases", type=int, required=True)
     parity.add_argument("--instances", required=True)
 
@@ -277,12 +280,65 @@ def _test_contract_run(
 
 
 def _parity(args: argparse.Namespace) -> int:
-    expected_cases = {"geometry": 1000, "targeted": 1000, "objective": 100}
+    expected_cases = {
+        "geometry": 1000,
+        "targeted": 1000,
+        "objective": 100,
+        "backend": 50,
+    }
     if args.cases != expected_cases[args.kind]:
         raise SelectorError(
             f"{args.kind} parity requires exactly {expected_cases[args.kind]} cases"
         )
     features = _features(args.feature)
+    if args.kind == "backend":
+        if args.instances != "synthetic" or features != {"timebox": "2"}:
+            raise SelectorError(
+                "backend parity requires synthetic instances and timebox=2"
+            )
+        run, _ = _start_stage_run(
+            args,
+            stage="s2",
+            command="parity",
+            expected_record_ids=("backend",),
+            metadata={
+                "slice": "s2-03",
+                "kind": "backend",
+                "cases": args.cases,
+                "selector": args.instances,
+                "features": features,
+            },
+        )
+        record = run_backend_parity_record(
+            cases=args.cases,
+            seed=args.seed,
+            timebox=2.0,
+        )
+        run.append_record(record)
+        passed = (
+            record["status"] == "passed"
+            and record["semantic_mismatches"] == 0
+            and record["optimal_mismatches"] == 0
+            and record["backend_mismatches"] == 0
+        )
+        summary = {
+            "command": "parity",
+            "stage": "s2",
+            "slice": "s2-03",
+            "kind": "backend",
+            "cases": args.cases,
+            "selector": args.instances,
+            "features": features,
+            "status": "passed" if passed else "failed",
+            "semantic_mismatch_count": record["semantic_mismatches"],
+            "optimal_mismatch_count": record["optimal_mismatches"],
+            "backend_mismatch_count": record["backend_mismatches"],
+            "cpsat_available": record["cpsat_available"],
+            "wall_seconds": record["wall_seconds"],
+        }
+        run.finalize(summary)
+        _announce(run, summary)
+        return EXIT_PASS if passed else EXIT_SEMANTIC
     caller = features.get("caller")
     if caller is not None and caller != "construct":
         raise SelectorError(f"unsupported parity caller: {caller}")

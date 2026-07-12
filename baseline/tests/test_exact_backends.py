@@ -322,5 +322,99 @@ class GurobiRetimeTests(unittest.TestCase):
         self.assertIn("unavailable", (result.reason or "").lower())
 
 
+class BackendParityTests(unittest.TestCase):
+    def test_small_optima_match(self):
+        from solver.cpsat_backend import build_cpsat_model_spec, retime_cpsat
+        from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
+
+        request = RetimeRequest(
+            block_ids=(0, 1),
+            releases=((0, 0), (1, 0)),
+            dues=((0, 2), (1, 3)),
+            dwells=((0, 2), (1, 2)),
+            current_entries=((0, 0), (1, 2)),
+            conflict_pairs=((0, 1),),
+            seed=20260710,
+            threads=4,
+        )
+        gurobi_spec = build_gurobi_model_spec(request, timebox=2.0)
+        cpsat_spec = build_cpsat_model_spec(request, timebox=2.0)
+
+        def common_spec(spec):
+            return (
+                spec.horizon,
+                tuple(
+                    (
+                        item.block_id,
+                        item.lower_bound,
+                        item.upper_bound,
+                        item.start,
+                        item.variable_type,
+                    )
+                    for item in spec.entries
+                ),
+                tuple(
+                    (
+                        item.block_id,
+                        item.lower_bound,
+                        item.upper_bound,
+                        item.start,
+                        item.variable_type,
+                    )
+                    for item in spec.tardiness
+                ),
+                tuple(
+                    (item.left, item.right, item.start, item.variable_type)
+                    for item in spec.disjunctions
+                ),
+                spec.objective_blocks,
+                spec.seed,
+                spec.time_limit,
+            )
+
+        self.assertEqual(common_spec(gurobi_spec), common_spec(cpsat_spec))
+        self.assertEqual(4, cpsat_spec.workers)
+        self.assertFalse(cpsat_spec.log_search_progress)
+
+        results = (retime_gurobi(request, 2.0), retime_cpsat(request, 2.0))
+        available = [result for result in results if result.status != "unavailable"]
+        self.assertTrue(any(result.backend == "cpsat" for result in available))
+        self.assertTrue(available)
+
+        prob_info = instance(
+            [
+                block(due=2, processing=2),
+                block(due=3, processing=2),
+            ]
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        manual_optimum = 1.0
+        for result in available:
+            self.assertEqual("optimal", result.status, result.reason)
+            self.assertEqual(manual_optimum, result.objective)
+            self.assertEqual(manual_optimum, result.bound)
+            self.assertEqual(((0, 0, 2), (1, 2, 4)), result.solution)
+            self.assertEqual(result, normalize_result(request, result, timebox=2.0))
+
+            state = SolutionState(parsed)
+            for block_id, entry, exit_time in result.solution or ():
+                state.place(
+                    Placement(block_id, 0, 0, 0, 0, entry, exit_time)
+                )
+            checked = official_check(
+                prob_info,
+                serialize_non_interlock(state.placements.values()),
+            )
+            self.assertTrue(checked.feasible, (result.backend, checked.violations))
+            self.assertEqual(5, checked.stage)
+            self.assertEqual(manual_optimum, checked.obj1)
+
+        self.assertEqual(
+            1,
+            len({result.objective for result in available}),
+            available,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
