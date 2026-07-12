@@ -9,5 +9,10 @@ data/
 alg_tester/settings.json
 alg_tester/example/train*/
 alg_tester/example/*.zip
+benchmarks/evidence/**
+!benchmarks/evidence/README.md
+submission-dist/
+benchmarks/generated-fixtures/
+benchmarks/tmp/
 .omo/
 .understand-anything/

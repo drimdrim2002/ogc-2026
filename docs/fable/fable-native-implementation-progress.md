@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S0 in progress
+Planning status: complete; implementation status: S0 complete
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -147,7 +147,7 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `IN_PROGRESS` | `S0-05` | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/` | `3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f` | training JSON absent; does not block early unit slices | commit and push S0-05; S0-06 is next after the atomic commit |
+| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T124757Z-fc60bcd9/` | pending atomic S0-06 commit | — | S1-01 is eligible after the S0-06 commit is pushed and the branch is clean |
 | S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
@@ -898,6 +898,128 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: native_solver=false until the full S0 gate passes; only the T0 pipeline is active and later-stage features remain absent
   next_action: commit and push S0-05, then stop; S0-06 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T21:39:10+09:00
+  stage: S0
+  slice: S0-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e72602ab1ecb82c2ac79169eb56fd2a9d6fc2d20
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S0-06\\b' docs/fable/implementation-steps/s0-foundation.md
+    - test each S0-01…S0-05 evidence directory for COMPLETE
+    - git merge-base --is-ancestor e72602a HEAD
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python verify exactly one prob_1…prob_40 training input
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; later-stage harness command bodies may report stage unsupported with exit 4
+  next_action: add the S0-06 harness schema/process tests and demonstrate the intended missing-harness RED
+```
+
+```yaml
+- timestamp: 2026-07-12T21:40:10+09:00
+  stage: S0
+  slice: S0-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e72602ab1ecb82c2ac79169eb56fd2a9d6fc2d20
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_harness_schema.HarnessSchemaTests.test_interrupted_run_is_not_complete -v
+  red_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because the harness package is absent
+  feature_default_decision: native_solver=false until the full S0 gate passes
+  next_action: implement the minimum shared harness, manifests, evidence schema, and process-group runner
+```
+
+```yaml
+- timestamp: 2026-07-12T21:46:41+09:00
+  stage: S0
+  slice: S0-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e72602ab1ecb82c2ac79169eb56fd2a9d6fc2d20
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_harness_schema.HarnessSchemaTests.test_interrupted_run_is_not_complete -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_harness_schema tests.test_harness_process -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/green-targeted.txt
+  checker_result: targeted GREEN; all interruption, completion, identity, CLI parsing, proof-of-run, and process-group cleanup tests passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/full-regression.txt
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: one implementation-iteration failure exposed resume clearing the interrupted audit flag; corrected before targeted GREEN
+  feature_default_decision: native_solver=false until the full S0 gate passes; later-stage command bodies return stage unsupported with exit 4
+  next_action: run the exact S0 full-gate command sequence through the shared harness
+```
+
+```yaml
+- timestamp: 2026-07-12T21:47:27+09:00
+  stage: S0
+  slice: S0-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e72602ab1ecb82c2ac79169eb56fd2a9d6fc2d20
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli contract --suite preflight --instances training --seed 20260710
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli contract --suite semantic --instances synthetic --seed 20260710
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind geometry --cases 1000 --instances synthetic --seed 20260710
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind targeted --cases 1000 --instances synthetic --seed 20260710
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances synthetic --seed 20260710
+  red_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/green-targeted.txt
+  checker_result: PASS; all 40 training inputs passed fit preflight, semantic contracts passed, and geometry 1000, targeted 1000, and objective 100 parity cases had zero mismatches
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/parity/20260712T124727Z-a22ed2a6/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the first semantic CLI attempt exposed a development-only unittest import-root defect and exited 5 before evidence creation; the import root was corrected and the exact command then passed
+  feature_default_decision: native_solver=false until benchmark, stress, and the S0 gate pass
+  next_action: run the predicate matrix, 40-instance benchmark, 24-row stress matrix, gate, and report
+```
+
+```yaml
+- timestamp: 2026-07-12T21:48:05+09:00
+  stage: S0
+  slice: S0-06
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s0): add resumable checker-authoritative harness
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s0 --metric predicate --instances synthetic --timelimits 0 --seeds 20260710 --feature cache_cap_matrix=65536,262144,1048576,2097152
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s0 --instances training --timelimits 5 --seeds 20260710 --feature pipeline=t0
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s0 --instances stress --timelimits 0.5,2,5,12 --seeds 20260710 --feature fault=none,after_incumbent
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s0 --latest-complete --commit HEAD
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s0 --latest-complete
+  red_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-06/20260712T123910Z-s0-06/full-regression.txt
+  checker_result: PASS; 40 of 40 training rows were Stage 5 feasible with exactly one verified initial incumbent, zero unverified returns, and maximum wall time 0.30078208399936557 seconds
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/benchmark/20260712T124731Z-a7f72282/; benchmarks/evidence/s0/benchmark/20260712T124739Z-c644477e/; benchmarks/evidence/s0/stress/20260712T124750Z-9eecec67/
+  gate_decision: PASS
+  failure_or_fallback_reason: null
+  feature_default_decision: cache_cap=262144; native_solver=true and pipeline=t0 by default; all S1-S6 features remain false
+  next_action: audit the selected-slice diff, commit and push S0-06, then stop; S1-01 is the next eligible slice
 ```
 
 ## 11. Planning quality audit

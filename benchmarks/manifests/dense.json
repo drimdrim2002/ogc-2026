@@ -1,0 +1,1 @@
+{"schema_version":1,"selector":"dense","rule":"top quartile area*dwell/(bay-area*horizon), minimum four layers, deterministic ID tie-break"}
