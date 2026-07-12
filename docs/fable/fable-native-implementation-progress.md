@@ -147,7 +147,7 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `IN_PROGRESS` | — | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/` | pending S0-02 atomic commit | training JSON absent; does not block early unit slices | execute S0-03 after S0-02 is committed and pushed |
+| S0 | `IN_PROGRESS` | `S0-03` | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/` | `d3677fa590450178eafb7a82d8cf2f2efaec11c3` | training JSON absent; does not block early unit slices | audit, commit, and push S0-03; S0-04 is next after the atomic commit |
 | S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
@@ -513,6 +513,125 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: cache_cap=262144 selected under the preregistered memory/hit-rate rule; native_solver=false until the full S0 gate passes; OBS remains stored-only and disconnected
   next_action: commit and push S0-02, then stop; S0-03 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T21:02:00+09:00
+  stage: S0
+  slice: S0-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: d3677fa590450178eafb7a82d8cf2f2efaec11c3
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S0-03\\b' docs/fable/implementation-steps/s0-foundation.md
+    - test -f benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/COMPLETE
+    - test -f benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/COMPLETE
+    - git merge-base --is-ancestor 814a716 HEAD
+    - git merge-base --is-ancestor d3677fa HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; targeted validation is diagnostic and branch-1/2 only
+  next_action: add the S0-03 state and validation parity tests and demonstrate the intended missing API RED
+```
+
+```yaml
+- timestamp: 2026-07-12T21:02:07+09:00
+  stage: S0
+  slice: S0-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: d3677fa590450178eafb7a82d8cf2f2efaec11c3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_validate_parity.ValidateParityTests.test_seeded_1000_candidates -v
+  red_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.state is absent
+  feature_default_decision: native_solver=false until the full S0 gate passes; targeted validation is diagnostic and branch-1/2 only
+  next_action: implement Placement, SolutionState, objective diagnostics, and unary/pair/changed/insertion validation
+```
+
+```yaml
+- timestamp: 2026-07-12T21:03:00+09:00
+  stage: S0
+  slice: S0-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: d3677fa590450178eafb7a82d8cf2f2efaec11c3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_validate_parity.ValidateParityTests.test_seeded_1000_candidates -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel tests.test_state_parity tests.test_validate_parity -v
+  red_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/green-targeted.txt
+  checker_result: targeted GREEN; 1000 seeded candidates, zero feasibility mismatches
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; validation remains a branch-1/2 diagnostic/filter
+  next_action: run the 100-case official-checker objective parity proof
+```
+
+```yaml
+- timestamp: 2026-07-12T21:04:08+09:00
+  stage: S0
+  slice: S0-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: d3677fa590450178eafb7a82d8cf2f2efaec11c3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_state_parity.StateParityTests.test_seeded_100_objective_cases_match_checker -v
+  red_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/green-targeted.txt
+  checker_result: PASS; 100 targeted objective cases matched official checker Z1, Z2, Z3, and weighted objective within 1e-6 relative tolerance
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; S0-06 must replay both parity commands through the shared harness
+  next_action: run final regression, syntax, frozen-file, evidence, and selected-slice diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T21:04:35+09:00
+  stage: S0
+  slice: S0-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s0): add state and targeted checker parity
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_validate_parity.ValidateParityTests.test_seeded_1000_candidates -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_state_parity.StateParityTests.test_seeded_100_objective_cases_match_checker -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel tests.test_state_parity tests.test_validate_parity -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/state.py baseline/solver/validate.py baseline/tests/fixtures.py baseline/tests/test_state_parity.py baseline/tests/test_validate_parity.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/green-targeted.txt
+  checker_result: PASS; 1000 targeted decisions and 100 objective cases matched the official checker with zero mismatches
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; no candidate ranking or S1 behavior added
+  next_action: commit and push S0-03, then stop; S0-04 is the next eligible slice
 ```
 
 ## 11. Planning quality audit

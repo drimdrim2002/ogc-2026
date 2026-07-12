@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import random
 from typing import Any
 
 
@@ -136,3 +137,29 @@ def nested_interlock_placements(
         placement(0, entry=0, exit=host_exit, x=2),
         placement(1, entry=1, exit=guest_exit, x=0),
     ]
+
+
+def seeded_placement_mutations(
+    base: list[dict[str, int]],
+    *,
+    cases: int,
+    seed: int,
+) -> Iterable[tuple[int, dict[str, int]]]:
+    """Yield deterministic single-block candidates spanning unary and pair facts."""
+    rng = random.Random(seed)
+    fields = ("entry", "exit", "bay", "x", "y", "orient")
+    for _ in range(cases):
+        block_id = rng.randrange(len(base))
+        candidate = dict(base[block_id])
+        field = fields[rng.randrange(len(fields))]
+        if field == "entry":
+            candidate[field] = rng.randrange(-2, 13)
+        elif field == "exit":
+            candidate[field] = rng.randrange(-1, 16)
+        elif field == "bay":
+            candidate[field] = rng.randrange(-1, 3)
+        elif field in ("x", "y"):
+            candidate[field] = rng.randrange(-1, 7)
+        else:
+            candidate[field] = rng.randrange(0, 2)
+        yield block_id, candidate
