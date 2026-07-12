@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: not started
+Planning status: complete; implementation status: S0 in progress
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -147,7 +147,7 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `NOT_STARTED` | — | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | — | — | training JSON absent in clean target | execute S0-01 |
+| S0 | `IN_PROGRESS` | — | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/` | S0-01 atomic commit | training JSON absent; does not block early unit slices | execute S0-02 |
 | S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
@@ -279,6 +279,101 @@ Never edit or delete existing rows/entries. Append one fenced YAML entry per tra
 ```
 
 No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every implementation gate remains `NOT_RUN`.
+
+```yaml
+- timestamp: 2026-07-12T20:07:06+09:00
+  stage: S0
+  slice: S0-01
+  old_status: NOT_STARTED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e2b0d33f43fe5129459785a52165b8babfe3b95a
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S0-01\\b' docs/fable/implementation-steps/s0-foundation.md
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes
+  next_action: add the S0-01 semantic contract test and demonstrate the intended adapter-import RED
+```
+
+```yaml
+- timestamp: 2026-07-12T20:09:25+09:00
+  stage: S0
+  slice: S0-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e2b0d33f43fe5129459785a52165b8babfe3b95a
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics -v
+  red_evidence: benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.checker_adapter is absent
+  feature_default_decision: native_solver=false until the full S0 gate passes
+  next_action: implement the minimum checker adapter and instance parsing/fit preflight
+```
+
+```yaml
+- timestamp: 2026-07-12T20:12:03+09:00
+  stage: S0
+  slice: S0-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e2b0d33f43fe5129459785a52165b8babfe3b95a
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/__init__.py baseline/solver/checker_adapter.py baseline/solver/instance.py baseline/tests/__init__.py baseline/tests/fixtures.py baseline/tests/test_contract_semantics.py
+    - git diff --check
+  red_evidence: benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/green.txt
+  checker_result: 16 official checker decisions matched; feasible cases reached Stage 5 and expected rejections occurred at Stages 2, 3, or 5
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes
+  next_action: audit the selected-slice diff and finalize structured checker evidence
+```
+
+```yaml
+- timestamp: 2026-07-12T20:13:34+09:00
+  stage: S0
+  slice: S0-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit test(s0): lock checker semantics and instance parsing
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/__init__.py baseline/solver/checker_adapter.py baseline/solver/instance.py baseline/tests/__init__.py baseline/tests/fixtures.py baseline/tests/test_contract_semantics.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python tracked-example fit preflight
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/green.txt
+  checker_result: PASS; 16 official checker decisions, zero mismatches, feasible cases at Stage 5
+  benchmark_or_stress_evidence: not required for S0-01
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes
+  next_action: commit and push S0-01, then stop; S0-02 is the next eligible slice
+```
 
 ## 11. Planning quality audit
 
