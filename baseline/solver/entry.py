@@ -26,12 +26,13 @@ class SafeIncumbentError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class OptionalPhaseResult:
-    """Forward-compatible optional-phase output; assignment seeds are guides only."""
+    """Constructor candidates plus the optional validated-snapshot retimer."""
 
     candidates: tuple[SolutionSnapshot, ...] = ()
     assignment_portfolio: Any | None = None
     precedence_provider: Any | None = None
     retiming_results: tuple[Any, ...] = ()
+    retimer: Callable[..., Any] | None = None
 
 
 def load_optional_phase():
@@ -46,19 +47,15 @@ def load_optional_phase():
         geometry = GeometryKernel.from_instance(instance)
         portfolio = try_assignment_portfolio(instance, geometry, budget)
         construction = construct_portfolio(instance, geometry, portfolio, budget)
-        candidates = []
-        retiming_results = []
-        for result in construction:
-            if not result.complete or result.snapshot is None:
-                continue
-            retimed = retime(result.snapshot, instance, geometry, budget)
-            retiming_results.append(retimed)
-            candidates.append(retimed.snapshot)
         return OptionalPhaseResult(
-            candidates=tuple(candidates),
+            candidates=tuple(
+                result.snapshot
+                for result in construction
+                if result.complete and result.snapshot is not None
+            ),
             assignment_portfolio=portfolio,
             precedence_provider=geometry,
-            retiming_results=tuple(retiming_results),
+            retimer=retime,
         )
 
     return assignment_phase
@@ -72,6 +69,24 @@ def _candidate_stream(value: Any) -> Iterable[tuple[SolutionSnapshot, Any | None
     if isinstance(value, SolutionSnapshot):
         return ((value, None),)
     return tuple((candidate, None) for candidate in value)
+
+
+def _check_and_install(
+    *,
+    raw: dict,
+    instance: Any,
+    budget: Budget,
+    checker: Callable[[dict, dict], dict],
+    store: IncumbentStore,
+    candidate: SolutionSnapshot,
+    precedence_provider: Any | None,
+) -> bool:
+    candidate = candidate.with_objective(compute_objective(instance, candidate))
+    candidate_operations = serialize(candidate, precedence_provider)
+    check_started = time.monotonic()
+    candidate_result = checker(copy.deepcopy(raw), copy.deepcopy(candidate_operations))
+    budget.record_checker_duration(time.monotonic() - check_started)
+    return store.install_if_valid(candidate, candidate_operations, candidate_result)
 
 
 def solve(
@@ -104,18 +119,54 @@ def solve(
         phase = loader()
         if phase is None:
             return store.operations
-        candidates = _candidate_stream(phase(instance, store.snapshot, budget))
+        phase_result = phase(instance, store.snapshot, budget)
+        retimer = phase_result.retimer if isinstance(phase_result, OptionalPhaseResult) else None
+        candidates = _candidate_stream(phase_result)
         for candidate, precedence_provider in candidates:
             if not budget.can_start(budget.checker_p95, margin=0.01):
                 break
             if not isinstance(candidate, SolutionSnapshot):
                 continue
-            candidate = candidate.with_objective(compute_objective(instance, candidate))
-            candidate_operations = serialize(candidate, precedence_provider)
-            check_started = time.monotonic()
-            candidate_result = checker(copy.deepcopy(raw), copy.deepcopy(candidate_operations))
-            budget.record_checker_duration(time.monotonic() - check_started)
-            store.install_if_valid(candidate, candidate_operations, candidate_result)
+            try:
+                installed = _check_and_install(
+                    raw=raw,
+                    instance=instance,
+                    budget=budget,
+                    checker=checker,
+                    store=store,
+                    candidate=candidate,
+                    precedence_provider=precedence_provider,
+                )
+            except Exception:
+                continue
+            if not installed or retimer is None:
+                continue
+
+            # The retimer is optional and candidate-local.  Its input is always
+            # the immutable checker-validated snapshot just installed above.
+            try:
+                retimed = retimer(store.snapshot, instance, precedence_provider, budget)
+            except Exception:
+                continue
+            retimed_snapshot = getattr(retimed, "snapshot", None)
+            if not isinstance(retimed_snapshot, SolutionSnapshot) or retimed_snapshot is store.snapshot:
+                continue
+            retimed_operations = getattr(retimed, "operations", None)
+            retimed_checker = getattr(retimed, "checker_result", None)
+            if retimed_operations is not None and retimed_checker is not None:
+                store.install_if_valid(retimed_snapshot, retimed_operations, retimed_checker)
+            elif budget.can_start(budget.checker_p95, margin=0.01):
+                # Backward-compatible hook boundary for custom phases.  The
+                # production retimer returns its canonical full-check evidence.
+                _check_and_install(
+                    raw=raw,
+                    instance=instance,
+                    budget=budget,
+                    checker=checker,
+                    store=store,
+                    candidate=retimed_snapshot,
+                    precedence_provider=precedence_provider,
+                )
     except Exception:
         return store.operations
     return store.operations

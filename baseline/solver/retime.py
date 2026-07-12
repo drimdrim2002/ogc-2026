@@ -91,6 +91,12 @@ class RetimingResult:
     runtime: float
     changed_ids: frozenset[int]
     diagnostics: tuple[str, ...]
+    operations: Mapping[str, Any] | None = None
+    checker_result: Mapping[str, Any] | None = None
+
+
+class _RetimingDeadline(RuntimeError):
+    pass
 
 
 def bay_horizon(instance: Instance, snapshot: SolutionSnapshot, bay_id: int) -> int:
@@ -133,6 +139,7 @@ def nonfree_components(
     snapshot: SolutionSnapshot,
     kernel: GeometryKernel,
     bay_id: int,
+    budget: Budget | None = None,
 ) -> tuple[frozenset[int], ...]:
     placements = sorted(
         (item for item in snapshot.placements if item.bay_id == bay_id),
@@ -140,6 +147,8 @@ def nonfree_components(
     )
     adjacency = {item.block_id: set() for item in placements}
     for left, right in combinations(placements, 2):
+        if budget is not None and budget.search_remaining() <= 0.0:
+            raise _RetimingDeadline("component relation scan reached its deadline")
         if kernel.relation(left, right).state is not PairState.FREE:
             adjacency[left.block_id].add(right.block_id)
             adjacency[right.block_id].add(left.block_id)
@@ -182,53 +191,75 @@ def _critical_ids(
     return frozenset(ordered[:max_free])
 
 
+def build_requests(
+    snapshot: SolutionSnapshot,
+    instance: Instance,
+    kernel: GeometryKernel,
+    config: RetimingConfig,
+    affected_ids: frozenset[int] | None = None,
+    budget: Budget | None = None,
+) -> tuple[RetimingRequest, ...]:
+    by_id = {item.block_id: item for item in snapshot.placements}
+    if affected_ids is not None and not affected_ids <= set(by_id):
+        raise ValueError("affected_ids contains an unknown block")
+    requests: list[RetimingRequest] = []
+    for bay in instance.bays:
+        for component in nonfree_components(snapshot, kernel, bay.index, budget):
+            if budget is not None and budget.search_remaining() <= 0.0:
+                raise _RetimingDeadline("request construction reached its deadline")
+            if affected_ids is not None and component.isdisjoint(affected_ids):
+                continue
+            selected = _critical_ids(
+                component, snapshot, instance, config.max_free, affected_ids
+            )
+            pairs: list[RetimingPair] = []
+            for i, k in combinations(sorted(component), 2):
+                if i not in selected and k not in selected:
+                    continue
+                if budget is not None and budget.search_remaining() <= 0.0:
+                    raise _RetimingDeadline("request pair scan reached its deadline")
+                relation = kernel.relation(by_id[i], by_id[k])
+                if relation.state is PairState.FREE:
+                    continue
+                warm_mode = relation.mode(by_id[i], by_id[k])
+                if warm_mode is TemporalMode.INVALID:
+                    raise ValueError("input snapshot violates a fixed-layout relation")
+                pairs.append(RetimingPair(i, k, relation, warm_mode))
+            requests.append(
+                RetimingRequest(
+                    snapshot=snapshot,
+                    free_ids=selected,
+                    modeled_ids=component,
+                    horizons=((bay.index, bay_horizon(instance, snapshot, bay.index)),),
+                    pairs=tuple(pairs),
+                    max_component_free=len(selected),
+                )
+            )
+    return tuple(requests)
+
+
 def build_request(
     snapshot: SolutionSnapshot,
     instance: Instance,
     kernel: GeometryKernel,
     config: RetimingConfig,
     affected_ids: frozenset[int] | None = None,
+    budget: Budget | None = None,
 ) -> RetimingRequest:
-    by_id = {item.block_id: item for item in snapshot.placements}
-    if affected_ids is not None and not affected_ids <= set(by_id):
-        raise ValueError("affected_ids contains an unknown block")
-    chosen: list[tuple[frozenset[int], frozenset[int]]] = []
-    for bay in instance.bays:
-        for component in nonfree_components(snapshot, kernel, bay.index):
-            if affected_ids is not None and component.isdisjoint(affected_ids):
-                continue
-            chosen.append(
-                (
-                    component,
-                    _critical_ids(component, snapshot, instance, config.max_free, affected_ids),
-                )
-            )
-    modeled_ids = frozenset().union(*(item[0] for item in chosen)) if chosen else frozenset()
-    free_ids = frozenset().union(*(item[1] for item in chosen)) if chosen else frozenset()
-    horizons = tuple(
-        (bay.index, bay_horizon(instance, snapshot, bay.index))
-        for bay in instance.bays
-        if any(by_id[block_id].bay_id == bay.index for block_id in modeled_ids)
+    """Build aggregate metadata for compatibility; backend solves use build_requests."""
+    requests = build_requests(
+        snapshot, instance, kernel, config, affected_ids, budget
     )
-    pairs: list[RetimingPair] = []
-    for component, selected in chosen:
-        for i, k in combinations(sorted(component), 2):
-            if i not in selected and k not in selected:
-                continue
-            relation = kernel.relation(by_id[i], by_id[k])
-            if relation.state is PairState.FREE:
-                continue
-            warm_mode = relation.mode(by_id[i], by_id[k])
-            if warm_mode is TemporalMode.INVALID:
-                raise ValueError("input snapshot violates a fixed-layout relation")
-            pairs.append(RetimingPair(i, k, relation, warm_mode))
+    if not requests:
+        return RetimingRequest(snapshot, frozenset(), frozenset(), (), (), 0)
+    horizons = tuple(sorted({item for request in requests for item in request.horizons}))
     return RetimingRequest(
         snapshot=snapshot,
-        free_ids=free_ids,
-        modeled_ids=modeled_ids,
+        free_ids=frozenset().union(*(request.free_ids for request in requests)),
+        modeled_ids=frozenset().union(*(request.modeled_ids for request in requests)),
         horizons=horizons,
-        pairs=tuple(pairs),
-        max_component_free=max((len(item[1]) for item in chosen), default=0),
+        pairs=tuple(pair for request in requests for pair in request.pairs),
+        max_component_free=max(request.max_component_free for request in requests),
     )
 
 
@@ -258,6 +289,11 @@ class _GurobiBackend:
         try:
             import gurobipy as gp
 
+            deadline = started + max(0.0, float(time_limit))
+
+            def remaining() -> float:
+                return max(0.0, deadline - time.monotonic())
+
             by_id = {item.block_id: item for item in request.snapshot.placements}
             horizons = dict(request.horizons)
             model = gp.Model("exact_four_state_retime")
@@ -266,11 +302,16 @@ class _GurobiBackend:
             model.Params.Seed = config.seed
             model.Params.MIPFocus = 1
             model.Params.SoftMemLimit = 12
-            model.Params.TimeLimit = max(0.001, float(time_limit))
             a: dict[int, Any] = {}
             e: dict[int, Any] = {}
             tardy: dict[int, Any] = {}
             for block_id in sorted(request.modeled_ids):
+                if remaining() <= 0.001:
+                    return BackendResult(
+                        status="TIME_LIMIT",
+                        runtime=time.monotonic() - started,
+                        diagnostics=("deadline during model variables", "solution_count=0"),
+                    )
                 placement = by_id[block_id]
                 block = instance.block(block_id)
                 horizon = horizons[placement.bay_id]
@@ -287,8 +328,10 @@ class _GurobiBackend:
                     ub=placement.exit if fixed else horizon,
                     name=f"e_{block_id}",
                 )
+                # Due dates may be negative, so tardiness is not bounded by the
+                # scheduling horizon.  The defining lower bounds are sufficient.
                 tardy[block_id] = model.addVar(
-                    vtype=gp.GRB.INTEGER, lb=0, ub=horizon, name=f"T_{block_id}"
+                    vtype=gp.GRB.INTEGER, lb=0, name=f"T_{block_id}"
                 )
                 model.addConstr(a[block_id] >= block.release_time)
                 model.addConstr(e[block_id] >= a[block_id] + block.dwell)
@@ -299,6 +342,14 @@ class _GurobiBackend:
 
             mode_counts: dict[str, int] = defaultdict(int)
             for pair in request.pairs:
+                if remaining() <= 0.001:
+                    return BackendResult(
+                        status="TIME_LIMIT",
+                        runtime=time.monotonic() - started,
+                        variables=model.NumVars,
+                        constraints=model.NumConstrs + model.NumGenConstrs,
+                        diagnostics=("deadline during model relations", "solution_count=0"),
+                    )
                 modes = relation_modes(pair.relation)
                 selectors = {
                     mode: model.addVar(vtype=gp.GRB.BINARY, name=f"m_{pair.i}_{pair.k}_{mode.value}")
@@ -321,6 +372,16 @@ class _GurobiBackend:
 
             primary_expr = gp.quicksum(tardy.values())
             model.setObjective(primary_expr, gp.GRB.MINIMIZE)
+            first_limit = remaining()
+            if first_limit <= 0.001:
+                return BackendResult(
+                    status="TIME_LIMIT",
+                    runtime=time.monotonic() - started,
+                    variables=model.NumVars,
+                    constraints=model.NumConstrs + model.NumGenConstrs,
+                    diagnostics=("deadline before primary solve", "solution_count=0"),
+                )
+            model.Params.TimeLimit = max(0.001, first_limit)
             model.optimize()
             first_status = _status_name(gp, model.Status)
             if model.SolCount <= 0:
@@ -347,9 +408,8 @@ class _GurobiBackend:
                 )
             )
 
-            elapsed = time.monotonic() - started
-            remaining = max(0.0, float(time_limit) - elapsed)
-            if remaining > 0.001:
+            second_limit = remaining()
+            if second_limit > 0.001:
                 best_primary = int(round(primary))
                 model.addConstr(primary_expr == best_primary, name="fix_primary")
                 secondary_expr = gp.quicksum(
@@ -357,7 +417,7 @@ class _GurobiBackend:
                     for block_id in request.free_ids
                 )
                 model.setObjective(secondary_expr, gp.GRB.MINIMIZE)
-                model.Params.TimeLimit = max(0.001, remaining)
+                model.Params.TimeLimit = max(0.001, second_limit)
                 model.optimize()
                 if model.SolCount > 0:
                     best_dates = tuple(
@@ -424,6 +484,73 @@ def _rollback(
     )
 
 
+def _candidate_from_backend(
+    snapshot: SolutionSnapshot,
+    request: RetimingRequest,
+    solved: BackendResult,
+    instance: Instance,
+) -> tuple[SolutionSnapshot | None, str, tuple[str, ...]]:
+    dates = {block_id: (entry, exit_time) for block_id, entry, exit_time in solved.dates}
+    if not request.modeled_ids <= set(dates):
+        return None, "INVALID_SOLUTION", ("missing dates",)
+    horizons = dict(request.horizons)
+    by_id = {item.block_id: item for item in snapshot.placements}
+    replacements: dict[int, Placement] = {}
+    for block_id in request.modeled_ids:
+        old = by_id[block_id]
+        entry, exit_time = dates[block_id]
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in (entry, exit_time)):
+            return None, "INVALID_SOLUTION", ("non-integer date",)
+        if block_id not in request.free_ids:
+            if (entry, exit_time) != (old.entry, old.exit):
+                return None, "INVALID_SOLUTION", ("boundary date changed",)
+            continue
+        block = instance.block(block_id)
+        if (
+            entry < 0
+            or entry < block.release_time
+            or exit_time < entry + block.dwell
+            or exit_time > horizons[old.bay_id]
+        ):
+            return None, "INVALID_SOLUTION", ("date bound",)
+        replacements[block_id] = replace(old, entry=entry, exit=exit_time)
+
+    candidate = SolutionSnapshot(
+        tuple(replacements.get(item.block_id, item) for item in snapshot.placements)
+    )
+    candidate_by_id = {item.block_id: item for item in candidate.placements}
+    for pair in request.pairs:
+        if not pair.relation.allows(candidate_by_id[pair.i], candidate_by_id[pair.k]):
+            return None, "INVALID_RELATION", ()
+
+    before_objective = snapshot.objective or compute_objective(instance, snapshot)
+    after_objective = compute_objective(instance, candidate)
+    if after_objective.z1 > before_objective.z1 + 1e-9:
+        return None, "WORSE_Z1", ()
+    secondary_before = sum(
+        by_id[block_id].exit
+        - by_id[block_id].entry
+        - instance.block(block_id).dwell
+        for block_id in request.free_ids
+    )
+    secondary_after = sum(
+        candidate_by_id[block_id].exit
+        - candidate_by_id[block_id].entry
+        - instance.block(block_id).dwell
+        for block_id in request.free_ids
+    )
+    diagnostics = (
+        f"secondary_before={secondary_before}",
+        f"secondary_after={secondary_after}",
+    )
+    if (
+        math.isclose(after_objective.z1, before_objective.z1, rel_tol=0.0, abs_tol=1e-9)
+        and secondary_after >= secondary_before
+    ):
+        return None, "NO_IMPROVEMENT", diagnostics
+    return candidate.with_objective(after_objective), solved.status, diagnostics
+
+
 def retime(
     snapshot: SolutionSnapshot,
     instance: Instance,
@@ -447,89 +574,118 @@ def retime(
                 ("retiming cannot strictly improve the checker objective",),
             )
         affected = frozenset(affected_ids) if affected_ids is not None else None
-        request = build_request(snapshot, instance, kernel, config, affected)
-        if not request.free_ids:
-            return _rollback(snapshot, "EMPTY", started, ("no affected blocks",))
         remaining = budget.search_remaining()
-        cap = min(float(config.time_cap_s), 0.05 * remaining)
-        if cap <= 0.001:
+        total_cap = min(float(config.time_cap_s), 0.05 * remaining)
+        if total_cap <= 0.001:
             return _rollback(snapshot, "BUDGET", started, (f"remaining={remaining}",))
+        child = budget.child(total_cap)
+        try:
+            requests = build_requests(
+                snapshot, instance, kernel, config, affected, child
+            )
+        except _RetimingDeadline as exc:
+            return _rollback(snapshot, "BUDGET", started, (str(exc),))
+        if not requests:
+            return _rollback(snapshot, "EMPTY", started, ("no affected blocks",))
+        if any(len(request.free_ids) > config.max_free for request in requests):
+            return _rollback(snapshot, "INVALID_REQUEST", started, ("free cap exceeded",))
+
         backend = backend_factory()
-        solved = backend.solve(request, instance, cap, config)
-        base_diag = (
-            f"components_max_free={request.max_component_free}",
-            f"horizons={dict(request.horizons)}",
-            f"variables={solved.variables}",
-            f"constraints={solved.constraints}",
+        working = snapshot
+        solved_results: list[BackendResult] = []
+        request_diagnostics: list[str] = [
+            f"requests={len(requests)}",
+            f"components_max_free={max(request.max_component_free for request in requests)}",
+        ]
+        accepted_statuses: list[str] = []
+        changed_ids: set[int] = set()
+        last_rejection = "NO_IMPROVEMENT"
+        for request_index, request in enumerate(requests):
+            solve_cap = child.search_remaining()
+            if solve_cap <= 0.001:
+                last_rejection = "BUDGET"
+                break
+            try:
+                solved = backend.solve(request, instance, solve_cap, config)
+            except Exception as exc:
+                solved = BackendResult(
+                    status="ERROR", diagnostics=(f"{type(exc).__name__}: {exc}",)
+                )
+            solved_results.append(solved)
+            request_diagnostics.extend(
+                (
+                    f"request[{request_index}].free={len(request.free_ids)}",
+                    f"request[{request_index}].modeled={len(request.modeled_ids)}",
+                    f"request[{request_index}].pairs={len(request.pairs)}",
+                    f"request[{request_index}].status={solved.status}",
+                    f"pairs={len(request.pairs)}",
+                )
+            )
+            request_diagnostics.extend(
+                f"request[{request_index}].{item}" for item in solved.diagnostics
+            )
+            request_diagnostics.extend(solved.diagnostics)
+            if not solved.dates or solved.status in {
+                "ERROR",
+                "INFEASIBLE",
+                "INF_OR_UNBD",
+                "UNBOUNDED",
+                "NUMERIC",
+                "INTERRUPTED",
+            }:
+                last_rejection = solved.status
+                continue
+            candidate, candidate_status, candidate_diag = _candidate_from_backend(
+                working, request, solved, instance
+            )
+            request_diagnostics.extend(
+                f"request[{request_index}].{item}" for item in candidate_diag
+            )
+            if candidate is None:
+                last_rejection = candidate_status
+                continue
+            before_by_id = {item.block_id: item for item in working.placements}
+            after_by_id = {item.block_id: item for item in candidate.placements}
+            changed_ids.update(
+                block_id
+                for block_id in request.free_ids
+                if before_by_id[block_id] != after_by_id[block_id]
+            )
+            working = candidate
+            accepted_statuses.append(candidate_status)
+
+        aggregate = BackendResult(
+            status=(accepted_statuses[-1] if accepted_statuses else last_rejection),
+            primary=(
+                float(sum(item.primary for item in solved_results if item.primary is not None))
+                if solved_results and all(item.primary is not None for item in solved_results)
+                else None
+            ),
+            bound=(
+                float(sum(item.bound for item in solved_results if item.bound is not None))
+                if solved_results and all(item.bound is not None for item in solved_results)
+                else None
+            ),
+            gap=(
+                max(item.gap for item in solved_results if item.gap is not None)
+                if any(item.gap is not None for item in solved_results)
+                else None
+            ),
+            variables=sum(item.variables for item in solved_results),
+            constraints=sum(item.constraints for item in solved_results),
         )
-        if not solved.dates or solved.status in {
-            "ERROR",
-            "INFEASIBLE",
-            "INF_OR_UNBD",
-            "UNBOUNDED",
-            "NUMERIC",
-            "INTERRUPTED",
-        }:
-            return _rollback(snapshot, solved.status, started, base_diag, solved)
-        dates = {block_id: (entry, exit_time) for block_id, entry, exit_time in solved.dates}
-        if not request.modeled_ids <= set(dates):
-            return _rollback(snapshot, "INVALID_SOLUTION", started, base_diag + ("missing dates",), solved)
-        horizon_by_bay = dict(request.horizons)
-        replacements: dict[int, Placement] = {}
-        by_id = {item.block_id: item for item in snapshot.placements}
-        for block_id in request.free_ids:
-            old = by_id[block_id]
-            entry, exit_time = dates[block_id]
-            if any(isinstance(value, bool) or not isinstance(value, int) for value in (entry, exit_time)):
-                return _rollback(snapshot, "INVALID_SOLUTION", started, base_diag + ("non-integer date",), solved)
-            block = instance.block(block_id)
-            if (
-                entry < 0
-                or entry < block.release_time
-                or exit_time < entry + block.dwell
-                or exit_time > horizon_by_bay[old.bay_id]
-            ):
-                return _rollback(snapshot, "INVALID_SOLUTION", started, base_diag + ("date bound",), solved)
-            replacements[block_id] = replace(old, entry=entry, exit=exit_time)
-        candidate = SolutionSnapshot(
-            tuple(replacements.get(item.block_id, item) for item in snapshot.placements)
-        )
-        candidate_by_id = {item.block_id: item for item in candidate.placements}
-        for pair in request.pairs:
-            if not pair.relation.allows(candidate_by_id[pair.i], candidate_by_id[pair.k]):
-                return _rollback(snapshot, "INVALID_RELATION", started, base_diag, solved)
-        operations = serialize(candidate, kernel)
-        candidate_objective = compute_objective(instance, candidate)
-        input_objective = snapshot.objective or compute_objective(instance, snapshot)
-        if candidate_objective.z1 > input_objective.z1 + 1e-9:
-            return _rollback(snapshot, "WORSE_Z1", started, base_diag, solved)
-        secondary_before = sum(
-            by_id[block_id].exit
-            - by_id[block_id].entry
-            - instance.block(block_id).dwell
-            for block_id in request.free_ids
-        )
-        secondary_after = sum(
-            candidate_by_id[block_id].exit
-            - candidate_by_id[block_id].entry
-            - instance.block(block_id).dwell
-            for block_id in request.free_ids
-        )
-        if (
-            math.isclose(candidate_objective.z1, input_objective.z1, rel_tol=0.0, abs_tol=1e-9)
-            and secondary_after >= secondary_before
-        ):
+        if working is snapshot or not changed_ids:
             return _rollback(
                 snapshot,
-                "NO_IMPROVEMENT",
+                last_rejection,
                 started,
-                base_diag
-                + (
-                    f"secondary_before={secondary_before}",
-                    f"secondary_after={secondary_after}",
-                ),
-                solved,
+                tuple(request_diagnostics),
+                aggregate,
             )
+
+        operations = serialize(working, kernel)
+        candidate_objective = working.objective or compute_objective(instance, working)
+        input_objective = snapshot.objective or compute_objective(instance, snapshot)
 
         try:
             from utils import check_feasibility
@@ -543,8 +699,8 @@ def retime(
                 snapshot,
                 "CHECKER_REJECTED",
                 started,
-                base_diag + (f"stage={checked.get('stage')}",),
-                solved,
+                tuple(request_diagnostics) + (f"stage={checked.get('stage')}",),
+                aggregate,
             )
         external = (
             checked.get("obj1"),
@@ -564,32 +720,35 @@ def retime(
             and math.isclose(float(left), float(right), rel_tol=1e-6, abs_tol=1e-9)
             for left, right in zip(internal, external)
         ):
-            return _rollback(snapshot, "OBJECTIVE_MISMATCH", started, base_diag, solved)
-        changed = frozenset(
-            block_id
-            for block_id in request.free_ids
-            if replacements[block_id] != by_id[block_id]
-        )
-        if not changed:
-            return _rollback(snapshot, "NO_CHANGE", started, base_diag, solved)
-        candidate = candidate.with_objective(candidate_objective)
+            return _rollback(
+                snapshot,
+                "OBJECTIVE_MISMATCH",
+                started,
+                tuple(request_diagnostics),
+                aggregate,
+            )
+        candidate = working.with_objective(candidate_objective)
+        final_status = accepted_statuses[-1]
+        if len(accepted_statuses) < len(requests):
+            final_status = "PARTIAL"
         return RetimingResult(
             snapshot=candidate,
-            status=solved.status,
-            primary=solved.primary,
-            bound=solved.bound,
-            gap=solved.gap,
+            status=final_status,
+            primary=aggregate.primary,
+            bound=aggregate.bound,
+            gap=aggregate.gap,
             runtime=time.monotonic() - started,
-            changed_ids=changed,
-            diagnostics=base_diag
+            changed_ids=frozenset(changed_ids),
+            diagnostics=tuple(request_diagnostics)
             + (
                 f"z1_before={input_objective.z1}",
                 f"z1_after={candidate_objective.z1}",
                 f"total_before={input_objective.total}",
                 f"total_after={candidate_objective.total}",
                 "checker_stage=5",
-            )
-            + solved.diagnostics,
+            ),
+            operations=copy.deepcopy(operations),
+            checker_result=copy.deepcopy(checked),
         )
     except Exception as exc:
         return _rollback(snapshot, "ERROR", started, (f"{type(exc).__name__}: {exc}",))
@@ -603,6 +762,7 @@ __all__ = [
     "RetimingResult",
     "bay_horizon",
     "build_request",
+    "build_requests",
     "mode_allows",
     "nonfree_components",
     "relation_modes",

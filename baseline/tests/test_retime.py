@@ -5,6 +5,7 @@ import unittest
 from solver.geometry import GeometryKernel, PairRelation, PairState, TemporalMode
 from solver.instance import parse_instance
 from solver.retime import (
+    BackendResult,
     RetimingConfig,
     bay_horizon,
     build_request,
@@ -14,6 +15,47 @@ from solver.retime import (
 )
 from solver.state import Placement, SolutionSnapshot
 from tests.helpers import block, instance, rectangle
+
+
+class _AdvancingClock:
+    def __init__(self):
+        self.value = 0.0
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, amount):
+        self.value += amount
+
+
+class _CountingKernel:
+    def __init__(self, delegate, clock):
+        self.delegate = delegate
+        self.clock = clock
+        self.relation_calls = 0
+
+    def relation(self, left, right):
+        self.relation_calls += 1
+        self.clock.advance(0.01)
+        return self.delegate.relation(left, right)
+
+
+class _RecordingIdentityBackend:
+    def __init__(self):
+        self.free_counts = []
+
+    def solve(self, request, instance, time_limit, config):
+        del instance, time_limit, config
+        self.free_counts.append(len(request.free_ids))
+        by_id = {item.block_id: item for item in request.snapshot.placements}
+        return BackendResult(
+            status="TIME_LIMIT",
+            dates=tuple(
+                (block_id, by_id[block_id].entry, by_id[block_id].exit)
+                for block_id in sorted(request.modeled_ids)
+            ),
+            primary=sum(max(0, by_id[block_id].exit) for block_id in request.modeled_ids),
+        )
 
 
 class RetimingPurePythonTests(unittest.TestCase):
@@ -143,6 +185,57 @@ class RetimingPurePythonTests(unittest.TestCase):
     def test_config_rejects_invalid_component_cap(self):
         with self.assertRaises(ValueError):
             RetimingConfig(max_free=0)
+
+    def test_component_preprocessing_stops_at_child_deadline(self):
+        from solver.budget import Budget
+        from solver.retime import retime
+
+        count = 100
+        parsed = parse_instance(instance([block() for _ in range(count)]))
+        snapshot = SolutionSnapshot(
+            tuple(Placement(index, 0, 0, index * 3, 0, index * 2, index * 2 + 2) for index in range(count))
+        )
+        clock = _AdvancingClock()
+        kernel = _CountingKernel(GeometryKernel.from_instance(parsed), clock)
+        backend = _RecordingIdentityBackend()
+
+        result = retime(
+            snapshot,
+            parsed,
+            kernel,
+            Budget.start(0.1, clock=clock),
+            backend_factory=lambda: backend,
+            config=RetimingConfig(time_cap_s=3.0),
+        )
+
+        self.assertEqual("BUDGET", result.status)
+        self.assertIs(snapshot, result.snapshot)
+        self.assertLessEqual(kernel.relation_calls, 16)
+        self.assertEqual([], backend.free_counts)
+
+    def test_each_backend_request_respects_global_free_cap(self):
+        from solver.budget import Budget
+        from solver.retime import retime
+
+        count = 160
+        parsed = parse_instance(instance([block() for _ in range(count)], bays=((1000, 20),)))
+        snapshot = SolutionSnapshot(
+            tuple(Placement(index, 0, 0, index * 3, 0, index * 2, index * 2 + 2) for index in range(count))
+        )
+        kernel = GeometryKernel.from_instance(parsed)
+        backend = _RecordingIdentityBackend()
+
+        retime(
+            snapshot,
+            parsed,
+            kernel,
+            Budget.start(20),
+            backend_factory=lambda: backend,
+            config=RetimingConfig(max_free=80),
+        )
+
+        self.assertGreater(len(backend.free_counts), 1)
+        self.assertTrue(all(count <= 80 for count in backend.free_counts), backend.free_counts)
 
 
 if __name__ == "__main__":
