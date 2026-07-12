@@ -147,8 +147,8 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1-01 in progress |
-| S1 | `IN_PROGRESS` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | `benchmarks/evidence/s1/s1-01/20260712T130100Z-s1-01/` | pending atomic S1-01 commit | — | S1-02 is eligible after the S1-01 commit is pushed and the branch is clean |
+| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
+| S1 | `IN_PROGRESS` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate; S1-01 and S1-02 complete | `benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/` | pending atomic S1-02 commit | — | S1-03 is eligible after the S1-02 commit is pushed and the branch is clean |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
@@ -1161,6 +1161,126 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: constructor=false; S1-01 completed with 500 assigned smoke blocks, fallback=0, fit_failures=0, and maximum wall time 1.7571109999844339 seconds; no S1-02 behavior was started
   next_action: commit and push S1-01, then stop; S1-02 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T22:08:48+09:00
+  stage: S1
+  slice: S1-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: f8b1e535fd3d9ab169ffde6f886eebe8e8c47c04
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S1-02\\b' docs/fable/implementation-steps/s1-constructor.md
+    - find benchmarks/evidence/s0/gate benchmarks/evidence/s1/s1-01 -name COMPLETE -type f
+    - git merge-base --is-ancestor 3564a25a3915a9b19569c568d19a52e073add3c9 HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-02 adds only fixed-site event-time insertion and does not add anchors, escalation, profiles, or entry integration
+  next_action: add the S1-02 same-day handoff behavioral test and demonstrate the intended missing insert_block RED
+```
+
+```yaml
+- timestamp: 2026-07-12T22:10:00+09:00
+  stage: S1
+  slice: S1-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: f8b1e535fd3d9ab169ffde6f886eebe8e8c47c04
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_same_day_handoff_candidate -v
+  red_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.construct and insert_block are absent
+  feature_default_decision: constructor=false; S1-02 remains disconnected from the entry path
+  next_action: implement capped event-time candidates and fixed-site insert_block through validate_insertion
+```
+
+```yaml
+- timestamp: 2026-07-12T22:11:00+09:00
+  stage: S1
+  slice: S1-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: f8b1e535fd3d9ab169ffde6f886eebe8e8c47c04
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_same_day_handoff_candidate -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/green-targeted.txt
+  checker_result: targeted GREEN; the simultaneous union-overlap candidate was rejected, the same-day EXIT/ENTRY handoff was selected, and the serialized two-block result was feasible at official checker Stage 5
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/full-regression.txt
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: one additional finish-before-entry test initially asserted a non-event time; the fixture expectation was corrected before the complete constructor and regression passes
+  feature_default_decision: constructor=false; fixed-site insertion uses T=8 by default and exposes T=16/uncapped calls without claiming capped completeness
+  next_action: run the exact S1-02 targeted construct parity command
+```
+
+```yaml
+- timestamp: 2026-07-12T22:11:48+09:00
+  stage: S1
+  slice: S1-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: f8b1e535fd3d9ab169ffde6f886eebe8e8c47c04
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind targeted --cases 1000 --instances synthetic --seed 20260710 --feature caller=construct
+  red_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/green-targeted.txt
+  checker_result: PASS; two-block same-day handoff full-checked at Stage 5 and simultaneous union-overlap insertion was rejected
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/parity/20260712T131109Z-c8ec8ae8/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; targeted construct parity passed 1000 cases with zero mismatches and maximum relative error 0.0
+  next_action: finalize structured slice evidence and run cleanup, syntax, frozen-file, and selected-diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T22:12:27+09:00
+  stage: S1
+  slice: S1-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s1): add checker-parity insertion timing
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_same_day_handoff_candidate -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind targeted --cases 1000 --instances synthetic --seed 20260710 --feature caller=construct
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind targeted --cases 1000 --instances synthetic --seed 20260710
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/construct.py baseline/harness/cli.py baseline/tests/test_construct.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/green-targeted.txt
+  checker_result: PASS; same-day handoff reached Stage 5, simultaneous union-overlap was rejected, and all 52 current tests passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/parity/20260712T131217Z-df399af7/; S0 targeted regression benchmarks/evidence/s0/parity/20260712T131217Z-928960e3/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-02 COMPLETE with T=8 default, T=16 escalation constant, and no capped-completeness claim
+  next_action: commit and push S1-02, then stop; S1-03 is the next eligible slice
 ```
 
 ## 11. Planning quality audit

@@ -264,21 +264,53 @@ def _test_contract_run(
 def _parity(args: argparse.Namespace) -> int:
     expected_cases = {"geometry": 1000, "targeted": 1000, "objective": 100}
     if args.cases != expected_cases[args.kind]:
-        raise SelectorError(f"{args.kind} parity requires exactly {expected_cases[args.kind]} cases in S0")
-    run, _ = _start_run(
-        args,
-        "parity",
-        expected_record_ids=(args.kind,),
-        metadata={"stage": "s0", "kind": args.kind, "cases": args.cases, "selector": args.instances},
-    )
+        raise SelectorError(
+            f"{args.kind} parity requires exactly {expected_cases[args.kind]} cases"
+        )
+    features = _features(args.feature)
+    caller = features.get("caller")
+    if caller is not None and caller != "construct":
+        raise SelectorError(f"unsupported parity caller: {caller}")
+    if caller == "construct" and (args.kind != "targeted" or args.instances != "synthetic"):
+        raise SelectorError("construct parity requires targeted kind and synthetic instances")
+    stage = "s1" if caller == "construct" else "s0"
+    if stage == "s1":
+        run, _ = _start_stage_run(
+            args,
+            stage=stage,
+            command="parity",
+            expected_record_ids=(args.kind,),
+            metadata={
+                "kind": args.kind,
+                "cases": args.cases,
+                "selector": args.instances,
+                "features": features,
+            },
+        )
+    else:
+        run, _ = _start_run(
+            args,
+            "parity",
+            expected_record_ids=(args.kind,),
+            metadata={
+                "stage": stage,
+                "kind": args.kind,
+                "cases": args.cases,
+                "selector": args.instances,
+                "features": features,
+            },
+        )
     if args.kind == "geometry":
         record = _geometry_parity_record(args.cases, args.seed)
     else:
-        suffix = (
-            "test_validate_parity.ValidateParityTests.test_seeded_1000_candidates"
-            if args.kind == "targeted"
-            else "test_state_parity.StateParityTests.test_seeded_100_objective_cases_match_checker"
-        )
+        if caller == "construct":
+            suffix = "test_construct.ConstructorTests.test_seeded_1000_event_candidates_match_checker"
+        else:
+            suffix = (
+                "test_validate_parity.ValidateParityTests.test_seeded_1000_candidates"
+                if args.kind == "targeted"
+                else "test_state_parity.StateParityTests.test_seeded_100_objective_cases_match_checker"
+            )
         tested = _run_unittest(_test_name(suffix))
         record = {
             **tested,
@@ -291,10 +323,11 @@ def _parity(args: argparse.Namespace) -> int:
     passed = record["status"] == "passed" and record.get("mismatches") == 0
     summary = {
         "command": "parity",
-        "stage": "s0",
+        "stage": stage,
         "kind": args.kind,
         "cases": args.cases,
         "selector": args.instances,
+        "features": features,
         "status": "passed" if passed else "failed",
         "mismatch_count": record.get("mismatches", 0),
         "max_relative_error": record.get("max_relative_error", 0.0),
