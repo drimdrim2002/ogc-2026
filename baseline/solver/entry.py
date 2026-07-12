@@ -54,6 +54,10 @@ def load_optional_phase():
         lns_runner = None
         if LNS_ENABLED:
             from .alns import AlnsConfig, AlnsContext, run_lns
+            from .neighborhoods import heuristic_repair
+            from .repair_mip import make_mip_repair_engine
+
+            repair_engines = (heuristic_repair, make_mip_repair_engine())
 
             def lns_runner(initial, store, raw, checker, lns_budget):
                 context = AlnsContext(
@@ -61,6 +65,7 @@ def load_optional_phase():
                     kernel=geometry,
                     raw=raw,
                     checker=checker,
+                    repair_engines=repair_engines,
                 )
                 return run_lns(
                     initial,

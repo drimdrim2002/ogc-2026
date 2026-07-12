@@ -46,6 +46,7 @@ class AlnsConfig:
     max_iterations: int | None = None
     checker_margin: float = 0.01
     max_invariant_errors: int = 3
+    mip_period: int = 10
 
     def __post_init__(self) -> None:
         integer_values = (
@@ -55,11 +56,19 @@ class AlnsConfig:
             self.cooling_iterations,
             self.stall_iterations,
             self.max_invariant_errors,
+            self.mip_period,
         )
         if any(isinstance(value, bool) or not isinstance(value, int) for value in integer_values):
             raise TypeError("ALNS iteration and seed settings must be integers")
-        if self.segment <= 0 or self.cooling_iterations <= 0 or self.stall_iterations <= 0:
-            raise ValueError("segment, cooling_iterations, and stall_iterations must be positive")
+        if (
+            self.segment <= 0
+            or self.cooling_iterations <= 0
+            or self.stall_iterations <= 0
+            or self.mip_period <= 0
+        ):
+            raise ValueError(
+                "segment, cooling_iterations, stall_iterations, and mip_period must be positive"
+            )
         if self.warmup_iterations < 0 or self.max_invariant_errors <= 0:
             raise ValueError("warmup must be nonnegative and invariant limit positive")
         if self.max_iterations is not None and (
@@ -144,6 +153,13 @@ class AlnsMetrics:
     destroy_size: int
     retime_triggers: int
     exit_reason: str
+    repair_engines: tuple[tuple[str, int, int, int, float], ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ValidationEvidence:
+    operations: Mapping[str, Any]
+    checker_result: Mapping[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -255,11 +271,58 @@ def run_lns(
     invariant_errors = 0
     retime_triggers = 0
     pending_retime: set[int] = set()
+    stalled_engine_pending = False
     phase_time = {"destroy": 0.0, "repair": 0.0, "retime": 0.0, "checker": 0.0}
+    engine_stats: dict[str, list[float]] = {}
     cache_before = context.kernel.cache_info()
     started = context.clock()
     iterations = 0
     exit_reason = "DEADLINE"
+
+    def engine_name(engine: RepairEngine) -> str:
+        return str(getattr(engine, "__name__", type(engine).__name__))
+
+    for repair_engine in context.repair_engines:
+        engine_stats.setdefault(engine_name(repair_engine), [0.0, 0.0, 0.0, 0.0])
+
+    def validate_candidate(candidate: SolutionSnapshot) -> _ValidationEvidence | None:
+        if not budget.can_start(budget.checker_p95, margin=config.checker_margin):
+            return None
+        try:
+            operations = serialize(candidate, context.kernel)
+            check_started = context.clock()
+            checked = context.checker(
+                copy.deepcopy(dict(context.raw)), copy.deepcopy(operations)
+            )
+            duration = max(0.0, context.clock() - check_started)
+            phase_time["checker"] += duration
+            budget.record_checker_duration(duration)
+            objective = candidate.objective or compute_objective(context.instance, candidate)
+            external = (
+                checked.get("obj1"),
+                checked.get("obj2"),
+                checked.get("obj3"),
+                checked.get("objective"),
+            )
+            internal = (objective.z1, objective.z2, objective.z3, objective.total)
+            if (
+                checked.get("feasible") is not True
+                or checked.get("stage") != 5
+                or any(
+                    isinstance(value, bool) or not isinstance(value, (int, float))
+                    for value in external
+                )
+                or not all(
+                    math.isclose(
+                        float(left), float(right), rel_tol=1e-6, abs_tol=1e-9
+                    )
+                    for left, right in zip(internal, external)
+                )
+            ):
+                return None
+            return _ValidationEvidence(operations, checked)
+        except Exception:
+            return None
 
     def try_install(candidate: SolutionSnapshot, evidence: Any | None = None) -> bool:
         nonlocal best
@@ -274,23 +337,15 @@ def run_lns(
                 if installed:
                     best = best_store.snapshot
                 return installed
-        if not budget.can_start(budget.checker_p95, margin=config.checker_margin):
+        validated = validate_candidate(candidate)
+        if validated is None:
             return False
-        try:
-            operations = serialize(candidate, context.kernel)
-            check_started = context.clock()
-            checked = context.checker(
-                copy.deepcopy(dict(context.raw)), copy.deepcopy(operations)
-            )
-            duration = max(0.0, context.clock() - check_started)
-            phase_time["checker"] += duration
-            budget.record_checker_duration(duration)
-            installed = best_store.install_if_valid(candidate, operations, checked)
-            if installed:
-                best = best_store.snapshot
-            return installed
-        except Exception:
-            return False
+        installed = best_store.install_if_valid(
+            candidate, validated.operations, validated.checker_result
+        )
+        if installed:
+            best = best_store.snapshot
+        return installed
 
     def apply_pending_retime(
         metric: _MutableOperatorMetrics,
@@ -381,33 +436,99 @@ def run_lns(
             if not budget.can_start(0.0, margin=0.0001):
                 exit_reason = "DEADLINE"
                 break
-            engine = context.repair_engines[iterations % len(context.repair_engines)]
+            if len(context.repair_engines) == 1:
+                engine = context.repair_engines[0]
+            elif stalled_engine_pending or (
+                (iterations + 1) % config.mip_period == 0
+            ):
+                engine = context.repair_engines[-1]
+                stalled_engine_pending = False
+            else:
+                engine = context.repair_engines[0]
+            selected_engine_name = engine_name(engine)
+            engine_stats[selected_engine_name][0] += 1
             phase_started = context.clock()
             repaired = engine(
                 current, destroyed, context.neighborhood, budget
             )
-            phase_time["repair"] += max(0.0, context.clock() - phase_started)
+            repair_duration = max(0.0, context.clock() - phase_started)
+            phase_time["repair"] += repair_duration
+            engine_stats[selected_engine_name][3] += repair_duration
+            if repaired.engine == "mip_fallback":
+                engine_stats[selected_engine_name][2] += 1
             if not repaired.feasible:
                 iterations_since_best += 1
             else:
-                metric.feasible += 1
                 candidate = _objective(repaired.snapshot, context.instance)
                 if not locally_feasible(candidate, context.neighborhood):
                     invariant_errors += 1
                     metric.exceptions += 1
                     iterations_since_best += 1
                 else:
-                    delta = candidate.objective.total - current.objective.total
-                    metric.delta_sum += delta
+                    repair_delta = candidate.objective.total - current.objective.total
                     if not math.isclose(
                         repaired.objective_delta,
-                        delta,
+                        repair_delta,
                         rel_tol=1e-6,
                         abs_tol=1e-9,
                     ):
                         invariant_errors += 1
                         raise ValueError("repair objective delta mismatch")
                     invariant_errors = 0
+                    evidence: _ValidationEvidence | None = None
+                    mip_transaction = repaired.engine.startswith("mip")
+                    if mip_transaction:
+                        if retime_hook is not None and repaired.changed_ids:
+                            phase_started = context.clock()
+                            retime_triggers += 1
+                            try:
+                                retimed = retime_hook(
+                                    candidate,
+                                    context.instance,
+                                    context.kernel,
+                                    budget,
+                                    affected_ids=repaired.changed_ids,
+                                )
+                            finally:
+                                phase_time["retime"] += max(
+                                    0.0, context.clock() - phase_started
+                                )
+                            if str(getattr(retimed, "status", "")).upper() in {
+                                "ERROR",
+                                "INVALID_INPUT",
+                                "INVALID_REQUEST",
+                                "INVALID_SOLUTION",
+                                "INVALID_RELATION",
+                                "CHECKER_REJECTED",
+                                "OBJECTIVE_MISMATCH",
+                                "WORSE_Z1",
+                            }:
+                                raise ValueError("MIP retime failed transactionally")
+                            retimed_snapshot = getattr(retimed, "snapshot", candidate)
+                            if (
+                                not isinstance(retimed_snapshot, SolutionSnapshot)
+                                or not locally_feasible(
+                                    retimed_snapshot, context.neighborhood
+                                )
+                            ):
+                                raise ValueError("MIP retime returned an invalid snapshot")
+                            retimed_snapshot = _objective(
+                                retimed_snapshot, context.instance
+                            )
+                            if (
+                                retimed_snapshot.objective.total
+                                > candidate.objective.total + 1e-9
+                            ):
+                                raise ValueError("MIP retime worsened the candidate")
+                            candidate = retimed_snapshot
+                        evidence = validate_candidate(candidate)
+                        if evidence is None:
+                            raise ValueError("MIP candidate failed canonical full check")
+
+                    metric.feasible += 1
+                    engine_stats[selected_engine_name][1] += 1
+                    delta = candidate.objective.total - current.objective.total
+                    metric.delta_sum += delta
                     warmup = iterations < config.warmup_iterations
                     if delta < 0.0 and warmup:
                         improving_samples.append(-delta)
@@ -424,8 +545,9 @@ def run_lns(
                         current = candidate
                         metric.accepted += 1
                         accepted_trace.append(current.objective.total)
-                        pending_retime.update(repaired.changed_ids)
-                        if try_install(current):
+                        if not mip_transaction:
+                            pending_retime.update(repaired.changed_ids)
+                        if try_install(current, evidence):
                             metric.new_best += 1
                             segment_scores[operator_index] += config.rewards[0]
                             best_trace.append(best.objective.total)
@@ -437,7 +559,8 @@ def run_lns(
                                 segment_scores[operator_index] += config.rewards[2]
                             iterations_since_best += 1
 
-                        apply_pending_retime(metric, operator_index)
+                        if not mip_transaction:
+                            apply_pending_retime(metric, operator_index)
                     else:
                         iterations_since_best += 1
         except Exception:
@@ -467,6 +590,8 @@ def run_lns(
         )
         if stalled:
             destroy_size = grow_destroy_size(destroy_size, len(current.placements))
+            if len(context.repair_engines) > 1:
+                stalled_engine_pending = True
             if temperature is not None and improving_samples:
                 temperature = max(
                     temperature,
@@ -496,6 +621,16 @@ def run_lns(
         temperature=temperature,
         destroy_size=destroy_size,
         retime_triggers=retime_triggers,
+        repair_engines=tuple(
+            (
+                name,
+                int(values[0]),
+                int(values[1]),
+                int(values[2]),
+                values[3],
+            )
+            for name, values in engine_stats.items()
+        ),
         exit_reason=exit_reason,
     )
     return AlnsResult(

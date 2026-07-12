@@ -12,7 +12,9 @@ from .budget import Budget
 from .construct import (
     ConstructorConfig,
     commit_insertion_candidate,
+    generate_position_candidates,
     generate_insertion_candidates,
+    generate_time_candidates,
 )
 from .geometry import GeometryKernel, PairState
 from .instance import Instance
@@ -24,6 +26,82 @@ class NeighborhoodContext:
     instance: Instance
     kernel: GeometryKernel
     repair_config: ConstructorConfig = ConstructorConfig(max_profiles=1)
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateCostParts:
+    tardiness: float
+    preference: float
+
+
+@dataclass(frozen=True, slots=True)
+class CompleteCandidate:
+    block_id: int
+    bay_id: int
+    orient_idx: int
+    x: int
+    y: int
+    entry: int
+    exit: int
+    cost_parts: CandidateCostParts
+    is_incumbent: bool = False
+
+    @classmethod
+    def from_placement(
+        cls,
+        placement: Placement,
+        context: NeighborhoodContext,
+        *,
+        is_incumbent: bool = False,
+    ) -> "CompleteCandidate":
+        block = context.instance.block(placement.block_id)
+        return cls(
+            block_id=placement.block_id,
+            bay_id=placement.bay_id,
+            orient_idx=placement.orient_idx,
+            x=placement.x,
+            y=placement.y,
+            entry=placement.entry,
+            exit=placement.exit,
+            cost_parts=CandidateCostParts(
+                tardiness=float(max(0, placement.exit - block.due_date)),
+                preference=float(
+                    max(block.bay_preferences)
+                    - block.bay_preferences[placement.bay_id]
+                ),
+            ),
+            is_incumbent=is_incumbent,
+        )
+
+    @property
+    def placement(self) -> Placement:
+        return Placement(
+            self.block_id,
+            self.bay_id,
+            self.orient_idx,
+            self.x,
+            self.y,
+            self.entry,
+            self.exit,
+        )
+
+    @property
+    def canonical_key(self) -> tuple[int, ...]:
+        return (
+            self.block_id,
+            self.bay_id,
+            self.orient_idx,
+            self.x,
+            self.y,
+            self.entry,
+            self.exit,
+        )
+
+    def weighted_known_cost(self, context: NeighborhoodContext) -> float:
+        return (
+            context.instance.weights.w1 * self.cost_parts.tardiness
+            + context.instance.weights.w3 * self.cost_parts.preference
+        )
 
 
 class DestroyOperator(Protocol):
@@ -300,6 +378,154 @@ def destroy_snapshot(
     )
 
 
+def _world_aabb(
+    candidate: Placement,
+    kernel: GeometryKernel,
+) -> tuple[float, float, float, float]:
+    xmin, ymin, xmax, ymax = kernel.shape(
+        candidate.block_id, candidate.orient_idx
+    ).full_aabb
+    return (
+        xmin + candidate.x,
+        ymin + candidate.y,
+        xmax + candidate.x,
+        ymax + candidate.y,
+    )
+
+
+def _aabb_overlaps(left: Placement, right: Placement, kernel: GeometryKernel) -> bool:
+    lx0, ly0, lx1, ly1 = _world_aabb(left, kernel)
+    rx0, ry0, rx1, ry1 = _world_aabb(right, kernel)
+    return lx0 < rx1 and rx0 < lx1 and ly0 < ry1 and ry0 < ly1
+
+
+def _candidate_allows_unchanged(
+    candidate: Placement,
+    retained: tuple[Placement, ...],
+    kernel: GeometryKernel,
+) -> bool:
+    if not kernel.fits(candidate):
+        return False
+    for existing in retained:
+        if existing.bay_id != candidate.bay_id:
+            continue
+        overlaps = candidate.entry < existing.exit and existing.entry < candidate.exit
+        same_entry = candidate.entry == existing.entry
+        if not overlaps and not same_entry:
+            continue
+        if not _aabb_overlaps(candidate, existing, kernel):
+            continue
+        relation = kernel.relation(candidate, existing)
+        if not relation.allows(candidate, existing):
+            return False
+        if same_entry and relation.state is not PairState.FREE:
+            return False
+    return True
+
+
+def export_complete_candidates(
+    current: SolutionSnapshot,
+    destroyed: tuple[int, ...],
+    context: NeighborhoodContext,
+    budget: Budget,
+    *,
+    max_per_block: int = 32,
+) -> tuple[tuple[int, tuple[CompleteCandidate, ...]], ...]:
+    """Export bounded independent columns against the unchanged snapshot.
+
+    The current placement is inserted before any search and cannot be trimmed.
+    Alternatives are checked exactly against unchanged blocks but deliberately
+    not against other destroyed blocks; those conflicts belong to the MIP
+    solve-inspect-add-cut loop.
+    """
+    if isinstance(max_per_block, bool) or not isinstance(max_per_block, int):
+        raise TypeError("max_per_block must be an integer")
+    if not 1 <= max_per_block <= 32:
+        raise ValueError("max_per_block must be between 1 and 32")
+    draft = destroy_snapshot(current, destroyed)
+    current_by_id = _by_id(current)
+    state = IndexedSolutionState(
+        context.instance,
+        draft.retained.placements,
+        time_cap=context.repair_config.time_cap,
+        anchor_cap=context.repair_config.anchor_cap,
+        lattice_cap=context.repair_config.lattice_cap,
+    )
+    state.kernel = context.kernel
+    rows: list[tuple[int, tuple[CompleteCandidate, ...]]] = []
+    for block_id in destroyed:
+        incumbent = CompleteCandidate.from_placement(
+            current_by_id[block_id], context, is_incumbent=True
+        )
+        by_key: dict[tuple[int, ...], CompleteCandidate] = {
+            incumbent.canonical_key: incumbent
+        }
+        if budget.can_start(0.0, margin=0.0001):
+            block = context.instance.block(block_id)
+            times = generate_time_candidates(block, state, incumbent.entry)
+            for bay_id, orient_idx, _ in block.fitting_options:
+                if not budget.can_start(0.0, margin=0.0001):
+                    break
+                bay = context.instance.bay(bay_id)
+                orient = block.orientations[orient_idx]
+                for entry in times:
+                    current_position = None
+                    if bay_id == incumbent.bay_id and orient_idx == incumbent.orient_idx:
+                        current_position = (incumbent.x, incumbent.y)
+                    positions = generate_position_candidates(
+                        block,
+                        bay,
+                        orient,
+                        (entry, entry + block.dwell),
+                        state,
+                        current_position=current_position,
+                    )
+                    for position_index, (x, y) in enumerate(positions):
+                        if position_index % 16 == 0 and not budget.can_start(
+                            0.0, margin=0.0001
+                        ):
+                            break
+                        placement = Placement(
+                            block_id,
+                            bay_id,
+                            orient_idx,
+                            x,
+                            y,
+                            entry,
+                            entry + block.dwell,
+                        )
+                        if not _candidate_allows_unchanged(
+                            placement, draft.retained.placements, context.kernel
+                        ):
+                            continue
+                        item = CompleteCandidate.from_placement(placement, context)
+                        by_key.setdefault(item.canonical_key, item)
+                        if len(by_key) >= max_per_block * 8:
+                            break
+                    if len(by_key) >= max_per_block * 8:
+                        break
+                if len(by_key) >= max_per_block * 8:
+                    break
+        ordered = sorted(
+            by_key.values(),
+            key=lambda item: (
+                item.weighted_known_cost(context),
+                item.canonical_key,
+            ),
+        )
+        selected = ordered[:max_per_block]
+        if incumbent not in selected:
+            selected = selected[: max_per_block - 1] + [incumbent]
+        selected.sort(
+            key=lambda item: (
+                item.weighted_known_cost(context),
+                item.canonical_key,
+            )
+        )
+        rows.append((block_id, tuple(selected)))
+    return tuple(rows)
+
+
 @dataclass(frozen=True, slots=True)
 class RepairResult:
     snapshot: SolutionSnapshot
@@ -466,6 +692,8 @@ def heuristic_repair(
 
 
 __all__ = [
+    "CandidateCostParts",
+    "CompleteCandidate",
     "CongestedWindowDestroy",
     "DEFAULT_DESTROY_OPERATORS",
     "DestroyedDraft",
@@ -478,6 +706,7 @@ __all__ = [
     "TardyChainDestroy",
     "Z2ContributorDestroy",
     "destroy_snapshot",
+    "export_complete_candidates",
     "heuristic_repair",
     "locally_feasible",
 ]
