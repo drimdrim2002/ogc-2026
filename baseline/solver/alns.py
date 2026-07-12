@@ -6,13 +6,17 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
+import hashlib
+import json
 import math
 from statistics import median
 from types import MappingProxyType
+from typing import Any
 
 from numpy.random import Generator
 
-from .budget import Budget
+from .budget import Budget, BudgetExpired
+from .checker_adapter import CheckerResult, official_check
 from .config import DEFAULT_CONFIG
 from .construct import (
     ESCALATED_ANCHOR_CAP,
@@ -20,6 +24,8 @@ from .construct import (
     first_fit,
     insert_block,
 )
+from .incumbent import VerifiedIncumbent
+from .serialize import serialize_non_interlock
 from .state import ObjectiveDiagnostics, Placement, SolutionState, StateUndoToken
 from .validate import validate_insertion
 
@@ -60,6 +66,92 @@ class OperatorMetrics:
     attempts: int = 0
     successes: int = 0
     failures: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ALNSIterationEvent:
+    """Pre-commit classification emitted before any incumbent replacement."""
+
+    iteration: int
+    destroy_name: str
+    repair_name: str
+    previous_cur_obj: float
+    new_obj: float
+    outcome: str
+    accepted: bool
+    potential_incumbent: bool
+
+
+@dataclass(slots=True)
+class ALNSMetrics:
+    """Strict-loop structural, safety, and outcome counters."""
+
+    iterations: int = 0
+    proposals: int = 0
+    accepted: int = 0
+    rejected: int = 0
+    improving: int = 0
+    current_equal: int = 0
+    worse: int = 0
+    not_applicable: int = 0
+    repair_failures: int = 0
+    full_checks: int = 0
+    safety_samples: int = 0
+    checker_failures: int = 0
+    faults: int = 0
+    deadlines: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class IncumbentTraceEntry:
+    """One checker-verified incumbent boundary in strictly improving order."""
+
+    iteration: int
+    objective: float
+    obj1: float | None
+    obj2: float | None
+    obj3: float | None
+    checker_stage: int
+    solution_sha256: str
+
+
+@dataclass(frozen=True, slots=True)
+class ALNSRunResult:
+    """Safe S3-03 return object containing only stored incumbent operations."""
+
+    solution: dict[str, Any]
+    metrics: ALNSMetrics
+    incumbent_trace: tuple[IncumbentTraceEntry, ...]
+    stopped_reason: str
+
+
+class StrictAcceptor:
+    """Accept only a relative-EPS strict improvement over saved current state."""
+
+    __slots__ = ("epsilon",)
+
+    def __init__(self, *, epsilon: float = 1e-9) -> None:
+        if (
+            isinstance(epsilon, bool)
+            or not math.isfinite(epsilon)
+            or epsilon < 0.0
+        ):
+            raise ValueError("epsilon must be a finite non-negative number")
+        self.epsilon = float(epsilon)
+
+    def tolerance(self, previous_cur_obj: float) -> float:
+        return self.epsilon * max(1.0, abs(previous_cur_obj))
+
+    def classify(self, previous_cur_obj: float, new_obj: float) -> str:
+        tolerance = self.tolerance(previous_cur_obj)
+        if new_obj < previous_cur_obj - tolerance:
+            return "improving"
+        if abs(new_obj - previous_cur_obj) <= tolerance:
+            return "current_equal"
+        return "worse"
+
+    def accept(self, previous_cur_obj: float, new_obj: float) -> bool:
+        return self.classify(previous_cur_obj, new_obj) == "improving"
 
 
 def sample_destroy_count(
@@ -660,6 +752,272 @@ class OperatorRegistry:
             removed_block_ids,
             mutation_count,
         )
+
+
+class _CheckerSafetyError(RuntimeError):
+    """Internal signal that a sampled/accepted candidate failed the checker."""
+
+
+def run_alns(
+    state: SolutionState,
+    incumbent: VerifiedIncumbent,
+    rng: Generator,
+    *,
+    max_iterations: int,
+    registry: OperatorRegistry | None = None,
+    remove_count: int | None = None,
+    acceptor: StrictAcceptor | None = None,
+    safety_sample_interval: int = 0,
+    budget: Budget | None = None,
+    on_event: Callable[[ALNSIterationEvent], None] | None = None,
+) -> ALNSRunResult:
+    """Run the S3-03 strict loop while returning only a verified incumbent.
+
+    Candidate state stays inside a ``MoveTransaction`` until strict acceptance,
+    optional safety checking, and any potential incumbent full check complete.
+    The current objective is assigned only after transaction commit.
+    """
+    if not isinstance(state, SolutionState):
+        raise TypeError("state must be a SolutionState")
+    if not isinstance(incumbent, VerifiedIncumbent) or not incumbent.has_incumbent:
+        raise ValueError("run_alns requires a checker-verified incumbent")
+    if not isinstance(rng, Generator):
+        raise TypeError("rng must be a numpy.random.Generator")
+    if (
+        isinstance(max_iterations, bool)
+        or not isinstance(max_iterations, int)
+        or max_iterations < 0
+    ):
+        raise ValueError("max_iterations must be a non-negative integer")
+    if remove_count is not None and (
+        isinstance(remove_count, bool)
+        or not isinstance(remove_count, int)
+        or remove_count <= 0
+    ):
+        raise ValueError("remove_count must be a positive integer or None")
+    if (
+        isinstance(safety_sample_interval, bool)
+        or not isinstance(safety_sample_interval, int)
+        or safety_sample_interval < 0
+    ):
+        raise ValueError("safety_sample_interval must be a non-negative integer")
+    strict = StrictAcceptor() if acceptor is None else acceptor
+    if not isinstance(strict, StrictAcceptor):
+        raise TypeError("S3-03 supports StrictAcceptor only")
+    operators = OperatorRegistry() if registry is None else registry
+    if not isinstance(operators, OperatorRegistry):
+        raise TypeError("registry must be an OperatorRegistry")
+
+    metrics = ALNSMetrics()
+    cur_obj = state.objective
+    initial = incumbent.checker_result
+    if not initial.feasible or initial.objective is None:
+        raise ValueError("incumbent must have a feasible checker objective")
+    trace = [_trace_entry(0, incumbent.solution, initial)]
+    stopped_reason = "max_iterations"
+
+    for iteration in range(1, max_iterations + 1):
+        metrics.iterations += 1
+        destroy_name: str | None = None
+        repair_name: str | None = None
+        operator_outcome_recorded = False
+        try:
+            _checkpoint(budget, "S3 iteration start")
+            destroy_name = _uniform_name(operators.destroy_names, rng)
+            repair_name = _uniform_name(operators.repair_names, rng)
+            destroy = operators.destroys[destroy_name]
+            repair = operators.repairs[repair_name]
+            count = (
+                sample_destroy_count(
+                    len(state.placements),
+                    rng,
+                    min_fraction=DEFAULT_CONFIG.alns_destroy_min_fraction,
+                    max_fraction=DEFAULT_CONFIG.alns_destroy_max_fraction,
+                    cap_fraction=DEFAULT_CONFIG.alns_destroy_cap_fraction,
+                )
+                if remove_count is None
+                else remove_count
+            )
+            for name in (destroy_name, repair_name):
+                operators._metrics[name].attempts += 1
+
+            previous_cur_obj = cur_obj
+            with MoveTransaction(state, rng) as transaction:
+                removed = destroy.destroy(transaction, count, budget=budget)
+                if len(removed) != count:
+                    metrics.not_applicable += 1
+                    metrics.rejected += 1
+                    _record_operator_failure(operators, destroy_name, repair_name)
+                    operator_outcome_recorded = True
+                    continue
+                source_bays = {item.bay_id for item in removed}
+                if len(source_bays) != 1:
+                    raise AssertionError("destroy escaped its single-bay boundary")
+                if not repair.repair(transaction, removed, budget=budget):
+                    metrics.repair_failures += 1
+                    metrics.rejected += 1
+                    _record_operator_failure(operators, destroy_name, repair_name)
+                    operator_outcome_recorded = True
+                    continue
+                state.assert_invariants()
+                _assert_assignment_unchanged(transaction.undo_token, state)
+                _checkpoint(budget, "S3 candidate repaired")
+
+                new_obj = state.objective
+                outcome = strict.classify(previous_cur_obj, new_obj)
+                metrics.proposals += 1
+                setattr(metrics, outcome, getattr(metrics, outcome) + 1)
+                accepted = strict.accept(previous_cur_obj, new_obj)
+                incumbent_objective = incumbent.checker_result.objective
+                if incumbent_objective is None:
+                    raise AssertionError("verified incumbent objective disappeared")
+                potential_incumbent = (
+                    new_obj
+                    < incumbent_objective - strict.tolerance(incumbent_objective)
+                )
+                event = ALNSIterationEvent(
+                    iteration=iteration,
+                    destroy_name=destroy_name,
+                    repair_name=repair_name,
+                    previous_cur_obj=previous_cur_obj,
+                    new_obj=new_obj,
+                    outcome=outcome,
+                    accepted=accepted,
+                    potential_incumbent=potential_incumbent,
+                )
+                if on_event is not None:
+                    on_event(event)
+                _checkpoint(budget, "S3 acceptance reported")
+                if not accepted:
+                    metrics.rejected += 1
+                    _record_operator_failure(operators, destroy_name, repair_name)
+                    operator_outcome_recorded = True
+                    continue
+
+                sample_due = (
+                    safety_sample_interval > 0
+                    and metrics.proposals % safety_sample_interval == 0
+                )
+                if potential_incumbent or sample_due:
+                    _checkpoint(budget, "S3 before full check")
+                    metrics.full_checks += 1
+                    updated = False
+                    if potential_incumbent:
+                        updated = incumbent.try_update(state)
+                        checked = incumbent.last_checker_result
+                    else:
+                        metrics.safety_samples += 1
+                        checked = official_check(
+                            state.instance.raw,
+                            serialize_non_interlock(state.placements.values()),
+                        )
+                    if not checked.feasible or checked.objective is None:
+                        metrics.checker_failures += 1
+                        metrics.rejected += 1
+                        _record_operator_failure(
+                            operators, destroy_name, repair_name
+                        )
+                        operator_outcome_recorded = True
+                        raise _CheckerSafetyError(
+                            "official checker rejected an accepted candidate"
+                        )
+                    if updated:
+                        entry = _trace_entry(
+                            iteration,
+                            incumbent.solution,
+                            incumbent.checker_result,
+                        )
+                        if entry.objective >= trace[-1].objective - strict.tolerance(
+                            trace[-1].objective
+                        ):
+                            raise AssertionError(
+                                "verified incumbent trace is not strictly decreasing"
+                            )
+                        trace.append(entry)
+
+                _checkpoint(budget, "S3 before candidate commit")
+                transaction.commit()
+                cur_obj = new_obj
+                metrics.accepted += 1
+                for name in (destroy_name, repair_name):
+                    operators._metrics[name].successes += 1
+                operator_outcome_recorded = True
+            _checkpoint(budget, "S3 after candidate commit")
+        except BudgetExpired:
+            metrics.deadlines += 1
+            stopped_reason = "deadline"
+            break
+        except _CheckerSafetyError:
+            stopped_reason = "checker_failure"
+            break
+        except Exception as exc:
+            if (
+                destroy_name is not None
+                and repair_name is not None
+                and not operator_outcome_recorded
+            ):
+                _record_operator_failure(operators, destroy_name, repair_name)
+            metrics.faults += 1
+            stopped_reason = f"fault:{type(exc).__name__}:{exc}"
+            break
+
+    return ALNSRunResult(
+        solution=incumbent.solution,
+        metrics=metrics,
+        incumbent_trace=tuple(trace),
+        stopped_reason=stopped_reason,
+    )
+
+
+def _checkpoint(budget: Budget | None, label: str) -> None:
+    if budget is not None:
+        budget.checkpoint(label)
+
+
+def _uniform_name(names: tuple[str, ...], rng: Generator) -> str:
+    if not names:
+        raise ValueError("operator registry contains an empty family")
+    if len(names) == 1:
+        return names[0]
+    return names[int(rng.integers(0, len(names)))]
+
+
+def _record_operator_failure(
+    registry: OperatorRegistry, destroy_name: str, repair_name: str
+) -> None:
+    for name in (destroy_name, repair_name):
+        registry._metrics[name].failures += 1
+
+
+def _assert_assignment_unchanged(
+    before: StateUndoToken, state: SolutionState
+) -> None:
+    after = state.objective_diagnostics
+    if before.bay_members != state.bay_members:
+        raise AssertionError("S3 candidate changed bay membership")
+    if before.bay_loads != after.bay_loads:
+        raise AssertionError("S3 candidate changed bay loads")
+    if before.z2 != after.z2 or before.z3 != after.z3:
+        raise AssertionError("S3 candidate changed Z2 or Z3")
+
+
+def _trace_entry(
+    iteration: int,
+    solution: dict[str, Any],
+    checked: CheckerResult,
+) -> IncumbentTraceEntry:
+    if not checked.feasible or checked.objective is None:
+        raise ValueError("incumbent trace entries require a feasible checker objective")
+    payload = json.dumps(solution, sort_keys=True, separators=(",", ":")).encode()
+    return IncumbentTraceEntry(
+        iteration=iteration,
+        objective=checked.objective,
+        obj1=checked.obj1,
+        obj2=checked.obj2,
+        obj3=checked.obj3,
+        checker_stage=checked.stage,
+        solution_sha256=hashlib.sha256(payload).hexdigest(),
+    )
 
 
 def _validate_registry(operators: Iterable[DestroyOperator | RepairOperator]) -> None:

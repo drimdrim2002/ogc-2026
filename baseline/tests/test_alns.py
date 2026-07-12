@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from copy import deepcopy
 import hashlib
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -12,8 +14,10 @@ from numpy.random import Generator, PCG64
 
 from solver.alns import run_transactional_iteration
 from solver import alns
+from solver.assign import AssignmentV1
 from solver.budget import Budget, BudgetExpired
 from solver.checker_adapter import official_check
+from solver.construct import construct_profile
 from solver.incumbent import VerifiedIncumbent
 from solver.instance import ProblemInstance
 from solver.serialize import serialize_non_interlock
@@ -373,6 +377,306 @@ class OperatorTests(unittest.TestCase):
                 destroys=(AssignmentChangingDestroy(),),
                 repairs=tuple(registry.repairs.values()),
             )
+
+
+class AcceptanceTests(unittest.TestCase):
+    @staticmethod
+    def _single_block_fixture(*, current_exit=10, incumbent_exit=None):
+        prob_info = instance(
+            [block(layers=(TWO_SQUARE,), due=0, processing=1, preferences=(0,))],
+            bays=((2, 2),),
+            weights={"w1": 1.0, "w2": 0.0, "w3": 0.0},
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        state = SolutionState(parsed)
+        state.place(
+            Placement(0, 0, 0, 0, 0, current_exit - 1, current_exit)
+        )
+        incumbent = VerifiedIncumbent(parsed)
+        incumbent_state = state
+        if incumbent_exit is not None:
+            incumbent_state = SolutionState(parsed)
+            incumbent_state.place(
+                Placement(0, 0, 0, 0, 0, incumbent_exit - 1, incumbent_exit)
+            )
+        incumbent.register_initial(incumbent_state)
+        return prob_info, state, incumbent
+
+    @staticmethod
+    def _scripted_registry(exits):
+        class SingleBlockDestroy(alns.DestroyOperator):
+            name = "single"
+
+            def select(self, state, rng, count):
+                return (0,) if count == 1 else ()
+
+        class ScriptedRepair(alns.RepairOperator):
+            name = "scripted"
+
+            def __init__(self):
+                self.exits = iter(exits)
+
+            def repair(self, transaction, removed, *, budget=None):
+                if budget is not None:
+                    budget.checkpoint("S3 scripted repair")
+                original = removed[0]
+                new_exit = next(self.exits)
+                transaction.state.place(
+                    Placement(
+                        original.block_id,
+                        original.bay_id,
+                        original.x,
+                        original.y,
+                        original.orient_idx,
+                        new_exit - 1,
+                        new_exit,
+                    )
+                )
+                transaction.record_mutation(f"insert:{original.block_id}")
+                return True
+
+        return alns.OperatorRegistry(
+            destroys=(SingleBlockDestroy(),),
+            repairs=(ScriptedRepair(),),
+        )
+
+    def test_improvement_classified_before_cur_obj_update(self):
+        prob_info, state, incumbent = self._single_block_fixture()
+        events: list[alns.ALNSIterationEvent] = []
+        result = alns.run_alns(
+            state,
+            incumbent,
+            Generator(PCG64(20260710)),
+            max_iterations=4,
+            registry=self._scripted_registry((8, 8, 9, 7)),
+            remove_count=1,
+            on_event=events.append,
+        )
+
+        self.assertEqual(
+            ("improving", "current_equal", "worse", "improving"),
+            tuple(event.outcome for event in events),
+        )
+        self.assertEqual(
+            (True, False, False, True),
+            tuple(event.accepted for event in events),
+        )
+        self.assertEqual(2, result.metrics.accepted)
+        self.assertEqual(2, result.metrics.improving)
+        self.assertEqual(1, result.metrics.current_equal)
+        self.assertEqual(1, result.metrics.worse)
+        self.assertEqual(7.0, state.objective)
+        self.assertEqual(
+            (10.0, 8.0, 7.0),
+            tuple(item.objective for item in result.incumbent_trace),
+        )
+        self.assertTrue(
+            all(
+                right.objective < left.objective
+                for left, right in zip(
+                    result.incumbent_trace,
+                    result.incumbent_trace[1:],
+                )
+            )
+        )
+        checked = official_check(prob_info, result.solution)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(7.0, checked.objective)
+
+    def test_seeded_100_iterations_keep_monotonic_verified_trace(self):
+        synthetic_prob = instance(
+            [
+                block(
+                    layers=(TWO_SQUARE,),
+                    due=0,
+                    processing=1,
+                    preferences=(0,),
+                )
+                for _ in range(12)
+            ],
+            bays=((2, 2),),
+            weights={"w1": 1.0, "w2": 0.0, "w3": 0.0},
+        )
+        synthetic_state = SolutionState(ProblemInstance.parse(synthetic_prob))
+        for block_id in range(12):
+            entry = 20 + block_id
+            synthetic_state.place(
+                Placement(block_id, 0, 0, 0, 0, entry, entry + 1)
+            )
+
+        example_path = (
+            Path(__file__).resolve().parents[2]
+            / "alg_tester"
+            / "example"
+            / "example_B2_b10.json"
+        )
+        example_prob = json.loads(example_path.read_text(encoding="utf-8"))
+        example_instance = ProblemInstance.parse(example_prob)
+        example_state = construct_profile(
+            example_instance,
+            AssignmentV1(example_instance).assign(),
+            "PF3",
+        ).state
+
+        accepted_over_runs = 0
+        for prob_info, state in (
+            (synthetic_prob, synthetic_state),
+            (example_prob, example_state),
+        ):
+            before = state.capture_undo_token()
+            incumbent = VerifiedIncumbent(state.instance)
+            incumbent.register_initial(state)
+            result = alns.run_alns(
+                state,
+                incumbent,
+                Generator(PCG64(20260710)),
+                max_iterations=100,
+                remove_count=2,
+                safety_sample_interval=10,
+            )
+            self.assertEqual("max_iterations", result.stopped_reason)
+            self.assertEqual(100, result.metrics.iterations)
+            self.assertGreater(result.metrics.proposals, 0)
+            accepted_over_runs += result.metrics.accepted
+            self.assertTrue(
+                all(item.checker_stage == 5 for item in result.incumbent_trace)
+            )
+            self.assertTrue(
+                all(
+                    right.objective < left.objective
+                    for left, right in zip(
+                        result.incumbent_trace,
+                        result.incumbent_trace[1:],
+                    )
+                )
+            )
+            checked = official_check(prob_info, result.solution)
+            self.assertTrue(checked.feasible, checked.violations)
+            self.assertEqual(result.incumbent_trace[-1].objective, checked.objective)
+            self.assertEqual(before.bay_members, state.bay_members)
+            self.assertEqual(before.bay_loads, state.objective_diagnostics.bay_loads)
+            self.assertEqual(before.z2, state.z2)
+            self.assertEqual(before.z3, state.z3)
+        self.assertGreater(accepted_over_runs, 0)
+
+    def test_safety_sample_keeps_better_incumbent_separate(self):
+        prob_info, state, incumbent = self._single_block_fixture(
+            current_exit=10,
+            incumbent_exit=5,
+        )
+        result = alns.run_alns(
+            state,
+            incumbent,
+            Generator(PCG64(20260710)),
+            max_iterations=1,
+            registry=self._scripted_registry((8,)),
+            remove_count=1,
+            safety_sample_interval=1,
+        )
+        self.assertEqual(8.0, state.objective)
+        self.assertEqual(1, result.metrics.accepted)
+        self.assertEqual(1, result.metrics.full_checks)
+        self.assertEqual(1, result.metrics.safety_samples)
+        self.assertEqual(
+            (5.0,),
+            tuple(item.objective for item in result.incumbent_trace),
+        )
+        checked = official_check(prob_info, result.solution)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5.0, checked.objective)
+
+    def test_faults_and_deadlines_return_stored_incumbent(self):
+        def solution_sha(solution):
+            payload = json.dumps(
+                solution, sort_keys=True, separators=(",", ":")
+            ).encode()
+            return hashlib.sha256(payload).hexdigest()
+
+        class FaultyStrict(alns.StrictAcceptor):
+            def accept(self, previous_cur_obj, new_obj):
+                raise RuntimeError("injected accept fault")
+
+        fault_cases = (
+            {
+                "acceptor": FaultyStrict(),
+                "expected": "injected accept fault",
+            },
+            {
+                "patch_target": "solver.incumbent.official_check",
+                "expected": "injected full-check fault",
+            },
+            {
+                "on_event": lambda _event: (_ for _ in ()).throw(
+                    RuntimeError("injected report fault")
+                ),
+                "expected": "injected report fault",
+            },
+        )
+        for case in fault_cases:
+            prob_info, state, incumbent = self._single_block_fixture()
+            before = state.capture_undo_token()
+            before_sha = solution_sha(incumbent.solution)
+            kwargs = {
+                "acceptor": case.get("acceptor"),
+                "on_event": case.get("on_event"),
+            }
+            if case.get("patch_target"):
+                context = patch(
+                    case["patch_target"],
+                    side_effect=RuntimeError("injected full-check fault"),
+                )
+            else:
+                context = nullcontext()
+            with context:
+                result = alns.run_alns(
+                    state,
+                    incumbent,
+                    Generator(PCG64(20260710)),
+                    max_iterations=1,
+                    registry=self._scripted_registry((8,)),
+                    remove_count=1,
+                    **kwargs,
+                )
+            self.assertIn(case["expected"], result.stopped_reason)
+            self.assertEqual(before, state.capture_undo_token())
+            self.assertEqual(before_sha, solution_sha(result.solution))
+            self.assertTrue(official_check(prob_info, result.solution).feasible)
+
+        boundaries = (
+            "S3 iteration start",
+            "S3 SINGLE removal",
+            "S3 scripted repair",
+            "S3 candidate repaired",
+            "S3 acceptance reported",
+            "S3 before full check",
+            "S3 before candidate commit",
+            "S3 after candidate commit",
+        )
+
+        class BoundaryBudget:
+            def __init__(self, target):
+                self.target = target
+
+            def checkpoint(self, label):
+                if label == self.target:
+                    raise BudgetExpired(f"injected deadline at {label}")
+
+        for boundary in boundaries:
+            prob_info, state, incumbent = self._single_block_fixture()
+            result = alns.run_alns(
+                state,
+                incumbent,
+                Generator(PCG64(20260710)),
+                max_iterations=1,
+                registry=self._scripted_registry((8,)),
+                remove_count=1,
+                budget=BoundaryBudget(boundary),
+            )
+            self.assertEqual("deadline", result.stopped_reason, boundary)
+            self.assertEqual(1, result.metrics.deadlines, boundary)
+            checked = official_check(prob_info, result.solution)
+            self.assertTrue(checked.feasible, (boundary, checked.violations))
+            self.assertEqual(result.incumbent_trace[-1].objective, checked.objective)
 
 
 if __name__ == "__main__":

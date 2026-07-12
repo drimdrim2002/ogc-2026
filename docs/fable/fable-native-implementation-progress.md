@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S3 in progress (S3-01 complete)
+Planning status: complete; implementation status: S3 in progress (S3-03 complete)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -150,7 +150,7 @@ S0 foundation
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
-| S3 | `IN_PROGRESS` | — | `NOT_RUN` | `alns=false`; acceptor `strict`; adaptive `false` | S2 mandatory gate; S3-01 and S3-02 complete | `benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/` | pending atomic S3-02 commit | — | stop at S3-02 boundary; S3-03 is eligible only in a new task under its own preflight |
+| S3 | `IN_PROGRESS` | — | `NOT_RUN` | `alns=false`; acceptor `strict`; adaptive `false` | S2 mandatory gate; S3-01 through S3-03 complete | `benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/` | pending atomic S3-03 commit | — | stop at S3-03 boundary; S3-04 is eligible only in a new task under its own preflight |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
 | S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
@@ -2540,6 +2540,133 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: alns=false; strict remains baseline and adaptive=false; S3-02 COMPLETE with D1-D5/R1-R3 only, exact same-bay transactional repair, deterministic PCG64 selection, q from configured 2%-6% capped at 15%, registry assignment guard, and structural metrics; no D6, acceptor loop, cross-bay behavior, or later-stage integration
   next_action: stage only the six tracked S3-02 files, commit feat(s3): add intra-bay LNS operators, push, verify upstream equality and clean status, then create the S3-03 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T07:51:27+09:00
+  stage: S3
+  slice: S3-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e164f116f1f69b1502680d3b23ef0511e29eb2ef
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S3-03\\b' docs/fable/implementation-steps/s3-lns.md
+    - inspect benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/{COMPLETE,gate.json}
+    - inspect benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/{COMPLETE,summary.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s2 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.OperatorTests.test_all_operators_preserve_assignment -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; strict remains the only acceptor baseline; S3-03 adds only the current/verified-incumbent loop, checkpoints, safety sampling, counters, and monotonic trace without runtime entry integration or alternative acceptors
+  next_action: add tests.test_alns.AcceptanceTests.test_improvement_classified_before_cur_obj_update and demonstrate the intended missing strict-loop RED
+```
+
+```yaml
+- timestamp: 2026-07-13T07:52:53+09:00
+  stage: S3
+  slice: S3-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e164f116f1f69b1502680d3b23ef0511e29eb2ef
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AcceptanceTests.test_improvement_classified_before_cur_obj_update -v
+  red_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.alns has no run_alns strict-loop API
+  feature_default_decision: alns=false; strict is the only permitted acceptor in S3-03 and remains disconnected from entry
+  next_action: implement the minimum strict current/verified-incumbent loop with saved previous objective, checkpoints, safety samples, counters, and monotonic checker trace
+```
+
+```yaml
+- timestamp: 2026-07-13T07:54:51+09:00
+  stage: S3
+  slice: S3-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e164f116f1f69b1502680d3b23ef0511e29eb2ef
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AcceptanceTests.test_improvement_classified_before_cur_obj_update -v
+  red_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/green-targeted.txt
+  checker_result: targeted GREEN; scripted improve/equal/worse/improve candidates classified against the saved previous current objective, strict accepted only the two improvements, and checker-verified incumbent trace was 10 to 8 to 7
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: one post-RED test assertion used strict zip on unequal shifted lengths and was corrected before targeted GREEN; the intended RED remained the missing run_alns API
+  feature_default_decision: alns=false; StrictAcceptor is implemented as the only S3-03 acceptor and remains disconnected from entry
+  next_action: add and run seeded 100-iteration checker, fault-boundary, report, and deadline-return proofs
+```
+
+```yaml
+- timestamp: 2026-07-13T07:57:27+09:00
+  stage: S3
+  slice: S3-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: e164f116f1f69b1502680d3b23ef0511e29eb2ef
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AcceptanceTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/slice_proof.py
+  red_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/green-targeted.txt; benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/full-regression.txt
+  checker_result: PASS; synthetic and tracked-example 100-iteration runs produced 13 checker-verified trace entries, all at Stage 5 and strictly decreasing, with final objectives 78.0 and 65090.70684717933
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/checker-stress.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; strict remains the only S3-03 acceptor; 11 accepted candidates over the two seeded runs, zero checker/assignment/load/Z2/Z3 failures, a separately better incumbent survived a safety-sampled current improvement, all accept/full-check/report faults restored prior current and incumbent, and every deadline boundary returned stored checker-feasible operations
+  next_action: run final targeted/regression replay plus syntax, frozen-file, cleanup, structured-evidence, and selected-diff audits
+```
+
+```yaml
+- timestamp: 2026-07-13T07:58:46+09:00
+  stage: S3
+  slice: S3-03
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s3): separate current and verified incumbent
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AcceptanceTests.test_improvement_classified_before_cur_obj_update -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AcceptanceTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/slice_proof.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/alns.py baseline/tests/test_alns.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m json.tool benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/checker-stress.json
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/green-targeted.txt; benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/full-regression.txt
+  checker_result: PASS; 200 seeded iterations on synthetic and tracked example yielded 11 accepted candidates and 13 Stage 5 checker-verified incumbent trace entries, with strictly decreasing checker objectives and final serialized incumbents feasible
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/checker-stress.json; benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; strict is the sole S3-03 acceptor, safety_sample_interval is configurable, alternative acceptance/weights/stagnation/retiming and entry integration remain deferred to S3-04/S3-05
+  next_action: stage only the three tracked S3-03 files, commit feat(s3): separate current and verified incumbent, push, verify upstream equality and clean status, then create the isolated S3-04 task without implementing it here
 ```
 
 ## 11. Planning quality audit
