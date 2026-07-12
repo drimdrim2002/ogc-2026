@@ -20,6 +20,9 @@ from .serialize import serialize
 from .state import IncumbentStore, SolutionSnapshot, compute_objective
 
 
+LNS_ENABLED = False
+
+
 class SafeIncumbentError(RuntimeError):
     pass
 
@@ -33,6 +36,7 @@ class OptionalPhaseResult:
     precedence_provider: Any | None = None
     retiming_results: tuple[Any, ...] = ()
     retimer: Callable[..., Any] | None = None
+    lns_runner: Callable[..., Any] | None = None
 
 
 def load_optional_phase():
@@ -47,6 +51,26 @@ def load_optional_phase():
         geometry = GeometryKernel.from_instance(instance)
         portfolio = try_assignment_portfolio(instance, geometry, budget)
         construction = construct_portfolio(instance, geometry, portfolio, budget)
+        lns_runner = None
+        if LNS_ENABLED:
+            from .alns import AlnsConfig, AlnsContext, run_lns
+
+            def lns_runner(initial, store, raw, checker, lns_budget):
+                context = AlnsContext(
+                    instance=instance,
+                    kernel=geometry,
+                    raw=raw,
+                    checker=checker,
+                )
+                return run_lns(
+                    initial,
+                    store,
+                    context,
+                    lns_budget,
+                    AlnsConfig(),
+                    retime_hook=retime,
+                )
+
         return OptionalPhaseResult(
             candidates=tuple(
                 result.snapshot
@@ -56,6 +80,7 @@ def load_optional_phase():
             assignment_portfolio=portfolio,
             precedence_provider=geometry,
             retimer=retime,
+            lns_runner=lns_runner,
         )
 
     return assignment_phase
@@ -121,6 +146,11 @@ def solve(
             return store.operations
         phase_result = phase(instance, store.snapshot, budget)
         retimer = phase_result.retimer if isinstance(phase_result, OptionalPhaseResult) else None
+        lns_runner = (
+            phase_result.lns_runner
+            if isinstance(phase_result, OptionalPhaseResult)
+            else None
+        )
         candidates = _candidate_stream(phase_result)
         for candidate, precedence_provider in candidates:
             if not budget.can_start(budget.checker_p95, margin=0.01):
@@ -167,6 +197,11 @@ def solve(
                     candidate=retimed_snapshot,
                     precedence_provider=precedence_provider,
                 )
+        if lns_runner is not None and budget.can_start(0.0, margin=0.01):
+            try:
+                lns_runner(store.snapshot, store, raw, checker, budget)
+            except Exception:
+                pass
     except Exception:
         return store.operations
     return store.operations

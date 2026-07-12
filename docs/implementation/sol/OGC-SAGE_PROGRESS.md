@@ -10,16 +10,16 @@
 - 기준 브랜치: `start-point`
 - 작업 브랜치: `sol-native-implementation`
 - 계획 문서 상태: 작성 완료
-- 구현 상태: 5단계 exact four-state retimer 보완 완료(R5-001~R5-005 해결)
-- 테스트 상태: 5단계 전용 29/29, 전체 1~5단계 `baseline/tests` 95/95 PASS; real `prob_4` witness와 public entry 양쪽 import smoke PASS
-- 다음 단계 진입: 6단계 heuristic LNS 진입 가능. 단, submission 활성화 gate는 daily-40 60초 constructor 측정 전까지 계속 off
+- 구현 상태: 6단계 deterministic heuristic LNS 완료(6개 destroy, transactional regret-2/3 repair, SA/adaptation/stall, immutable validated-best loop)
+- 테스트 상태: 6단계 전용 23/23, 전체 1~6단계 `baseline/tests` 118/118 PASS; tracked example seeded LNS와 public entry 양쪽 import smoke Stage 5 PASS
+- 다음 단계 진입: 7단계 candidate-selection MIP repair 진입 가능. 단, submission LNS 활성화 gate는 daily-40 60초 constructor 측정 전까지 계속 off
 
 설계와 저장소가 충돌할 때 구현자가 임의로 해석하지 않는다. 이 문서의 “결정 및 미해결 사항”에 기록하고 결정권자의 승인을 받은 뒤 관련 단계 문서를 함께 갱신한다.
 
 ## 2. 현재 저장소 기준선
 
 - 공개 진입점 `baseline/myalgorithm.py`는 guarded import로 `solver.entry.solve`를 호출하고, 먼저 checker-validated safe incumbent를 만든다.
-- `baseline/solver/`에 1단계 기반 모듈, 2단계 checker-parity geometry kernel, 3단계 optional assignment master, 4단계 event-aware exact constructor, 5단계 indicator 기반 exact four-state retimer가 있고 `baseline/tests/`에 95개 `unittest` 계약·단위·통합 테스트가 있다. `baseline/` 자체의 `__init__.py`는 없으며 양쪽 import smoke가 통과한 상태다.
+- `baseline/solver/`에 1단계 기반 모듈, 2단계 checker-parity geometry kernel, 3단계 optional assignment master, 4단계 event-aware exact constructor, 5단계 indicator 기반 exact four-state retimer, 6단계 pure-Python heuristic LNS가 있고 `baseline/tests/`에 118개 `unittest` 계약·단위·통합 테스트가 있다. `baseline/` 자체의 `__init__.py`는 없으며 양쪽 import smoke가 통과한 상태다.
 - `baseline/utils.py`와 `alg_tester/utils.py`는 현재 byte-for-byte 동일하다. checker 권위는 변경 금지 대상인 `baseline/utils.py::check_feasibility`로 고정한다.
 - `baseline/baseline_greedy.py`는 비교 기준으로 동결한다. 새 구현에서 import하거나 수정하지 않는다.
 - 환경 파일에는 Python 3.12, Shapely 2.1+, Gurobi 13.0.2가 있으나 별도 test dependency는 없다. 따라서 새 테스트는 표준 라이브러리 `unittest`를 사용한다.
@@ -35,8 +35,8 @@
 | 3 | 완료 | P2 | optional Gurobi assignment lower bound와 diverse portfolio, congestion guide | 15/15 전용·51/51 전체 green, 4단계 진입 가능 |
 | 4 | 완료 | P3 | event-aware union-safe regret constructor와 empty-bay fallback | 15/15 전용·66/66 전체 green, 5단계 진입 가능 |
 | 5 | 완료 | P4 | indicator 기반 exact four-state retimer와 affected component | 보완 전용 29/29·전체 95/95, R5-001~R5-005와 real `prob_4` witness green |
-| 6 | 진입 가능 | P5 일부 | heuristic destroy/repair, current/best/candidate, adaptive acceptance | 5단계 보완 완료; submission 활성화 gate는 계속 off |
-| 7 | 차단(6) | P5 완성 | bounded candidate-selection Gurobi repair와 cut loop | heuristic fallback 통합 green 후 8 |
+| 6 | 완료 | P5 일부 | 6개 heuristic destroy, regret-2/3 repair, current/best/candidate, SA/adaptation/stall/metrics | 전용 23/23·전체 118/118; submission 활성화 gate는 계속 off |
+| 7 | 진입 가능 | P5 완성 | bounded candidate-selection Gurobi repair와 cut loop | heuristic fallback 통합 green 후 8 |
 | 8 | 차단(7) | P6 | gate된 one-way interlock densifier와 final retiming | gate on/off 통합 green 후 9 |
 | 9 | 차단(8) | P0~P6 운영 | packaging, exception/deadline/stress hardening, daily-40 validation gates | 모든 필수 gate 통과 후 릴리스 가능 |
 
@@ -118,6 +118,9 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | 2026-07-12 / local daily-40 | gitignored local data | `data/**/*.json` 파일 수·문제 번호·JSON/필수 key 검사, `git check-ignore -v` | 40/40 파싱 PASS; `prob_1..40` 정확히 존재; 약 70MB; `.gitignore:8:data/` 적용 | 데이터 부재 차단은 해소됐으나 공식 provenance·기대 hash·redistribution는 미확정. 5단계 보완에서 real `prob_4` witness를 재현하고 전체 benchmark는 9단계 범위 유지 | `data/train 2/prob_1..20.json`, `data/train/prob_21..40.json` |
 | 2026-07-12 / 5 보완 | Python 3.12.11, Shapely 2.1.2, Gurobi 13.0.2 restricted non-production, seed `20260710`; fake clock/backend 및 actual Gurobi | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_retime tests.test_retime_integration -v`; 이어서 `-m unittest discover -s tests -p 'test_*.py' -v` | 종료 0, 전용 29/29 PASS, 전체 95/95 PASS. 신규 회귀의 최초 red는 25 tests 중 5 FAIL/1 ERROR로 R5-001~R5-005를 모두 재현 | 호출 순서 `checker→checker→retime`; retimer crash에서도 constructor objective/operations `1022.6988257889582` 보존; retimed strict install `Z1 3→0`; fake 0.1초는 relation 1회·0.01초 후 `BUDGET`, backend 0회; 160 singleton은 실제 backend request 160개, `max free=1<=80`; negative due primary `12`, false infeasible 없음; TIME_LIMIT feasible/no-solution, FREE/SEPARATE/I_OUTER/K_OUTER, fixed boundary, `w1=0`, same-exit blocker-first 모두 green | `baseline/solver/{entry,retime}.py`, `baseline/tests/{test_retime,test_retime_integration}.py` |
 | 2026-07-12 / 5 real witness·감사 | local `data/train 2/prob_4.json`, source blocks 24/46 | real witness 전용 test, public baseline/root import smoke, manifest 재검사, `git diff --check`, `compileall`, checker `cmp`, 금지 파일/time API 감사 | 모두 종료 0; 양쪽 public Stage 5 objective `1022.6988257889582`; static audit PASS | bay 0, orientation-list index 5/1, `(102,18)`/`(115,3)`에서 `I_OUTER`; conservative `Z1=7`, nested retime `Z1=0`, Stage 5, internal/checker 최대 상대 오차 0. ordered exit과 synthetic equal-exit blocker-first canonical serialization 모두 PASS | `data/train 2/prob_4.json`(gitignored, 비커밋), `baseline/tests/test_retime_integration.py` |
+| 2026-07-13 / 6 | Python 3.12.11, Shapely 2.1.2, seed `20260710`; fake clock/RNG와 synthetic operator families | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_neighborhoods tests.test_alns tests.test_alns_integration -v` | 종료 0, 전용 23/23 PASS; six selector intent, transactional rollback, regret repair, weighted SA boundary, segment formula/floor, destroy growth/cap, strict trace, exact-delta invariant stop, deadline, retime exception/stall, replay, disabled hook | tracked constructor snapshot 6 iterations: start `(Z1,Z2,Z3,total)=(0.0,183.68374331550805,0.0,1285.7862032085563)`, best trace `(1285.7862032085563,1055.7278963621302)`, final Stage 5 `(0.0,19.3896994803043,46.0,1055.7278963621302)`; internal/checker 최대 상대 오차 0 | 초기 21/21 green 후 완료 감사에서 작은 `n`의 destroy max cap과 stall retime 지연을 발견해 보완(22/22). 이어 configured repair engine의 반복 delta 불변식 오류가 즉시 누적·중단되는 regression을 추가해 최종 23/23 재검증 | `baseline/solver/{construct,neighborhoods,alns,entry}.py`, `baseline/tests/{test_neighborhoods,test_alns,test_alns_integration}.py` |
+| 2026-07-13 / 6 | 동일 환경·seed | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v` | 종료 0, 전체 118/118 PASS | 1~5단계 checker/objective/four-state/Gurobi fallback 회귀 포함; fixed-seed metrics/best replay 동일, worse current·repair/retime exception·deadline은 validated best를 변경하지 않음 | 완료 감사 보완 후 전용 23/23과 전체 118/118을 연속 재실행해 PASS | `baseline/tests/` |
+| 2026-07-13 / 6 완료 감사 | tracked example, seed `20260710`, `LNS_ENABLED=False` | operator/trace evidence probe, public `algorithm(raw,5.0)` baseline/root 양쪽 import smoke, `compileall`, `git diff --check`, checker `cmp`, 금지 파일/time API 감사 | short run counters `(attempts,feasible,accepted,new-best)`: tardy `(1,1,1,1)`, congested `(1,1,1,0)`, Shaw `(0,0,0,0)`, Z2 `(1,1,1,0)`, preference `(1,1,0,0)`, random `(2,2,2,0)`; 별도 operator activity fixture는 6종 각각 `(1,1,1)`; 양쪽 public Stage 5 objective `1022.6988257889582`; static audit PASS | short run accepted trace `(1285.7862032085563,1285.7862032085563,1285.7862032085563,1055.7278963621302,1055.7278963621302,1055.7278963621302)`, `k=4`, warm-up 미완료로 temperature fallback `None`, weights 각 `1.0`, retime trigger 0, cache hit/miss `16452/6372`; submission hook 호출 없음 | 실패 없음. operator 최종 usefulness/removal 판단은 설계대로 9단계 daily-40 gate에 유지 | `alg_tester/example/example_B2_b10.json`, `baseline/tests/test_alns_integration.py` |
 
 ## 9. 구현 중 결정 사항
 
@@ -132,6 +135,7 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | D-007 | 2026-07-12 | 5 | component cap, two-pass solve, 동률·`w1=0` 정책 | non-FREE component 전체를 포함하되 component당 tardiness/affected 우선 최대 80개만 free로 두고 나머지는 날짜 고정 boundary로 모델링한다. primary integer optimum을 equality로 고정한 뒤 secondary dwell extension을 최적화한다. primary/secondary strict 개선이 없으면 alternate dates를 노출하지 않고 input identity를 유지하며, `w1=0`은 checker total 개선이 불가능하므로 retiming을 skip한다. | `baseline/solver/{retime,entry}.py` | 81-node cap, exhaustive oracle, secondary tightening, tracked no-improvement identity, `w1=0`, failure rollback 테스트로 확정 |
 | D-008 | 2026-07-12 | 5 | 완료 후 감사 결과의 단계 상태 | 초기 82/82 green만으로는 orchestration, 전체 deadline, 실제 backend request cap 계약이 증명되지 않았으므로 5단계를 `보완 필요`로 재개방하고 R5-001~R5-005 및 real-data witness가 green일 때만 다시 완료 처리한다. 기존 커밋 `e5493ef`는 rollback하지 않고 보완 기준선으로 유지한다. | 본 진행 문서, 후속 `entry.py`/`retime.py`/tests | 완료 후 재현 진단과 사용자 결정으로 확정 |
 | D-009 | 2026-07-12 | 5 보완 | checker/retimer 책임, component cap과 failure isolation | `entry`가 constructor canonical serialize/full-check/strict install을 소유하고 validated `store.snapshot`만 retimer에 전달한다. retimer는 component별 request(`free_ids<=80`)를 하나의 child deadline 아래 순차 처리하고 relation/serializer/checker/objective gate를 통과한 최종 후보와 checker 증거를 반환한다. `entry`는 이 증거로 strict install해 production 경로의 중복 full-check를 없앤다. 한 component/backend 실패는 다른 component와 이미 설치된 constructor를 폐기하지 않는다. | `baseline/solver/{entry,retime}.py`, 관련 tests | 29/29 전용·95/95 전체와 event/failure matrix로 확정 |
+| D-010 | 2026-07-13 | 6 | acceptance 기본, repair 확장 경계, submission hook | 설계의 열린 SA/RRT 선택 중 기본값이 명시된 time-cooled SA를 구현한다. 32회 improving-only warm-up의 improvement magnitude median으로 `T0=median/ln(2)`를 정하고 sample이 없으면 deterministic non-worse fallback을 유지한다. `RepairResult`와 configured repair-engine tuple은 backend-neutral public 경계로 두어 7단계가 MIP engine을 추가하되 `alns.py`가 이를 import하지 않게 한다. `entry.LNS_ENABLED=False`를 submission 기본으로 고정한다. | `baseline/solver/{construct,neighborhoods,alns,entry,__init__}.py`, 관련 tests | 전용 23/23·전체 118/118, replay/acceptance/invariant/deadline/disabled-hook tests로 확정 |
 
 ## 10. 차단 사유와 미해결 사항
 
@@ -159,7 +163,7 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | 4 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 4: constructor` | `baseline/solver/{__init__,construct,entry,state}.py`, `baseline/tests/{test_assignment_integration,test_construct,test_construct_integration}.py`, 본 진행 문서 | 4A~4D, 전용 15 tests, 전체 66 tests, 6 profile/fallback/full-check gate |
 | 5 | `e5493efd47968cae3be88e5dc953183b79cf2ce8` (초기 구현; 보완 필요) | `step 5: retiming` | `baseline/solver/{__init__,entry,retime}.py`, `baseline/tests/{test_retime,test_retime_integration}.py`, 본 진행 문서 | 초기 5A~5C와 82 tests는 green이나 완료 후 R5-001~R5-005 발견 |
 | 5 보완 | 완료 커밋(종료 보고에 해시 기록) | `step 5: harden retiming` | `baseline/solver/{entry,retime}.py`, `baseline/tests/{test_retime,test_retime_integration}.py`, 본 진행 문서 | R5-001~R5-005, failure matrix, component isolation, real `prob_4` witness; 전용 29/29·전체 95/95 |
-| 6 | 미작성 | `feat(solver): add heuristic anytime lns` | 실행 후 기록 | - |
+| 6 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 6: lns` | `baseline/solver/{__init__,construct,entry,neighborhoods,alns}.py`, `baseline/tests/{test_neighborhoods,test_alns,test_alns_integration}.py`, 본 진행 문서 | 6A~6D, 전용 23/23·전체 118/118, tracked Stage 5 trace/replay/rollback/invariant/deadline/flag-off 증거 |
 | 7 | 미작성 | `feat(solver): add bounded candidate repair mip` | 실행 후 기록 | - |
 | 8 | 미작성 | `feat(solver): add gated interlock densifier` | 실행 후 기록 | - |
 | 9 | 미작성 | `chore(solver): harden submission and validation gates` | 실행 후 기록 | - |
@@ -171,17 +175,17 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | Gate | 설계 근거 | 적용 단계 | 합격 기준 | 상태/증거 |
 |---|---|---|---|---|
 | canonical serialization | §5, §11, §14.1 | 1,2,5,9 | 시간 key 오름차순, EXIT-first, exit DAG, simultaneous entry FREE | 1단계 checker contract 8 tests, 2단계 actual geometry provider same-exit topology/simultaneous-entry, 5단계 nested equal-exit blocker-first `[1,0]` Stage 5 PASS; 9단계 계속 추적 |
-| monotonic wall-clock | §12 | 1,3~9 | `time.monotonic()`만 사용, 모든 loop/model 경계 deadline 확인 | 1·3·4단계 증거 유지. 5단계는 component 추출 전에 child budget을 만들고 relation/pair/model-build/primary/secondary 경계를 같은 deadline으로 제한한다. fake 0.1초에서 relation 1회·0.01초 후 `BUDGET`, backend 0회; `rg 'time\.time\('` 0건 |
-| immutable validated best | §1, §5, §9 | 1,4~9 | full checker strict improvement만 atomic install | fallback과 constructor를 각각 full checker strict install한 뒤 validated `store.snapshot`만 retime. retimer 결과도 canonical full-check 증거와 parity를 거쳐 strict install; event order와 mutation/exception tests PASS |
+| monotonic wall-clock | §12 | 1,3~9 | `time.monotonic()`만 사용, 모든 loop/model 경계 deadline 확인 | 1·3·4단계 증거 유지. 5단계는 component 추출 전에 child budget을 만들고 relation/pair/model-build/primary/secondary 경계를 같은 deadline으로 제한한다. 6단계는 operator/repair/checker/retime 경계와 repair inner loop를 제한하며 fake deadline이 destroy 중 만료되면 repair/checker 0회, stored best 반환; `rg 'time\.time\('` 0건 |
+| immutable validated best | §1, §5, §9 | 1,4~9 | full checker strict improvement만 atomic install | fallback과 constructor를 각각 full checker strict install한 뒤 validated `store.snapshot`만 retime/LNS에 전달한다. LNS current는 worse 수용 가능하지만 canonical full-check와 objective parity를 통과한 strict improvement만 store/trace에 설치하며 worse-current·exception·deadline 반환은 serialized best와 동일; 관련 tests PASS |
 | optional optimizer armor | §1, §5, §12, §14.1 | 1,3,5,7,9 | import/license/model/timeout 예외가 public entry 탈출 안 함 | import/license/model/numeric/unexpected retimer failure와 TIME_LIMIT no-solution에서 validated constructor objective/operations 보존. actual optional-hook crash도 정상 실행과 동일 objective `1022.6988257889582` |
 | Shapely/checker authority | §3, §7, §15 | 2,4,8,9 | approximate filter는 거부 권한 없음; exact survivor check | 2단계 checker-parity kernel PASS; 4단계 모든 first-pass/row-grid survivor를 exact symmetric `FREE`로 판정하고 profile별 full checker Stage 5, overlapping pair 재감사 불일치 0; 8·9단계 계속 추적 |
 | contract edge cases | §14.1 | 1,2,9 | 지정 8개 계약 모두 regression green | 1단계 지정 계약 및 2단계 negative anchor/boundary/four-state/real exit provider 회귀 전체 PASS |
 | four-state parity | §3, §14.1 | 2,5,9 | 4상태와 수천 sample checker 불일치 0 | 2단계 실제 fitting pair-placement/time 2,000건 불일치 0; 5단계 4상태 indicator mode와 pure predicate의 784 exhaustive date cases 불일치 0, SEPARATE/I_OUTER Gurobi 결과 Stage 5; 9단계 계속 추적 |
-| objective/delta parity | §3, §9, §14.1 | 1,3,4,6,7,9 | 상대 오차 `<=1e-6` | 1단계 전 항목, 3단계 assignment, 4단계 telescoping exact insertion delta 및 tracked profile `(0.0,14.671260826994029,46.0,1022.6988257889582)` 내부/checker 오차 0; 6·7·9단계 계속 추적 |
+| objective/delta parity | §3, §9, §14.1 | 1,3,4,6,7,9 | 상대 오차 `<=1e-6` | 1단계 전 항목, 3단계 assignment, 4단계 telescoping exact insertion delta 증거 유지. 6단계는 every candidate objective를 exact recompute하고 reported delta를 상대 오차 `1e-6`로 검증; tracked LNS final `(0.0,19.3896994803043,46.0,1055.7278963621302)`와 checker 최대 상대 오차 0; 7·9단계 계속 추적 |
 | constructor activation | §13, §14.2 | 4,9 | daily-40 60s: 40/40, p90 `<=8s`, max `<=12s`, deadline hit 0 | local data 40개 제공·파싱 확인; 전체 60s gate는 9단계 범위로 미실행 |
-| P5/P6 enable gate | §13 | 6~9 | 위 constructor gate 전 submission default disabled | 미실행 |
+| P5/P6 enable gate | §13 | 6~9 | 위 constructor gate 전 submission default disabled | 6단계 `entry.LNS_ENABLED=False`와 disabled submission path test PASS. daily-40 constructor gate 및 실제 enable은 9단계까지 미실행 |
 | retiming safety | §8, §14.2 | 5,9 | Z1 비증가, bound/gap/time 기록, 실패 rollback | R5-001~R5-005 해결. actual Gurobi FREE/SEPARATE/I_OUTER/K_OUTER, fixed boundary, TIME_LIMIT feasible/no-solution, `w1=0`, same-exit canonical, negative due 모두 green. real `prob_4` `Z1 7→0`, Stage 5, parity 0; backend request마다 `free_ids<=80` |
-| operator usefulness | §14.2 | 6,7,9 | 각 operator가 정당한 family에서 feasible/accepted >0, 아니면 제거 | 미실행 |
+| operator usefulness | §14.2 | 6,7,9 | 각 operator가 정당한 family에서 feasible/accepted >0, 아니면 제거 | 6단계 synthetic intent fixture에서 six selectors 의도 순서 PASS, operator별 `(attempts,feasible,accepted)=(1,1,1)` 활동 PASS. 최종 usefulness/removal은 daily-40 데이터가 필요한 9단계 gate로 유지 |
 | interlock usefulness | §10, §14.2 | 8,9 | predefined dense subset 개선, feasibility regression 0 | 미실행 |
 | final correctness | §14.1 | 9 | 40 instances×모든 예산×모든 seed Stage 5 100% | local data 40개 제공·파싱 확인; correctness matrix는 9단계 범위로 미실행 |
 | competition comparison | §14.3 | 9 | W/T/L, Borda, gap, weighted components, median/p90/worst, primal integral | 미실행 |

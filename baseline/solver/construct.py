@@ -229,6 +229,7 @@ def generate_position_candidates(
     orient: OrientationInfo,
     interval: tuple[int, int],
     state: IndexedSolutionState,
+    current_position: tuple[int, int] | None = None,
 ) -> tuple[tuple[int, int], ...]:
     """Generate fit-safe wall/contact/rounded-vertex/lattice anchors.
 
@@ -239,12 +240,15 @@ def generate_position_candidates(
     if reference_range is None or state.anchor_cap <= 0:
         return ()
     kernel = getattr(state, "kernel", None)
-    anchors: list[tuple[int, int]] = [
+    anchors: list[tuple[int, int]] = []
+    if current_position is not None:
+        anchors.append((int(current_position[0]), int(current_position[1])))
+    anchors.extend([
         (reference_range.x.lower, reference_range.y.lower),
         (reference_range.x.upper, reference_range.y.lower),
         (reference_range.x.lower, reference_range.y.upper),
         (reference_range.x.upper, reference_range.y.upper),
-    ]
+    ])
     raw_cap = max(state.anchor_cap, state.anchor_cap * 8)
 
     def add_pairs(points: Iterable[tuple[int, int]]) -> None:
@@ -440,9 +444,13 @@ def _candidate_options(
     config: ConstructorConfig,
     budget: Budget,
     counters: _Counters,
+    current_placement: Placement | None = None,
 ) -> tuple[CandidateScore, ...]:
     block = instance.block(block_id)
     guide_bay, guide_start = _guides(seed, block_id)
+    if current_placement is not None:
+        guide_bay = current_placement.bay_id
+        guide_start = current_placement.entry
     fitting = sorted(
         block.fitting_options,
         key=lambda item: (
@@ -456,6 +464,7 @@ def _candidate_options(
     def search(times: tuple[int, ...], *, lattice_only: bool = False) -> list[CandidateScore]:
         found: list[CandidateScore] = []
         for bay_id, orient_idx, reference_range in fitting:
+            found_before_option = len(found)
             if not budget.can_start(0.0, margin=0.0001):
                 counters.deadline_hit = True
                 break
@@ -469,7 +478,21 @@ def _candidate_options(
                 if lattice_only:
                     positions = _row_grid_points(reference_range, config.lattice_cap)
                 else:
-                    positions = generate_position_candidates(block, bay, orient, interval, state)
+                    current_position = None
+                    if (
+                        current_placement is not None
+                        and current_placement.bay_id == bay_id
+                        and current_placement.orient_idx == orient_idx
+                    ):
+                        current_position = (current_placement.x, current_placement.y)
+                    positions = generate_position_candidates(
+                        block,
+                        bay,
+                        orient,
+                        interval,
+                        state,
+                        current_position=current_position,
+                    )
                 for position_index, (x, y) in enumerate(positions):
                     if position_index % 16 == 0 and not budget.can_start(
                         0.0, margin=0.0001
@@ -504,11 +527,11 @@ def _candidate_options(
                             state_version=score.state_version,
                         )
                     )
-                if len(found) >= 3:
+                if len(found) - found_before_option >= 3:
                     break
                 if counters.deadline_hit:
                     break
-            if len(found) >= 3:
+            if current_placement is None and len(found) >= 3:
                 break
             if counters.deadline_hit:
                 break
@@ -550,6 +573,64 @@ def _commit_score(
         refreshed.placement,
         lambda current, placement: _exact_union_safe(current, placement, kernel),
     )
+
+
+def generate_insertion_candidates(
+    state: IndexedSolutionState,
+    block_id: int,
+    kernel: GeometryKernel,
+    budget: Budget,
+    *,
+    current_placement: Placement | None = None,
+    config: ConstructorConfig | None = None,
+) -> tuple[CandidateScore, ...]:
+    """Public bounded insertion API used by transactional repair engines.
+
+    The candidate's current bay/time/position is included as a deterministic
+    anchor when supplied.  The input state is never mutated.
+    """
+    if block_id in state.block_ids:
+        raise ValueError(f"block {block_id} is already present in the repair state")
+    if current_placement is not None and current_placement.block_id != block_id:
+        raise ValueError("current_placement belongs to a different block")
+    config = config or ConstructorConfig(max_profiles=1)
+    previous_kernel = state.kernel
+    state.kernel = kernel
+    try:
+        counters = _Counters()
+        seed = ConstructionSeed(None, "slack_due", config.seed)
+        options = _candidate_options(
+            state.instance,
+            kernel,
+            state,
+            block_id,
+            seed,
+            config,
+            budget,
+            counters,
+            current_placement=current_placement,
+        )
+        if current_placement is None:
+            return options
+        current_score = evaluate_insert(state, current_placement, kernel)
+        if current_score is None or any(
+            item.placement == current_placement for item in options
+        ):
+            return options
+        # Preserve an exact rollback column even when cheaper alternatives fill
+        # the bounded top-three list.
+        return tuple(options[:2]) + (current_score,)
+    finally:
+        state.kernel = previous_kernel
+
+
+def commit_insertion_candidate(
+    state: IndexedSolutionState,
+    candidate: CandidateScore,
+    kernel: GeometryKernel,
+) -> bool:
+    """Re-evaluate and atomically commit one generated insertion candidate."""
+    return _commit_score(state, candidate, kernel)
 
 
 def select_regret(
