@@ -147,7 +147,7 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `IN_PROGRESS` | `S0-03` | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/` | `d3677fa590450178eafb7a82d8cf2f2efaec11c3` | training JSON absent; does not block early unit slices | audit, commit, and push S0-03; S0-04 is next after the atomic commit |
+| S0 | `IN_PROGRESS` | `S0-04` | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/` | `3378bb2b0a790c14be4069a4abedbb200b1c4da1` | training JSON absent; does not block early unit slices | audit the S0-04 diff, commit, and push; S0-05 is next after the atomic commit |
 | S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
@@ -632,6 +632,129 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: native_solver=false until the full S0 gate passes; no candidate ranking or S1 behavior added
   next_action: commit and push S0-03, then stop; S0-04 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T21:16:16+09:00
+  stage: S0
+  slice: S0-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3378bb2b0a790c14be4069a4abedbb200b1c4da1
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S0-04\\b' docs/fable/implementation-steps/s0-foundation.md
+    - test -f benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/COMPLETE
+    - test -f benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/COMPLETE
+    - test -f benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/COMPLETE
+    - git merge-base --is-ancestor 3378bb2 HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; T0 is the only planned pipeline for this slice
+  next_action: add the S0-04 serializer/T0/incumbent tests and demonstrate the intended build_t0 RED
+```
+
+```yaml
+- timestamp: 2026-07-12T21:18:03+09:00
+  stage: S0
+  slice: S0-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3378bb2b0a790c14be4069a4abedbb200b1c4da1
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_trivial.TrivialTests.test_example_registers_verified_incumbent -v
+  red_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.trivial is absent
+  feature_default_decision: native_solver=false until the full S0 gate passes; T0 remains the only planned pipeline
+  next_action: implement canonical serialization, fit-qualified empty-bay T0, and checker-gated verified incumbent storage
+```
+
+```yaml
+- timestamp: 2026-07-12T21:18:24+09:00
+  stage: S0
+  slice: S0-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3378bb2b0a790c14be4069a4abedbb200b1c4da1
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_trivial.TrivialTests.test_example_registers_verified_incumbent -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel tests.test_state_parity tests.test_validate_parity tests.test_serialize tests.test_trivial -v
+  red_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/green-targeted.txt
+  checker_result: targeted GREEN; tracked example reached Stage 5 with exactly one initial incumbent verification
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; canonical T0 is implemented without S1 assignment or construction behavior
+  next_action: run the direct example benchmark and no-fit preflight equivalents pending S0-06 harness replay
+```
+
+```yaml
+- timestamp: 2026-07-12T21:20:41+09:00
+  stage: S0
+  slice: S0-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3378bb2b0a790c14be4069a4abedbb200b1c4da1
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel tests.test_state_parity tests.test_validate_parity tests.test_serialize tests.test_trivial -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/slice_proof.py example
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/slice_proof.py preflight
+  red_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/final-regression.txt
+  checker_result: PASS; tracked example Stage 5 feasible with objective 323992.78620320855 and exactly one incumbent verification
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: synthetic no-fit preflight exited 4 as input_error naming block 0; direct proof runner required one import-path setup retry before solver behavior was exercised
+  feature_default_decision: native_solver=false until the full S0 gate passes; S0-06 must replay the benchmark and preflight proofs through the shared harness
+  next_action: run final syntax, frozen-file, evidence, cleanup, and selected-slice diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T21:21:29+09:00
+  stage: S0
+  slice: S0-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s0): add canonical T0 and verified incumbent
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_trivial.TrivialTests.test_example_registers_verified_incumbent -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_contract_semantics tests.test_geometry_kernel tests.test_state_parity tests.test_validate_parity tests.test_serialize tests.test_trivial -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/slice_proof.py example
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/slice_proof.py preflight
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/serialize.py baseline/solver/trivial.py baseline/solver/incumbent.py baseline/tests/test_serialize.py baseline/tests/test_trivial.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/final-regression.txt
+  checker_result: PASS; tracked example Stage 5 feasible in 0.00786445802077651 seconds with exactly one verified initial incumbent
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; no S1 assignment or constructor behavior added
+  next_action: commit and push S0-04, then stop; S0-05 is the next eligible slice
 ```
 
 ## 11. Planning quality audit
