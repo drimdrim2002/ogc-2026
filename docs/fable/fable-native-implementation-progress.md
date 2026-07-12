@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S2 complete
+Planning status: complete; implementation status: S3 in progress (S3-01 complete)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -149,8 +149,8 @@ S0 foundation
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
-| S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | pending atomic S2-05 commit | — | stop at S2-05 boundary; S3 is eligible only in a new task under its own orchestration |
-| S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
+| S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
+| S3 | `IN_PROGRESS` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate; S3-01 complete | `benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/` | pending atomic S3-01 commit | — | stop at S3-01 boundary; S3-02 is eligible only in a new task under its own preflight |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
 | S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
@@ -2315,6 +2315,107 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: exact_retime=true with retime_backend=auto, 5-second call cap, zero pilot, one thread, guarded initial sweep and optional budgeted final sweep; dev-10 median Z1 gain 445.5
   next_action: clean backend/process artifacts, audit the selected-slice diff, commit and push S2-05, verify upstream equality and clean status, then stop without creating another task because S2-05 maps to END
+```
+
+```yaml
+- timestamp: 2026-07-13T07:30:46+09:00
+  stage: S3
+  slice: S3-01
+  old_status: NOT_STARTED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: ee9dc322770d6f0cd882797a94b59ad4d98e5e35
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S3-01\\b' docs/fable/implementation-steps/s3-lns.md
+    - inspect benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/{COMPLETE,gate.json}
+    - inspect benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/{COMPLETE,summary.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s2 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_retime.RetimeTests.test_never_worse_and_fixed_pilot -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; S3-01 adds only transaction, D1 random removal, and same-bay R3 EDD reinsertion with strict rollback; no loop, alternative acceptor, cross-bay move, or later-stage behavior
+  next_action: add tests.test_alns.TransactionTests.test_undo_all_outcomes and demonstrate the intended missing transaction RED
+```
+
+```yaml
+- timestamp: 2026-07-13T07:33:00+09:00
+  stage: S3
+  slice: S3-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: ee9dc322770d6f0cd882797a94b59ad4d98e5e35
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.TransactionTests.test_undo_all_outcomes -v
+  red_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.alns and the S3-01 transaction API are absent
+  feature_default_decision: alns=false; no S3 runtime integration is enabled
+  next_action: implement exact state/RNG undo plus D1 random removal and R3 EDD reinsertion restricted to each block's original bay
+```
+
+```yaml
+- timestamp: 2026-07-13T07:34:00+09:00
+  stage: S3
+  slice: S3-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: ee9dc322770d6f0cd882797a94b59ad4d98e5e35
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.TransactionTests.test_undo_all_outcomes -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/green-targeted.txt; benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/full-regression.txt
+  checker_result: PASS; accepted and every restored synthetic state reached official checker Stage 5 with unchanged same-bay membership, loads, Z2, and Z3
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/checker-stress.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; the S3-01 one-iteration component remains disconnected from entry and has no acceptor loop
+  next_action: run final targeted/regression replay plus syntax, frozen-file, cleanup, structured-evidence, and selected-diff audits
+```
+
+```yaml
+- timestamp: 2026-07-13T07:36:00+09:00
+  stage: S3
+  slice: S3-01
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s3): add transactional intra-bay LNS core
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.TransactionTests.test_undo_all_outcomes -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/state.py baseline/solver/construct.py baseline/solver/alns.py baseline/tests/test_alns.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m json.tool benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/checker-stress.json
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/green-targeted.txt; benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/full-regression.txt
+  checker_result: PASS; one accepted candidate and eight restored outcomes were official-checker Stage 5 feasible with no membership, load, Z2, Z3, state-token, RNG, or incumbent-SHA mismatch
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/checker-stress.json; benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; S3-01 COMPLETE with exact semantic-state/PCG64 rollback, D1 random removal, R3 EDD repair restricted to each original bay, and a one-iteration API; S3-02 and all loop/control/runtime behavior remain absent
+  next_action: stage only the five S3-01 tracked files, commit feat(s3): add transactional intra-bay LNS core, push, verify upstream equality and clean status, then create the S3-02 task without implementing it here
 ```
 
 ## 11. Planning quality audit

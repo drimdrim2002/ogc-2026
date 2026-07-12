@@ -35,6 +35,20 @@ class ObjectiveDiagnostics:
     bay_loads: tuple[float, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class StateUndoToken:
+    """Exact mutable-state checkpoint used by transactional local search."""
+
+    placements: tuple[Placement, ...]
+    bay_members: tuple[tuple[int, ...], ...]
+    bay_loads: tuple[float, ...]
+    z1: float
+    z2: float
+    z3: float
+    objective: float
+    _owner_id: int
+
+
 class SolutionState:
     """Own placements and maintain reversible incremental objective accounting."""
 
@@ -48,6 +62,7 @@ class SolutionState:
         self.instance = instance
         self.geom = geom if geom is not None else GeomKernel()
         self._placements: dict[int, Placement] = {}
+        self._bay_members = [[] for _ in instance.bays]
         self._bay_loads = [0.0 for _ in instance.bays]
         self._z1 = 0.0
         self._z3 = 0.0
@@ -73,6 +88,11 @@ class SolutionState:
         return MappingProxyType(self._placements)
 
     @property
+    def bay_members(self) -> tuple[tuple[int, ...], ...]:
+        """Return the exact ordered block membership array for every bay."""
+        return tuple(tuple(members) for members in self._bay_members)
+
+    @property
     def shape_catalog(self) -> tuple[tuple[ShapeInfo, ...], ...]:
         """Return the immutable per-instance geometry catalog for fresh states."""
         return self._shapes
@@ -94,7 +114,11 @@ class SolutionState:
         previous = self._placements.get(placement.block_id)
         if previous is not None:
             self._subtract(previous)
+            if previous.bay_id != placement.bay_id:
+                self._remove_bay_member(previous)
         self._placements[placement.block_id] = placement
+        if previous is None or previous.bay_id != placement.bay_id:
+            self._add_bay_member(placement)
         self._add(placement)
         return previous
 
@@ -103,7 +127,41 @@ class SolutionState:
         previous = self._placements.pop(block_id, None)
         if previous is not None:
             self._subtract(previous)
+            self._remove_bay_member(previous)
         return previous
+
+    def capture_undo_token(self) -> StateUndoToken:
+        """Capture every mutable semantic field without recomputing any value."""
+        return StateUndoToken(
+            placements=tuple(self._placements.values()),
+            bay_members=self.bay_members,
+            bay_loads=tuple(self._bay_loads),
+            z1=self._z1,
+            z2=self.z2,
+            z3=self._z3,
+            objective=self.objective,
+            _owner_id=id(self),
+        )
+
+    def restore_undo_token(self, token: StateUndoToken) -> None:
+        """Restore an exact checkpoint and reject tokens from another state."""
+        if not isinstance(token, StateUndoToken) or token._owner_id != id(self):
+            raise ValueError("undo token does not belong to this SolutionState")
+        if len(token.bay_members) != len(self.instance.bays) or len(
+            token.bay_loads
+        ) != len(self.instance.bays):
+            raise ValueError("undo token bay arrays do not match this instance")
+        self._placements = {
+            placement.block_id: placement for placement in token.placements
+        }
+        self._bay_members = [list(members) for members in token.bay_members]
+        self._bay_loads = list(token.bay_loads)
+        self._z1 = token.z1
+        self._z3 = token.z3
+        self.assert_invariants()
+        restored = self.capture_undo_token()
+        if restored != token:
+            raise AssertionError("restored state does not exactly match undo token")
 
     @property
     def z1(self) -> float:
@@ -155,6 +213,18 @@ class SolutionState:
 
     def assert_invariants(self, *, tolerance: float = 1e-9) -> None:
         """Raise when incremental accounting differs from a full recomputation."""
+        expected_members = tuple(
+            tuple(sorted(
+                placement.block_id
+                for placement in self._placements.values()
+                if placement.bay_id == bay_id
+            ))
+            for bay_id in range(len(self.instance.bays))
+        )
+        if self.bay_members != expected_members:
+            raise AssertionError(
+                f"bay_members={self.bay_members!r} != expected={expected_members!r}"
+            )
         incremental = self.objective_diagnostics
         recomputed = self.recompute_objective()
         for label in ("z1", "z2", "z3", "objective"):
@@ -194,6 +264,15 @@ class SolutionState:
             return
         self._bay_loads[placement.bay_id] -= block.workload
         self._z3 -= max(block.bay_preferences) - block.bay_preferences[placement.bay_id]
+
+    def _add_bay_member(self, placement: Placement) -> None:
+        if 0 <= placement.bay_id < len(self._bay_members):
+            self._bay_members[placement.bay_id].append(placement.block_id)
+            self._bay_members[placement.bay_id].sort()
+
+    def _remove_bay_member(self, placement: Placement) -> None:
+        if 0 <= placement.bay_id < len(self._bay_members):
+            self._bay_members[placement.bay_id].remove(placement.block_id)
 
 
 def _load_range(instance: ProblemInstance, bay_loads: list[float]) -> float:

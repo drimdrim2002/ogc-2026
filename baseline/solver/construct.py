@@ -593,19 +593,60 @@ def time_candidates(
 def insert_block(
     state: SolutionState,
     block_id: int,
-    bay_id: int,
-    orient_idx: int,
+    bay_id: int | None = None,
+    orient_idx: int | None = None,
     *,
-    x: int,
-    y: int,
+    x: int | None = None,
+    y: int | None = None,
     time_cap: int | None = DEFAULT_TIME_CAP,
+    bays_try: Sequence[int] | None = None,
+    preferred_orient_idx: int | None = None,
+    anchor_cap: int | None = DEFAULT_ANCHOR_CAP,
 ) -> InsertionCandidate | None:
-    """Select the earliest validated event time for one fixed bay/orientation/site.
+    """Propose a validated fixed-site or restricted-bay insertion.
 
-    Spatial anchor generation, cap escalation, and state mutation belong to
-    later constructor layers.  This shared kernel only proposes a placement
-    after the S0 checker-parity insertion validator accepts it.
+    Existing constructor callers provide a fixed bay/orientation/site.  S3
+    repair callers instead provide ``bays_try``; every anchor and orientation
+    considered then belongs to exactly those bays.  The function never mutates
+    state and returns only a candidate accepted by the S0 exact validators.
     """
+    if bays_try is not None:
+        if any(value is not None for value in (bay_id, orient_idx, x, y)):
+            raise ValueError(
+                "restricted-bay insertion cannot also specify a fixed site"
+            )
+        bays = tuple(bays_try)
+        if not bays or len(set(bays)) != len(bays):
+            raise ValueError("bays_try must contain unique bay IDs")
+        candidates: list[InsertionCandidate] = []
+        for candidate_bay in bays:
+            if not _plain_int(candidate_bay) or not 0 <= candidate_bay < len(
+                state.instance.bays
+            ):
+                raise IndexError(f"bay_id {candidate_bay!r} is out of range")
+            orientations = list(
+                state.instance.fitting_orientations(block_id, candidate_bay)
+            )
+            if preferred_orient_idx in orientations:
+                orientations.remove(preferred_orient_idx)
+                orientations.insert(0, preferred_orient_idx)
+            for candidate_orient in orientations:
+                proposed = first_fit(
+                    state,
+                    block_id,
+                    candidate_bay,
+                    candidate_orient,
+                    time_cap=time_cap,
+                    anchor_cap=anchor_cap,
+                )
+                if proposed is not None:
+                    candidates.append(proposed)
+        return min(candidates, key=lambda candidate: candidate.score, default=None)
+
+    if None in (bay_id, orient_idx, x, y):
+        raise ValueError(
+            "fixed-site insertion requires bay_id, orient_idx, x, and y"
+        )
     assignment_cost = _assignment_cost(state, block_id, bay_id)
     for entry in time_candidates(state, block_id, bay_id, cap=time_cap):
         candidate = _candidate_at(
