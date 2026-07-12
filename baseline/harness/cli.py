@@ -31,6 +31,7 @@ from .runner import (
     run_constructor_case,
     run_entry_case,
     run_escalation_stress_case,
+    run_exact_probe_fault_case,
     run_t0_case,
 )
 from .schema import EvidenceRun, find_completed_identity, new_run_id, record_identity
@@ -980,6 +981,8 @@ def _measure_predicate(
 
 
 def _stress(args: argparse.Namespace) -> int:
+    if args.stage == "s2":
+        return _exact_probe_stress(args)
     if args.stage == "s1":
         return _constructor_stress(args)
     if args.stage != "s0":
@@ -1027,6 +1030,96 @@ def _stress(args: argparse.Namespace) -> int:
     summary = _solver_summary("stress", "stress", records, passed)
     summary.update(
         timelimits=timelimits, seeds=seeds, faults=faults,
+        timeout_count=sum(bool(record.get("timeout")) for record in records),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _exact_probe_stress(args: argparse.Namespace) -> int:
+    features = _features(args.feature)
+    expected_features = {
+        "exact_retime": "true",
+        "backend_fault": "probe_all",
+    }
+    if features != expected_features:
+        raise SelectorError(
+            "S2-01 stress requires exact_retime=true and backend_fault=probe_all"
+        )
+    if args.instances != "example":
+        raise SelectorError("S2-01 stress requires --instances example")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (12.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S2-01 stress requires timelimits=12 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s2",
+        command="stress",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s2-01",
+            "selector": "example",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("example", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=12|seed=20260710|fault=probe_all"
+        for ref in refs
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        record_id = f"{ref.instance_id}|tl=12|seed=20260710|fault=probe_all"
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_exact_probe_fault_case(
+            ref,
+            selector="example",
+            timelimit=12.0,
+            seed=20260710,
+            features=features,
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("fallback_tier") == "constructor"
+            and record.get("probe_output_byte_identical") is True
+            and record.get("unverified_return_count") == 0
+            and all(
+                not item.get("available")
+                and item.get("failure_stage") == "import"
+                for item in record.get("backend_health", ())
+            )
+            for record in records
+        )
+    )
+    summary = _solver_summary("stress", "example", records, passed, stage="s2")
+    summary.update(
+        slice="s2-01",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in records
+        ),
+        constructor_fallback_count=sum(
+            record.get("fallback_tier") == "constructor" for record in records
+        ),
+        byte_identical_count=sum(
+            record.get("probe_output_byte_identical") is True for record in records
+        ),
         timeout_count=sum(bool(record.get("timeout")) for record in records),
         leak_count=0,
     )

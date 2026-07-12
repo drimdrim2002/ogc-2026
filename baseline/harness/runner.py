@@ -26,6 +26,7 @@ try:
         construct_profile,
         escalate_insert,
     )
+    from baseline.solver.exact import BackendProbe, probe_backends
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.serialize import serialize_non_interlock
@@ -37,6 +38,7 @@ except ModuleNotFoundError:
     from solver.checker_adapter import official_check
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
+    from solver.exact import BackendProbe, probe_backends
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
     from solver.serialize import serialize_non_interlock
@@ -511,6 +513,148 @@ def run_entry_case(
         "exception": fallback_reason,
         "fallback_tier": "t0" if fallback_reason or not constructor else "constructor",
         "fallback_reason": fallback_reason,
+    }
+
+
+def run_exact_probe_fault_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Fault both lazy probes after construction without touching its incumbent."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-constructor-probe-fallback",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    incumbent = VerifiedIncumbent(parsed)
+    incumbent.register_initial(build_t0(parsed))
+    constructor_started = time.monotonic()
+    remaining = max(0.0, timelimit - (constructor_started - started))
+    reserve = min(
+        DEFAULT_CONFIG.constructor_return_reserve_seconds,
+        max(remaining - 0.05, 0.0),
+    )
+    constructor_result = None
+    constructor_error = None
+    try:
+        constructor_result = construct_multistart(
+            parsed,
+            incumbent,
+            Budget(remaining, reserve=reserve),
+            seed=seed,
+            profiles=DEFAULT_CONFIG.constructor_profiles,
+            biased_variants=False,
+            calibrated_entry=True,
+            time_cap=DEFAULT_CONFIG.constructor_time_cap,
+            anchor_cap=DEFAULT_CONFIG.constructor_anchor_cap,
+        )
+    except Exception as exc:
+        constructor_error = f"{type(exc).__name__}: {exc}"
+    construction_seconds = time.monotonic() - constructor_started
+
+    before = json.dumps(
+        incumbent.solution,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    before_sha = hashlib.sha256(before).hexdigest()
+
+    def fault_probe(backend: str):
+        def fail():
+            raise RuntimeError(f"injected {backend} probe fault")
+
+        def untouched():
+            raise AssertionError("probe continued after its injected import fault")
+
+        return BackendProbe(
+            backend=backend,
+            import_module=fail,
+            create_environment=untouched,
+            check_license=untouched,
+            build_model=untouched,
+            optimize=untouched,
+            extract=untouched,
+        )
+
+    probe_remaining = max(0.0, timelimit - (time.monotonic() - started))
+    health = probe_backends(
+        incumbent,
+        (fault_probe("gurobi"), fault_probe("cpsat")),
+        budget=Budget(probe_remaining, reserve=0.0),
+    )
+    after = json.dumps(
+        incumbent.solution,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    after_sha = hashlib.sha256(after).hexdigest()
+    checked = incumbent.checker_result
+    wall_seconds = time.monotonic() - started
+    unchanged = before_sha == after_sha
+    constructor_tier = bool(
+        constructor_result is not None
+        and constructor_result.metrics.incumbent_updated
+    )
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and unchanged
+        and constructor_error is None
+        and constructor_tier
+        and all(
+            not item.available and item.failure_stage == "import"
+            for item in health
+        )
+        and wall_seconds <= timelimit + 0.25
+    )
+    return {
+        "record_id": f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|fault=probe_all",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "native-constructor-probe-fallback",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "construction_seconds": construction_seconds,
+        "checker": checker_payload(checked),
+        "block_count": len(parsed.blocks),
+        "placed_count": len(parsed.blocks),
+        "incumbent_verification_count": incumbent.verification_count,
+        "unverified_return_count": 0,
+        "constructor_incumbent": constructor_tier,
+        "constructor_error": constructor_error,
+        "output_sha256_before_probe": before_sha,
+        "output_sha256_after_probe": after_sha,
+        "probe_output_byte_identical": unchanged,
+        "backend_health": [asdict(item) for item in health],
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+        "fallback_tier": "constructor" if constructor_tier else "t0",
+        "fallback_reason": "probe_all",
     }
 
 

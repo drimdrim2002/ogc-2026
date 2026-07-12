@@ -1,12 +1,12 @@
 # Fable Native Solver: S0-S6 Progress and Execution Contract
 
-Last updated: 2026-07-12 (Asia/Seoul)
+Last updated: 2026-07-13 (Asia/Seoul)
 
 Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S1 complete (S1-05 gate passed; atomic commit and push pending)
+Planning status: complete; implementation status: S2 in progress (S2-01 verification passed; atomic commit and push pending)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -148,8 +148,8 @@ S0 foundation
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
-| S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | pending atomic S1-05 commit | — | commit and push S1-05; S2 becomes eligible only after upstream equality and a clean worktree |
-| S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
+| S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
+| S2 | `IN_PROGRESS` | `S2-01` | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | `benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/` | pending atomic S2-01 commit | — | commit and push S2-01; S2-02 becomes eligible only after upstream equality and a clean worktree |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
@@ -1779,6 +1779,125 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: constructor=true with T=16 K=48 and PF3; max training wall 4.551010625000345 seconds, 8/10 dev improvements, median gain 0.9399825115229279, deterministic replay, and zero regressions
   next_action: stage only S1-05 files, commit feat(s1): integrate calibrated constructor, push, verify upstream equality and clean status, then stop without starting S2
+```
+
+```yaml
+- timestamp: 2026-07-13T00:16:07+09:00
+  stage: S2
+  slice: S2-01
+  old_status: NOT_STARTED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3c4b2584d2b8ddd06555dd2512184b1138418e38
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S2-01\\b' docs/fable/implementation-steps/s2-exact-retiming.md
+    - inspect benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/{COMPLETE,summary.json,gate.json}
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-01 exposes only the immutable retime contract and isolated lazy probes after a verified incumbent
+  next_action: add the S2-01 exact contract test and demonstrate the intended missing solver.exact module RED
+```
+
+```yaml
+- timestamp: 2026-07-13T00:17:18+09:00
+  stage: S2
+  slice: S2-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3c4b2584d2b8ddd06555dd2512184b1138418e38
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends.ExactContractTests.test_probe_after_incumbent_and_exception_isolation -v
+  red_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.exact is missing
+  feature_default_decision: exact_retime=false; no backend module or environment has initialized
+  next_action: implement the immutable retime request/result contract, validation, deadline guard, and incumbent-gated isolated probe steps
+```
+
+```yaml
+- timestamp: 2026-07-13T00:20:13+09:00
+  stage: S2
+  slice: S2-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3c4b2584d2b8ddd06555dd2512184b1138418e38
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_exact_backends -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/green-targeted.txt
+  checker_result: exact contract GREEN and full S0-S1 regression GREEN; 4 targeted and 61 total tests passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-01 provides validated pure-data retime results and incumbent-gated cached probes without a backend model
+  next_action: run the prescribed probe_all stress and verify byte-identical checker-feasible constructor fallback
+```
+
+```yaml
+- timestamp: 2026-07-13T00:20:13+09:00
+  stage: S2
+  slice: S2-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s2): add isolated exact retiming contract
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s2 --instances example --timelimits 12 --seeds 20260710 --feature exact_retime=true --feature backend_fault=probe_all --rerun
+  red_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/final-regression.txt
+  checker_result: PASS; tracked example reached official checker Stage 5 with objective 107762.70684717933 and zero unverified returns after both probes faulted
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/stress/20260712T152118Z-2075b343/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; both probe faults were isolated at import, fallback tier was constructor, and before/after operations SHA was d03fb34073683a1ac18c6013966fdaafd6afd6e1d187bd8feb5d89a20b89a42d
+  next_action: audit cleanup and selected-slice diff, then create and push the atomic S2-01 commit
+```
+
+```yaml
+- timestamp: 2026-07-13T00:21:50+09:00
+  stage: S2
+  slice: S2-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s2): add isolated exact retiming contract
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/exact.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_exact_backends.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - verify benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/COMPLETE
+    - verify benchmarks/evidence/s2/stress/20260712T152118Z-2075b343/COMPLETE
+    - ps aux process cleanup inspection
+    - git check-ignore -v benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/summary.json benchmarks/evidence/s2/stress/20260712T152118Z-2075b343/summary.json
+  red_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/red.txt
+  green_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/final-regression.txt
+  checker_result: PASS; 61 tests passed, faulted-probe example was Stage 5 feasible, and its constructor operations remained byte-identical
+  benchmark_or_stress_evidence: benchmarks/evidence/s2/s2-01/20260712T151718Z-s2-01/summary.json; benchmarks/evidence/s2/stress/20260712T152118Z-2075b343/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: exact_retime=false; S2-01 COMPLETE with no backend model, selector, assignment API, or later-stage integration added
+  next_action: stage only the five S2-01 files, commit feat(s2): add isolated exact retiming contract, push, verify upstream equality and clean status, then create the S2-02 task without implementing it here
 ```
 
 ## 11. Planning quality audit
