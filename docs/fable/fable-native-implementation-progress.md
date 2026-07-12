@@ -147,7 +147,7 @@ S0 foundation
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `IN_PROGRESS` | `S0-04` | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/` | `3378bb2b0a790c14be4069a4abedbb200b1c4da1` | training JSON absent; does not block early unit slices | audit the S0-04 diff, commit, and push; S0-05 is next after the atomic commit |
+| S0 | `IN_PROGRESS` | `S0-05` | `NOT_RUN` | `native_solver=false` | planning commit, data preflight | `benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/` | `3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f` | training JSON absent; does not block early unit slices | commit and push S0-05; S0-06 is next after the atomic commit |
 | S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate | — | — | — | wait for S0 |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
@@ -755,6 +755,149 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: native_solver=false until the full S0 gate passes; no S1 assignment or constructor behavior added
   next_action: commit and push S0-04, then stop; S0-05 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T21:30:22+09:00
+  stage: S0
+  slice: S0-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S0-05\\b' docs/fable/implementation-steps/s0-foundation.md
+    - test -f benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/COMPLETE
+    - test -f benchmarks/evidence/s0/s0-02/20260712T114659Z-s0-02/COMPLETE
+    - test -f benchmarks/evidence/s0/s0-03/20260712T120202Z-s0-03/COMPLETE
+    - test -f benchmarks/evidence/s0/s0-04/20260712T121616Z-s0-04/COMPLETE
+    - git merge-base --is-ancestor 3b18b8ac HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; T0 is the only returnable pipeline and fault injection is test-only
+  next_action: add the S0-05 entry-armor test and demonstrate the intended missing entry API RED
+```
+
+```yaml
+- timestamp: 2026-07-12T21:31:10+09:00
+  stage: S0
+  slice: S0-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_exception_returns_verified_serial -v
+  red_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.entry is absent
+  feature_default_decision: native_solver=false until the full S0 gate passes; T0 is the only returnable pipeline and fault injection is test-only
+  next_action: implement the monotonic budget and verified-incumbent entry shell
+```
+
+```yaml
+- timestamp: 2026-07-12T21:32:30+09:00
+  stage: S0
+  slice: S0-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_exception_returns_verified_serial -v
+  red_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/green-targeted.txt
+  checker_result: targeted GREEN; injected post-incumbent Exception returned the stored T0 and reached official checker Stage 5
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; entry delegates only to T0 and catches ordinary Exception only after verified registration
+  next_action: run the complete existing S0 unittest regression suite
+```
+
+```yaml
+- timestamp: 2026-07-12T21:33:00+09:00
+  stage: S0
+  slice: S0-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/green-targeted.txt
+  checker_result: PASS; all 37 existing S0 tests passed including deadline reserve, tiny-budget fallback, and BaseException propagation
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; S0-06 must replay stress through the shared harness
+  next_action: run the direct S0-05 stress/checker equivalent pending S0-06 harness replay
+```
+
+```yaml
+- timestamp: 2026-07-12T21:34:39+09:00
+  stage: S0
+  slice: S0-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 3b18b8ac58aabdc17f330a1c09eac2db3b65ab4f
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/slice_proof.py
+    - rg -n 'return .*state|return serialize\\(' baseline/solver baseline/myalgorithm.py
+  red_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/green-targeted.txt
+  checker_result: PASS; 24 of 24 stress rows were Stage 5 feasible with one initial verification, stored-object identity, zero unverified returns, and wall time at most TL+0.25s; myalgorithm delegation was Stage 5 feasible
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: direct proof runner required one import-path setup retry before solver behavior was exercised; static matches were validate_pair returning an internal boolean predicate and build_t0 returning state solely into initial incumbent registration
+  feature_default_decision: native_solver=false until the full S0 gate passes; S0-06 must replay the stress command through the shared harness
+  next_action: run final regression, safety, cleanup, and selected-slice diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T21:35:25+09:00
+  stage: S0
+  slice: S0-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s0): protect deadlines and verified fallback
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_exception_returns_verified_serial -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/slice_proof.py
+    - rg -n 'return .*state|return serialize\\(' baseline/solver baseline/myalgorithm.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/budget.py baseline/solver/entry.py baseline/myalgorithm.py baseline/tests/test_budget_entry.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/red.txt
+  green_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/final-regression.txt
+  checker_result: PASS; all 38 S0 tests passed and 24 of 24 stress rows plus myalgorithm delegation were Stage 5 feasible with no missing or unverified incumbent
+  benchmark_or_stress_evidence: benchmarks/evidence/s0/s0-05/20260712T123100Z-s0-05/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: native_solver=false until the full S0 gate passes; only the T0 pipeline is active and later-stage features remain absent
+  next_action: commit and push S0-05, then stop; S0-06 is the next eligible slice
 ```
 
 ## 11. Planning quality audit
