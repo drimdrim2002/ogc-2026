@@ -2,16 +2,83 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass
+import hashlib
+import json
+import math
+import time
 
+from numpy.random import Generator, PCG64
+
+from .assign import AssignmentResult, AssignmentV1
+from .budget import Budget, BudgetExpired
+from .checker_adapter import CheckerResult
+from .geometry import GeomKernel, ShapeInfo
+from .incumbent import VerifiedIncumbent
+from .instance import ProblemInstance
+from .serialize import serialize_non_interlock
 from .state import Placement, SolutionState
-from .validate import validate_insertion
+from .validate import validate_pair, validate_unary
 
 
 DEFAULT_TIME_CAP = 8
 ESCALATED_TIME_CAP = 16
 DEFAULT_ANCHOR_CAP = 32
 ESCALATED_ANCHOR_CAP = 64
+DETERMINISTIC_PROFILES = ("PF1", "PF2", "PF3", "PF4")
+BIASED_SELECTION_PROBABILITY = 0.25
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileMetrics:
+    """Deterministic construction facts for one isolated profile start."""
+
+    profile: str
+    base_profile: str
+    biased: bool
+    order: tuple[int, ...]
+    placed: int
+    fallback_count: int
+    fallback_reasons: tuple[tuple[str, int], ...]
+    attempt_counts: tuple[tuple[str, int], ...]
+    z1: float
+    z2: float
+    z3: float
+    objective: float
+    exact_predicates: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConstructionMetrics:
+    """Replay-stable multi-start metrics excluding clocks and timestamps."""
+
+    seed: int
+    start_profiles: tuple[str, ...]
+    selected_profile: str
+    selected_order: tuple[int, ...]
+    profile_metrics: tuple[ProfileMetrics, ...]
+    output_sha256: str
+    incumbent_updated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileConstruction:
+    """One complete independently allocated constructor state."""
+
+    state: SolutionState
+    metrics: ProfileMetrics
+
+
+@dataclass(frozen=True, slots=True)
+class ConstructionResult:
+    """The internally best start and its single official-check result."""
+
+    state: SolutionState
+    metrics: ConstructionMetrics
+    checker_result: CheckerResult
+    construction_seconds: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,6 +101,203 @@ class EscalationResult:
     attempted_bays: tuple[int, ...]
     time_cap: int | None
     anchor_cap: int | None
+
+
+def construct_profile(
+    instance: ProblemInstance,
+    assignment: AssignmentResult,
+    profile: str,
+    *,
+    order: Sequence[int] | None = None,
+    base_profile: str | None = None,
+    biased: bool = False,
+    shape_catalog: tuple[tuple[ShapeInfo, ...], ...] | None = None,
+    geom: GeomKernel | None = None,
+    budget: Budget | None = None,
+) -> ProfileConstruction:
+    """Construct one full state through the shared escalation insertion path."""
+    canonical_profile = profile.upper()
+    base = (base_profile or canonical_profile).upper()
+    if base not in DETERMINISTIC_PROFILES:
+        raise ValueError(f"unsupported construction profile: {base_profile or profile}")
+    state = SolutionState(instance, shape_catalog=shape_catalog, geom=geom)
+    exact_predicates_before = state.geom.stats.exact_predicates
+    selected_order = (
+        _profile_order(instance, assignment, base, state.shape_catalog)
+        if order is None
+        else tuple(order)
+    )
+    expected = set(range(len(instance.blocks)))
+    if len(selected_order) != len(expected) or set(selected_order) != expected:
+        raise ValueError("construction order must contain every block exactly once")
+
+    attempts: Counter[str] = Counter()
+    fallback_reasons: Counter[str] = Counter()
+    for block_id in selected_order:
+        if budget is not None:
+            budget.checkpoint(f"constructor {canonical_profile} block {block_id}")
+        preferred = assignment.assignments[block_id]
+        inserted = escalate_insert(
+            state,
+            block_id,
+            preferred_bay_id=preferred.bay_id,
+            preferred_orient_idx=preferred.orient_idx,
+        )
+        state.place(inserted.candidate.placement)
+        attempts[inserted.attempt] += 1
+        if inserted.fallback_reason is not None:
+            fallback_reasons[inserted.fallback_reason] += 1
+    state.assert_invariants()
+    diagnostics = state.objective_diagnostics
+    return ProfileConstruction(
+        state=state,
+        metrics=ProfileMetrics(
+            profile=canonical_profile,
+            base_profile=base,
+            biased=biased,
+            order=selected_order,
+            placed=len(state.placements),
+            fallback_count=sum(fallback_reasons.values()),
+            fallback_reasons=tuple(sorted(fallback_reasons.items())),
+            attempt_counts=tuple(sorted(attempts.items())),
+            z1=diagnostics.z1,
+            z2=diagnostics.z2,
+            z3=diagnostics.z3,
+            objective=diagnostics.objective,
+            exact_predicates=(
+                state.geom.stats.exact_predicates - exact_predicates_before
+            ),
+        ),
+    )
+
+
+def construct_multistart(
+    instance: ProblemInstance,
+    incumbent: VerifiedIncumbent,
+    budget: Budget,
+    *,
+    seed: int,
+    profiles: Sequence[str] = DETERMINISTIC_PROFILES,
+    biased_variants: bool = True,
+) -> ConstructionResult:
+    """Run deterministic starts, then budgeted PCG64-biased variants.
+
+    Each start owns a fresh ``SolutionState``.  No start is full-checked while
+    ranking; after every planned start succeeds, only the internal best is
+    passed to ``VerifiedIncumbent.try_update``.  Thus an exception in any
+    profile cannot alter the prior verified incumbent.
+    """
+    normalized = tuple(str(profile).upper() for profile in profiles)
+    if normalized != DETERMINISTIC_PROFILES:
+        raise ValueError("S1-04 requires deterministic profiles PF1,PF2,PF3,PF4")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("seed must be an integer")
+    if not incumbent.has_incumbent:
+        raise ValueError("multi-start requires a prior checker-verified incumbent")
+
+    construction_started = time.monotonic()
+    assignment = AssignmentV1(instance).assign()
+    shape_catalog = SolutionState(instance).shape_catalog
+    geom = GeomKernel()
+    starts: list[ProfileConstruction] = []
+    for profile in normalized:
+        starts.append(
+            construct_profile(
+                instance,
+                assignment,
+                profile,
+                shape_catalog=shape_catalog,
+                geom=geom,
+            )
+        )
+
+    if biased_variants:
+        rng = Generator(PCG64(seed))
+        for profile in normalized:
+            try:
+                budget.checkpoint(f"constructor {profile} biased")
+            except BudgetExpired:
+                break
+            base_order = _profile_order(
+                instance, assignment, profile, shape_catalog
+            )
+            biased_order = _biased_order(base_order, rng)
+            try:
+                starts.append(
+                    construct_profile(
+                        instance,
+                        assignment,
+                        f"{profile}-BIASED",
+                        order=biased_order,
+                        base_profile=profile,
+                        biased=True,
+                        shape_catalog=shape_catalog,
+                        geom=geom,
+                        budget=budget,
+                    )
+                )
+            except BudgetExpired:
+                break
+
+    _, best = min(
+        enumerate(starts),
+        key=lambda item: (item[1].state.objective, item[0]),
+    )
+    output = serialize_non_interlock(best.state.placements.values())
+    output_sha256 = hashlib.sha256(
+        json.dumps(output, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    construction_seconds = time.monotonic() - construction_started
+    updated = incumbent.try_update(best.state)
+    checked = incumbent.last_checker_result
+    metrics = ConstructionMetrics(
+        seed=seed,
+        start_profiles=tuple(start.metrics.profile for start in starts),
+        selected_profile=best.metrics.profile,
+        selected_order=best.metrics.order,
+        profile_metrics=tuple(start.metrics for start in starts),
+        output_sha256=output_sha256,
+        incumbent_updated=updated,
+    )
+    return ConstructionResult(best.state, metrics, checked, construction_seconds)
+
+
+def _profile_order(
+    instance: ProblemInstance,
+    assignment: AssignmentResult,
+    profile: str,
+    shape_catalog: tuple[tuple[ShapeInfo, ...], ...],
+) -> tuple[int, ...]:
+    def values(block_id: int) -> tuple[float | int, ...]:
+        block = instance.blocks[block_id]
+        chosen = assignment.assignments[block_id]
+        area_time = (
+            shape_catalog[block_id][chosen.orient_idx].area
+            * block.dwell
+        )
+        slack = block.due_date - block.release_time - block.dwell
+        if profile == "PF1":
+            return slack, block.due_date, -area_time, block_id
+        if profile == "PF2":
+            return block.due_date, -block.dwell, block_id
+        if profile == "PF3":
+            return -area_time, slack, block_id
+        if profile == "PF4":
+            return block.release_time, block.due_date, block_id
+        raise ValueError(f"unsupported construction profile: {profile}")
+
+    return tuple(sorted(range(len(instance.blocks)), key=values))
+
+
+def _biased_order(order: Sequence[int], rng: Generator) -> tuple[int, ...]:
+    remaining = list(order)
+    selected: list[int] = []
+    denominator = math.log1p(-BIASED_SELECTION_PROBABILITY)
+    while remaining:
+        draw = max(float(rng.random()), float.fromhex("0x1.0p-1022"))
+        index = min(int(math.floor(math.log(draw) / denominator)), len(remaining) - 1)
+        selected.append(remaining.pop(index))
+    return tuple(selected)
 
 
 def anchor_candidates(
@@ -93,6 +357,8 @@ def first_fit(
     anchor_cap: int | None = DEFAULT_ANCHOR_CAP,
 ) -> InsertionCandidate | None:
     """Return the first y-major anchor with a checker-parity event insertion."""
+    times = time_candidates(state, block_id, bay_id, cap=time_cap)
+    assignment_cost = _assignment_cost(state, block_id, bay_id)
     for x, y in anchor_candidates(
         state,
         block_id,
@@ -100,17 +366,19 @@ def first_fit(
         orient_idx,
         cap=anchor_cap,
     ):
-        candidate = insert_block(
-            state,
-            block_id,
-            bay_id,
-            orient_idx,
-            x=x,
-            y=y,
-            time_cap=time_cap,
-        )
-        if candidate is not None:
-            return candidate
+        for entry in times:
+            candidate = _candidate_at(
+                state,
+                block_id,
+                bay_id,
+                orient_idx,
+                x=x,
+                y=y,
+                entry=entry,
+                assignment_cost=assignment_cost,
+            )
+            if candidate is not None:
+                return candidate
     return None
 
 
@@ -337,7 +605,7 @@ def _candidate_at(
         entry=entry,
         exit=entry + block.dwell,
     )
-    if not validate_insertion(state, placement):
+    if not _validate_constructor_insertion(state, placement):
         return None
     cost = (
         _assignment_cost(state, block_id, bay_id)
@@ -362,6 +630,23 @@ def _candidate_at(
             entry,
         ),
     )
+
+
+def _validate_constructor_insertion(
+    state: SolutionState,
+    candidate: Placement,
+) -> bool:
+    """Use S0 exact validators only for pairs that can share bay and time."""
+    if not validate_unary(state, candidate):
+        return False
+    for other in state.placements.values():
+        if other.block_id == candidate.block_id or other.bay_id != candidate.bay_id:
+            continue
+        if other.exit <= candidate.entry or candidate.exit <= other.entry:
+            continue
+        if not validate_pair(state, candidate, other):
+            return False
+    return True
 
 
 def _assignment_cost(state: SolutionState, block_id: int, bay_id: int) -> float:

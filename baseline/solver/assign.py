@@ -133,6 +133,24 @@ class AssignmentV1:
             )
             for block in instance.blocks
         )
+        # Within one bay every orientation has the same checker-float Z2/Z3
+        # cost.  Congestion then selects the smallest footprint, followed by
+        # orientation ID, so this site can be chosen once without changing
+        # AssignmentV1's ordering or result during multi-start construction.
+        self._best_fit_by_bay = tuple(
+            tuple(
+                min(
+                    instance.fitting_orientations(block_id, bay.bay_id),
+                    key=lambda orient_idx: (
+                        self._shape_areas[block_id][orient_idx],
+                        orient_idx,
+                    ),
+                    default=None,
+                )
+                for bay in instance.bays
+            )
+            for block_id in range(len(instance.blocks))
+        )
 
     def assign(self) -> AssignmentResult:
         workloads = [0.0 for _ in self.instance.bays]
@@ -147,7 +165,10 @@ class AssignmentV1:
             for block_id in sorted(remaining):
                 by_bay: list[AssignmentCost] = []
                 for bay in self.instance.bays:
-                    candidates = [
+                    orient_idx = self._best_fit_by_bay[block_id][bay.bay_id]
+                    if orient_idx is None:
+                        continue
+                    by_bay.append(
                         assignment_cost(
                             self.instance,
                             block_id,
@@ -158,13 +179,8 @@ class AssignmentV1:
                             self.horizon,
                             shape_area=self._shape_areas[block_id][orient_idx],
                         )
-                        for orient_idx in self.instance.fitting_orientations(
-                            block_id, bay.bay_id
-                        )
-                    ]
-                    candidate_evaluations += len(candidates)
-                    if candidates:
-                        by_bay.append(min(candidates, key=_candidate_key))
+                    )
+                    candidate_evaluations += 1
                 ranked = sorted(by_bay, key=_candidate_key)
                 if not ranked:
                     raise AssertionError(

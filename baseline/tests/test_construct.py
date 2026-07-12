@@ -6,23 +6,129 @@ import json
 from pathlib import Path
 import random
 import unittest
+from unittest.mock import patch
 
 from solver.assign import AssignmentV1
+from solver.budget import Budget
 from solver.checker_adapter import official_check
 from solver.construct import (
     anchor_candidates,
+    construct_multistart,
+    construct_profile,
     escalate_insert,
     insert_block,
     time_candidates,
 )
+from solver.incumbent import VerifiedIncumbent
 from solver.instance import ProblemInstance
 from solver.serialize import serialize_non_interlock
 from solver.state import Placement, SolutionState
+from solver.trivial import build_t0
 from solver.validate import validate_insertion
 from tests.fixtures import TWO_SQUARE, block, instance
 
 
 class ConstructorTests(unittest.TestCase):
+    def test_profile_orders_and_exception_preserve_incumbent(self):
+        parsed = ProblemInstance.parse(
+            instance(
+                [
+                    block(layers=(TWO_SQUARE,), release=0, due=10, processing=2),
+                    block(layers=(TWO_SQUARE,), release=0, due=5, processing=1),
+                    block(layers=(TWO_SQUARE,), release=3, due=8, processing=3),
+                    block(layers=(TWO_SQUARE,), release=1, due=12, processing=4),
+                ],
+                bays=((2, 2),),
+            )
+        )
+        incumbent = VerifiedIncumbent(parsed)
+        incumbent.register_initial(build_t0(parsed))
+        completed = construct_multistart(
+            parsed,
+            incumbent,
+            Budget(60),
+            seed=20260710,
+            biased_variants=False,
+        )
+        deterministic = completed.metrics.profile_metrics
+        self.assertEqual((2, 1, 3, 0), deterministic[0].order)
+        self.assertEqual((1, 2, 0, 3), deterministic[1].order)
+        self.assertEqual((3, 2, 0, 1), deterministic[2].order)
+        self.assertEqual((1, 0, 3, 2), deterministic[3].order)
+
+        expired = VerifiedIncumbent(parsed)
+        expired.register_initial(build_t0(parsed))
+        deterministic_only = construct_multistart(
+            parsed,
+            expired,
+            Budget(0),
+            seed=20260710,
+        )
+        self.assertEqual(
+            ("PF1", "PF2", "PF3", "PF4"),
+            deterministic_only.metrics.start_profiles,
+        )
+
+        protected = VerifiedIncumbent(parsed)
+        protected.register_initial(build_t0(parsed))
+        prior_solution = protected.solution
+
+        def injected_failure(*args, **kwargs):
+            if args[2] == "PF2":
+                raise RuntimeError("injected profile failure")
+            return construct_profile(*args, **kwargs)
+
+        with patch("solver.construct.construct_profile", side_effect=injected_failure):
+            with self.assertRaisesRegex(RuntimeError, "injected profile failure"):
+                construct_multistart(
+                    parsed,
+                    protected,
+                    Budget(60),
+                    seed=20260710,
+                )
+        self.assertIs(prior_solution, protected.solution)
+        self.assertEqual(1, protected.verification_count)
+
+    def test_multistart_seed_replay(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "alg_tester"
+            / "example"
+            / "example_B2_b10.json"
+        )
+        prob_info = json.loads(path.read_text(encoding="utf-8"))
+        parsed = ProblemInstance.parse(prob_info)
+
+        def run_once():
+            incumbent = VerifiedIncumbent(parsed)
+            incumbent.register_initial(build_t0(parsed))
+            result = construct_multistart(
+                parsed,
+                incumbent,
+                Budget(60),
+                seed=20260710,
+            )
+            return result, incumbent
+
+        first, first_incumbent = run_once()
+        replay, replay_incumbent = run_once()
+
+        self.assertEqual(("PF1", "PF2", "PF3", "PF4"), first.metrics.start_profiles[:4])
+        self.assertTrue(
+            any(metric.biased for metric in first.metrics.profile_metrics),
+            "a budgeted biased variant must be recorded after deterministic starts",
+        )
+        self.assertEqual(first.metrics, replay.metrics)
+        self.assertEqual(
+            serialize_non_interlock(first.state.placements.values()),
+            serialize_non_interlock(replay.state.placements.values()),
+        )
+        self.assertEqual(2, first_incumbent.verification_count)
+        self.assertEqual(2, replay_incumbent.verification_count)
+        self.assertTrue(first.checker_result.feasible, first.checker_result.violations)
+        self.assertEqual(5, first.checker_result.stage)
+        self.assertEqual(set(range(len(parsed.blocks))), set(first.state.placements))
+
     def test_anchor_escalation_and_solo_fallback(self):
         negative_reference_square = (
             ((1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)),

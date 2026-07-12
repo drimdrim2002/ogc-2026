@@ -43,6 +43,7 @@ class SolutionState:
         instance: ProblemInstance,
         *,
         geom: GeomKernel | None = None,
+        shape_catalog: tuple[tuple[ShapeInfo, ...], ...] | None = None,
     ) -> None:
         self.instance = instance
         self.geom = geom if geom is not None else GeomKernel()
@@ -50,14 +51,31 @@ class SolutionState:
         self._bay_loads = [0.0 for _ in instance.bays]
         self._z1 = 0.0
         self._z3 = 0.0
-        self._shapes = tuple(
-            tuple(ShapeInfo.from_orientation(orientation) for orientation in block.orientations)
-            for block in instance.blocks
+        self._shapes = (
+            shape_catalog
+            if shape_catalog is not None
+            else tuple(
+                tuple(
+                    ShapeInfo.from_orientation(orientation)
+                    for orientation in block.orientations
+                )
+                for block in instance.blocks
+            )
         )
+        if len(self._shapes) != len(instance.blocks) or any(
+            len(shapes) != len(block.orientations)
+            for shapes, block in zip(self._shapes, instance.blocks, strict=True)
+        ):
+            raise ValueError("shape_catalog does not match the problem instance")
 
     @property
     def placements(self) -> Mapping[int, Placement]:
         return MappingProxyType(self._placements)
+
+    @property
+    def shape_catalog(self) -> tuple[tuple[ShapeInfo, ...], ...]:
+        """Return the immutable per-instance geometry catalog for fresh states."""
+        return self._shapes
 
     def get(self, block_id: int) -> Placement | None:
         return self._placements.get(block_id)

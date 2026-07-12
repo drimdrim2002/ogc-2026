@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import datetime
 import hashlib
 import json
@@ -17,8 +18,9 @@ from .selectors import InstanceRef, REPO_ROOT
 
 try:
     from baseline.solver.assign import AssignmentV1
+    from baseline.solver.budget import Budget, deadline_reserve
     from baseline.solver.checker_adapter import official_check
-    from baseline.solver.construct import escalate_insert
+    from baseline.solver.construct import construct_multistart, escalate_insert
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.serialize import serialize_non_interlock
@@ -26,8 +28,9 @@ try:
     from baseline.solver.trivial import build_t0
 except ModuleNotFoundError:
     from solver.assign import AssignmentV1
+    from solver.budget import Budget, deadline_reserve
     from solver.checker_adapter import official_check
-    from solver.construct import escalate_insert
+    from solver.construct import construct_multistart, escalate_insert
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
     from solver.serialize import serialize_non_interlock
@@ -249,6 +252,103 @@ def run_assignment_case(
         "assignment_z3": assignment.z3,
         "float_z2_error": z2_error,
         "float_z3_error": z3_error,
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+        "fallback_tier": None,
+        "fallback_reason": None,
+    }
+
+
+def run_constructor_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Run S1-04 multi-start and record the single best full-check."""
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="constructor-multistart",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    incumbent = VerifiedIncumbent(parsed)
+    incumbent.register_initial(build_t0(parsed))
+
+    # S1-04 always measures all four deterministic profiles.  The budget gates
+    # only optional biased variants; S1-05 consumes the recorded timing to
+    # calibrate caps and enforce the final five-second constructor gate.
+    budget = Budget(
+        max(0.0, timelimit - 0.25) + deadline_reserve(timelimit)
+    )
+    result = construct_multistart(parsed, incumbent, budget, seed=seed)
+    construction_seconds = result.construction_seconds
+    wall_seconds = time.monotonic() - started
+    checked = result.checker_result
+    metrics = result.metrics
+    placed_count = len(result.state.placements)
+    profile_metrics = [asdict(item) for item in metrics.profile_metrics]
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and placed_count == len(parsed.blocks)
+        and incumbent.verification_count == 2
+    )
+    return {
+        "record_id": _case_record_id(ref.instance_id, timelimit, seed, "none"),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "constructor-multistart",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "construction_seconds": construction_seconds,
+        "within_timelimit": construction_seconds <= timelimit,
+        "subprocess_exit": 0,
+        "signal": None,
+        "checker": checker_payload(checked),
+        "block_count": len(parsed.blocks),
+        "placed_count": placed_count,
+        "profile_count": len(profile_metrics),
+        "deterministic_profile_count": sum(
+            not bool(item["biased"]) for item in profile_metrics
+        ),
+        "biased_profile_count": sum(
+            bool(item["biased"]) for item in profile_metrics
+        ),
+        "start_profiles": list(metrics.start_profiles),
+        "selected_profile": metrics.selected_profile,
+        "selected_order": list(metrics.selected_order),
+        "profile_metrics": profile_metrics,
+        "deterministic_output_sha256": metrics.output_sha256,
+        "incumbent_updated": metrics.incumbent_updated,
+        "incumbent_verification_count": incumbent.verification_count,
+        "cache": {
+            "hits": result.state.geom.stats.cache_hits,
+            "misses": result.state.geom.stats.cache_misses,
+            "evictions": result.state.geom.stats.cache_evictions,
+            "exact_predicates": result.state.geom.stats.exact_predicates,
+        },
         "timeout": False,
         "crash": False,
         "exception": None,

@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S1 in progress (S1-01 and S1-02 complete; S1-03 active)
+Planning status: complete; implementation status: S1 in progress (S1-01 through S1-04 complete; S1-05 eligible after S1-04 push verification)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -148,7 +148,7 @@ S0 foundation
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
-| S1 | `IN_PROGRESS` | S1-03 | `NOT_RUN` | `constructor=false` | S0 mandatory gate; S1-01 and S1-02 complete | `benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/` | pending atomic S1-03 commit | — | commit and push S1-03; S1-04 becomes eligible only after upstream equality and a clean worktree |
+| S1 | `IN_PROGRESS` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate; S1-01 through S1-04 complete | `benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/` | pending atomic S1-04 commit | — | commit and push S1-04; S1-05 becomes eligible only after upstream equality and a clean worktree |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
@@ -1423,6 +1423,147 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: constructor=false; S1-03 COMPLETE with T/K escalation 8/32 to 16/64, all-fitting-bay retry, bounded tardy expansion, and checker-validated solo fallback
   next_action: commit and push S1-03, then stop; S1-04 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T22:26:20+09:00
+  stage: S1
+  slice: S1-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 90ab90cad9713a40b618f1f1cd88101d5f58bf48
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S1-04\\b' docs/fable/implementation-steps/s1-constructor.md
+    - find benchmarks/evidence/s0/gate benchmarks/evidence/s1/s1-01 benchmarks/evidence/s1/s1-02 benchmarks/evidence/s1/s1-03 -name COMPLETE -type f
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s0 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_anchor_escalation_and_solo_fallback -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-04 adds profile and multi-start components only, with no entry integration, cap calibration, or full S1 gate
+  next_action: add the S1-04 seeded replay behavioral test and demonstrate the intended missing construct_multistart RED
+```
+
+```yaml
+- timestamp: 2026-07-12T22:27:00+09:00
+  stage: S1
+  slice: S1-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 90ab90cad9713a40b618f1f1cd88101d5f58bf48
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_multistart_seed_replay -v
+  red_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.construct has no construct_multistart API
+  feature_default_decision: constructor=false; profiles and multi-start remain disconnected from entry
+  next_action: implement deterministic PF1-PF4, PCG64 biased variants, isolated per-start state, budget checkpoints, and one-best checker verification
+```
+
+```yaml
+- timestamp: 2026-07-12T22:31:00+09:00
+  stage: S1
+  slice: S1-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 90ab90cad9713a40b618f1f1cd88101d5f58bf48
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_multistart_seed_replay -v
+  red_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/green-targeted.txt
+  checker_result: targeted GREEN; deterministic PF1-PF4 ran first, budgeted PCG64-biased variants were recorded, same-seed metrics and serialization replayed identically, and only the selected best start was full-checked
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; multi-start remains a component and entry integration is deferred to S1-05
+  next_action: add profile-order and injected-exception safety coverage, then run the full current regression
+```
+
+```yaml
+- timestamp: 2026-07-12T22:40:00+09:00
+  stage: S1
+  slice: S1-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 90ab90cad9713a40b618f1f1cd88101d5f58bf48
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_multistart_seed_replay tests.test_construct.ConstructorTests.test_profile_orders_and_exception_preserve_incumbent -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/green-targeted.txt
+  checker_result: PASS; tracked example replayed byte-identically for seed 20260710, its selected best state reached official checker Stage 5, profile orders matched PF1-PF4 exactly, and an injected profile exception left the prior verified incumbent unchanged
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-04 full-checks only the internally best start and entry remains unchanged
+  next_action: run the exact S1-04 dev-10 profile benchmark
+```
+
+```yaml
+- timestamp: 2026-07-12T22:42:00+09:00
+  stage: S1
+  slice: S1-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 90ab90cad9713a40b618f1f1cd88101d5f58bf48
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s1 --instances dev-10 --timelimits 5 --seeds 20260710 --feature constructor=true --feature profiles=PF1,PF2,PF3,PF4
+  red_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/green-targeted.txt
+  checker_result: PASS; all 10 dev-10 cases, including smoke-3 prob_9/prob_21/prob_32, placed every block and reached official checker Stage 5 with exactly two incumbent verifications per case
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/benchmark/20260712T133755Z-369ec1c1/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; benchmark recorded 40 deterministic profiles, 12 budget-admitted biased profiles, deterministic output SHA for every case, 4/10 within five seconds, and maximum construction time 25.07160012499662 seconds; S1-05 owns cap calibration and the five-second gate
+  next_action: finalize slice-local structured evidence and run cleanup, syntax, frozen-file, and selected-diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T22:46:00+09:00
+  stage: S1
+  slice: S1-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s1): add deterministic multi-profile construction
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_multistart_seed_replay -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s1 --instances dev-10 --timelimits 5 --seeds 20260710 --feature constructor=true --feature profiles=PF1,PF2,PF3,PF4
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/assign.py baseline/solver/construct.py baseline/solver/state.py baseline/solver/incumbent.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_construct.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-04/20260712T132620Z-s1-04/final-regression.txt
+  checker_result: PASS; tracked example and all 10 dev-10 cases reached official checker Stage 5, all 56 tests passed, and injected-profile failure preserved the prior verified incumbent
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/benchmark/20260712T133755Z-369ec1c1/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-04 COMPLETE with deterministic PF1-PF4, one PCG64 stream for budget-admitted biased variants, isolated per-start state, internal comparison, one selected-best full-check, and recorded 4/10 five-second timing for S1-05 calibration
+  next_action: commit and push S1-04, then stop; S1-05 is the next eligible slice
 ```
 
 ## 11. Planning quality audit

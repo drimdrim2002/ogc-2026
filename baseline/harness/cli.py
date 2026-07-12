@@ -26,6 +26,7 @@ from .runner import (
     make_escalation_stress_ref,
     repository_provenance,
     run_assignment_case,
+    run_constructor_case,
     run_escalation_stress_case,
     run_t0_case,
 )
@@ -382,7 +383,9 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 def _benchmark(args: argparse.Namespace) -> int:
     if args.stage == "s1":
-        return _assignment_benchmark(args)
+        if args.component == "assign_v1":
+            return _assignment_benchmark(args)
+        return _constructor_benchmark(args)
     if args.stage != "s0":
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if args.component is not None:
@@ -506,6 +509,113 @@ def _assignment_benchmark(args: argparse.Namespace) -> int:
             (float(record.get("float_z3_error", 0.0)) for record in records),
             default=0.0,
         ),
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _constructor_benchmark(args: argparse.Namespace) -> int:
+    if args.component is not None:
+        raise SelectorError("S1-04 constructor benchmark does not accept --component")
+    if args.metric != "solver":
+        raise SelectorError("S1 constructor benchmark uses the default solver metric")
+    if args.instances != "dev-10":
+        raise SelectorError("S1-04 constructor benchmark requires --instances dev-10")
+    features = _features(args.feature)
+    required_profiles = "PF1,PF2,PF3,PF4"
+    if features.get("constructor") != "true":
+        raise SelectorError("S1-04 constructor benchmark requires constructor=true")
+    if features.get("profiles") != required_profiles:
+        raise SelectorError(
+            "S1-04 constructor benchmark requires profiles=" + required_profiles
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (5.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S1-04 constructor benchmark requires timelimits=5 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s1-04",
+            "selector": args.instances,
+            "features": features,
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        _case_id(ref.instance_id, timelimit, seed, "none")
+        for ref in refs for timelimit in timelimits for seed in seeds
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                record_id = _case_id(ref.instance_id, timelimit, seed, "none")
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_constructor_case(
+                    ref,
+                    selector=args.instances,
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=features,
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("placed_count") == record.get("block_count")
+            and record.get("incumbent_verification_count") == 2
+            and record.get("start_profiles", ())[:4]
+            == ["PF1", "PF2", "PF3", "PF4"]
+            and record.get("deterministic_profile_count") == 4
+            and len(str(record.get("deterministic_output_sha256", ""))) == 64
+            for record in records
+        )
+    )
+    summary = _solver_summary(
+        "benchmark", args.instances, records, passed, stage="s1"
+    )
+    summary.update(
+        slice="s1-04",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in records
+        ),
+        placed_count=sum(int(record.get("placed_count", 0)) for record in records),
+        deterministic_profiles=sum(
+            int(record.get("deterministic_profile_count", 0)) for record in records
+        ),
+        biased_profiles=sum(
+            int(record.get("biased_profile_count", 0)) for record in records
+        ),
+        max_construction_seconds=max(
+            (float(record.get("construction_seconds", 0.0)) for record in records),
+            default=0.0,
+        ),
+        within_timelimit_count=sum(
+            bool(record.get("within_timelimit")) for record in records
+        ),
+        output_sha256={
+            str(record.get("instance_id")): record.get("deterministic_output_sha256")
+            for record in records
+        },
     )
     run.finalize(summary)
     _announce(run, summary)

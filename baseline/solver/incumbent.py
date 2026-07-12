@@ -33,6 +33,7 @@ class VerifiedIncumbent:
             prob_info.raw if isinstance(prob_info, ProblemInstance) else prob_info
         )
         self._record: _VerifiedRecord | None = None
+        self._last_verification: _VerifiedRecord | None = None
         self._verification_count = 0
 
     @property
@@ -55,6 +56,13 @@ class VerifiedIncumbent:
         if self._record is None:
             raise NoVerifiedIncumbentError("no checker-verified incumbent is registered")
         return self._record.checker_result
+
+    @property
+    def last_checker_result(self) -> CheckerResult:
+        """Return telemetry for the most recent full-check attempt."""
+        if self._last_verification is None:
+            raise NoVerifiedIncumbentError("no checker verification has run")
+        return self._last_verification.checker_result
 
     def register_initial(self, state: SolutionState) -> CheckerResult:
         """Full-check and atomically store the required first incumbent."""
@@ -88,4 +96,5 @@ class VerifiedIncumbent:
         serialized = serialize_non_interlock(state.placements.values())
         checked = official_check(self._prob_info, serialized)
         self._verification_count += 1
+        self._last_verification = _VerifiedRecord(serialized, checked)
         return serialized, checked
