@@ -26,6 +26,10 @@ class SolverConfig:
     retime_pilot_seconds: float = 0.0
     retime_threads: int = 1
     retime_final_sweep: bool = True
+    alns: bool = False
+    alns_destroy_min_fraction: float = 0.02
+    alns_destroy_max_fraction: float = 0.06
+    alns_destroy_cap_fraction: float = 0.15
 
 
 DEFAULT_CONFIG = SolverConfig()

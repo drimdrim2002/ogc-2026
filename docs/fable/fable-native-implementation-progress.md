@@ -150,7 +150,7 @@ S0 foundation
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
-| S3 | `IN_PROGRESS` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate; S3-01 complete | `benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/` | pending atomic S3-01 commit | — | stop at S3-01 boundary; S3-02 is eligible only in a new task under its own preflight |
+| S3 | `IN_PROGRESS` | — | `NOT_RUN` | `alns=false`; acceptor `strict`; adaptive `false` | S2 mandatory gate; S3-01 and S3-02 complete | `benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/` | pending atomic S3-02 commit | — | stop at S3-02 boundary; S3-03 is eligible only in a new task under its own preflight |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
 | S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
@@ -2416,6 +2416,130 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: alns=false; S3-01 COMPLETE with exact semantic-state/PCG64 rollback, D1 random removal, R3 EDD repair restricted to each original bay, and a one-iteration API; S3-02 and all loop/control/runtime behavior remain absent
   next_action: stage only the five S3-01 tracked files, commit feat(s3): add transactional intra-bay LNS core, push, verify upstream equality and clean status, then create the S3-02 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T07:38:24+09:00
+  stage: S3
+  slice: S3-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 99514be1a25733715cf5dbc3dcbedb8b501ad6f9
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S3-02\\b' docs/fable/implementation-steps/s3-lns.md
+    - inspect benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/{COMPLETE,gate.json,summary.json}
+    - inspect benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/COMPLETE
+    - inspect benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/{COMPLETE,summary.json,checker-stress.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s2 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.TransactionTests.test_undo_all_outcomes -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; S3-02 adds only the intra-bay D1-D5/R1-R3 operator pool, registry guard, counters, checker proofs, and operator benchmark support; no acceptor loop, D6, cross-bay mutation, or later-stage behavior
+  next_action: add tests.test_alns.OperatorTests.test_all_operators_preserve_assignment and demonstrate the intended named-operators-absent RED
+```
+
+```yaml
+- timestamp: 2026-07-13T07:40:37+09:00
+  stage: S3
+  slice: S3-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 99514be1a25733715cf5dbc3dcbedb8b501ad6f9
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.OperatorTests.test_all_operators_preserve_assignment -v
+  red_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.alns has no OperatorRegistry and the named D1-D5/R1-R3 operator pool is absent
+  feature_default_decision: alns=false; no operator loop or runtime integration is enabled
+  next_action: implement the minimum deterministic intra-bay D1-D5/R1-R3 registry, transactional attempts, all-or-nothing repair, and per-operator metrics
+```
+
+```yaml
+- timestamp: 2026-07-13T07:46:52+09:00
+  stage: S3
+  slice: S3-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 99514be1a25733715cf5dbc3dcbedb8b501ad6f9
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.OperatorTests.test_all_operators_preserve_assignment -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/green-targeted.txt; benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/full-regression.txt
+  checker_result: PASS; every D1-D5/R1-R3 synthetic candidate full-checked at Stage 5, deterministic replay matched, and rejection plus injected partial-repair faults restored exact state and PCG64
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; S3-02 operator components are implemented but remain disconnected from entry and have no acceptor loop
+  next_action: run the exact smoke-3 S3-02 operator benchmark and require every operator attempt/success counter plus checker and rollback proof
+```
+
+```yaml
+- timestamp: 2026-07-13T07:46:52+09:00
+  stage: S3
+  slice: S3-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 99514be1a25733715cf5dbc3dcbedb8b501ad6f9
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --component operators --instances smoke-3 --timelimits 60 --seeds 20260710 --feature alns=true --feature acceptor=strict --feature adaptive=false --rerun
+  red_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/green-targeted.txt; benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/full-regression.txt
+  checker_result: PASS; all three smoke-3 base states and 24 successful operator candidates were official-checker Stage 5 feasible with zero assignment, checker, rollback, or unverified-return mismatch
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/benchmark/20260712T224841Z-a9eb57b4/; benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/checker-benchmark.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; strict remains the safe configured acceptor baseline and adaptive=false; the benchmark exercised the component only without runtime loop integration
+  next_action: run final syntax, frozen-file, cleanup, structured-evidence, and selected-diff audits
+```
+
+```yaml
+- timestamp: 2026-07-13T07:47:49+09:00
+  stage: S3
+  slice: S3-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s3): add intra-bay LNS operators
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.OperatorTests.test_all_operators_preserve_assignment -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --component operators --instances smoke-3 --timelimits 60 --seeds 20260710 --feature alns=true --feature acceptor=strict --feature adaptive=false --rerun
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/alns.py baseline/solver/config.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_alns.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m json.tool benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/checker-benchmark.json
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/green-targeted.txt; benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/full-regression.txt
+  checker_result: PASS; every named operator produced an official-checker Stage 5 candidate, 24/24 smoke candidates passed, 30 full checks passed, and assignment/Z2/Z3 plus rollback invariants had zero mismatch
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/summary.json; benchmarks/evidence/s3/benchmark/20260712T224841Z-a9eb57b4/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; strict remains baseline and adaptive=false; S3-02 COMPLETE with D1-D5/R1-R3 only, exact same-bay transactional repair, deterministic PCG64 selection, q from configured 2%-6% capped at 15%, registry assignment guard, and structural metrics; no D6, acceptor loop, cross-bay behavior, or later-stage integration
+  next_action: stage only the six tracked S3-02 files, commit feat(s3): add intra-bay LNS operators, push, verify upstream equality and clean status, then create the S3-03 task without implementing it here
 ```
 
 ## 11. Planning quality audit

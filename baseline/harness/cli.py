@@ -33,6 +33,7 @@ from .runner import (
     run_escalation_stress_case,
     run_exact_probe_fault_case,
     run_retime_fault_case,
+    run_s3_operator_case,
     run_s2_entry_case,
     run_s2_matrix_records,
     run_backend_parity_record,
@@ -459,6 +460,8 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 
 def _benchmark(args: argparse.Namespace) -> int:
+    if args.stage == "s3":
+        return _s3_operator_benchmark(args)
     if args.stage == "s2":
         return (
             _gurobi_retime_benchmark(args)
@@ -519,6 +522,157 @@ def _benchmark(args: argparse.Namespace) -> int:
     )
     summary = _solver_summary("benchmark", args.instances, records, passed)
     summary.update(metric="solver", timelimits=timelimits, seeds=seeds, features=features)
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s3_operator_benchmark(args: argparse.Namespace) -> int:
+    if args.component != "operators":
+        raise StageUnsupportedError(
+            "S3-02 benchmark only supports --component operators"
+        )
+    if args.metric != "solver" or args.instances != "smoke-3":
+        raise SelectorError(
+            "S3-02 operator benchmark requires default metric and smoke-3"
+        )
+    features = _features(args.feature)
+    required = {"alns": "true", "acceptor": "strict", "adaptive": "false"}
+    if features != required:
+        raise SelectorError(
+            "S3-02 benchmark requires alns=true, acceptor=strict, adaptive=false"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (60.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S3-02 benchmark requires timelimits=60 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s3",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s3-02",
+            "component": "operators",
+            "selector": "smoke-3",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("smoke-3", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        _case_id(ref.instance_id, 60.0, 20260710, "operators")
+        for ref in refs
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        record_id = _case_id(ref.instance_id, 60.0, 20260710, "operators")
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_s3_operator_case(
+            ref,
+            selector="smoke-3",
+            timelimit=60.0,
+            seed=20260710,
+            features=features,
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    operator_names = ("d1", "d2", "d3", "d4", "d5", "r1", "r2", "r3")
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("assignment_mismatch_count") == 0
+            and record.get("checker_failure_count") == 0
+            and record.get("rollback_exact") is True
+            and record.get("base_token_unchanged") is True
+            and float(record.get("wall_seconds", 999.0)) <= 60.25
+            and all(
+                int(
+                    record.get("operator_metrics", {})
+                    .get(name, {})
+                    .get("attempts", 0)
+                )
+                > 0
+                or record.get("operator_applicability", {}).get(name) is False
+                for name in operator_names
+            )
+            and all(
+                int(
+                    record.get("operator_metrics", {})
+                    .get(name, {})
+                    .get("successes", 0)
+                )
+                > 0
+                for name in operator_names
+            )
+            for record in records
+        )
+    )
+    summary = _solver_summary(
+        "benchmark", "smoke-3", records, passed, stage="s3"
+    )
+    summary.update(
+        slice="s3-02",
+        component="operators",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        operator_attempts={
+            name: sum(
+                int(
+                    record.get("operator_metrics", {})
+                    .get(name, {})
+                    .get("attempts", 0)
+                )
+                for record in records
+            )
+            for name in operator_names
+        },
+        operator_successes={
+            name: sum(
+                int(
+                    record.get("operator_metrics", {})
+                    .get(name, {})
+                    .get("successes", 0)
+                )
+                for record in records
+            )
+            for name in operator_names
+        },
+        operator_failures={
+            name: sum(
+                int(
+                    record.get("operator_metrics", {})
+                    .get(name, {})
+                    .get("failures", 0)
+                )
+                for record in records
+            )
+            for name in operator_names
+        },
+        successful_candidate_count=sum(
+            int(record.get("successful_candidate_count", 0)) for record in records
+        ),
+        full_check_count=sum(
+            int(record.get("full_check_count", 0)) for record in records
+        ),
+        assignment_mismatch_count=sum(
+            int(record.get("assignment_mismatch_count", 0)) for record in records
+        ),
+        checker_failure_count=sum(
+            int(record.get("checker_failure_count", 0)) for record in records
+        ),
+        rollback_failure_count=sum(
+            record.get("rollback_exact") is not True for record in records
+        ),
+        leak_count=0,
+    )
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE

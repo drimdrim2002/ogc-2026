@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime
 import hashlib
@@ -15,11 +16,14 @@ import sys
 import time
 from typing import Any, Mapping
 
+from numpy.random import Generator, PCG64
+
 from .checker import checker_payload
 from .schema import record_identity
 from .selectors import InstanceRef, REPO_ROOT
 
 try:
+    from baseline.solver.alns import OperatorRegistry, sample_destroy_count
     from baseline.solver.assign import AssignmentV1
     from baseline.solver.budget import Budget, BudgetExpired, deadline_reserve
     from baseline.solver.checker_adapter import official_check
@@ -49,6 +53,7 @@ try:
     from baseline.solver.state import Placement, SolutionState
     from baseline.solver.trivial import build_t0
 except ModuleNotFoundError:
+    from solver.alns import OperatorRegistry, sample_destroy_count
     from solver.assign import AssignmentV1
     from solver.budget import Budget, BudgetExpired, deadline_reserve
     from solver.checker_adapter import official_check
@@ -606,6 +611,192 @@ def run_constructor_case(
         "fallback_tier": None,
         "fallback_reason": None,
     }
+
+
+def run_s3_operator_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Exercise every S3-02 operator on checker-feasible T0 copies."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="s3-intra-bay-operators",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    base = build_t0(parsed)
+    base_token = base.capture_undo_token()
+    base_check = official_check(
+        ref.prob_info, serialize_non_interlock(base.placements.values())
+    )
+    registry = OperatorRegistry()
+    q_rng = Generator(PCG64(seed))
+    remove_count = sample_destroy_count(
+        len(base.placements),
+        q_rng,
+        min_fraction=DEFAULT_CONFIG.alns_destroy_min_fraction,
+        max_fraction=DEFAULT_CONFIG.alns_destroy_max_fraction,
+        cap_fraction=DEFAULT_CONFIG.alns_destroy_cap_fraction,
+    )
+    pairs = [
+        (destroy_name, "r3") for destroy_name in registry.destroy_names
+    ] + [("d1", repair_name) for repair_name in registry.repair_names]
+    candidate_rows: list[dict[str, Any]] = []
+    for attempt_index, (destroy_name, repair_name) in enumerate(pairs):
+        state = _copy_solution_state(base)
+        before = state.capture_undo_token()
+        rng = Generator(PCG64(seed + attempt_index))
+        result = registry.attempt(
+            state,
+            rng,
+            destroy_name=destroy_name,
+            repair_name=repair_name,
+            remove_count=remove_count,
+            commit=True,
+        )
+        checked = official_check(
+            ref.prob_info, serialize_non_interlock(state.placements.values())
+        )
+        assignment_preserved = (
+            before.bay_members == state.bay_members
+            and before.bay_loads == state.objective_diagnostics.bay_loads
+            and before.z2 == state.z2
+            and before.z3 == state.z3
+        )
+        candidate_rows.append(
+            {
+                "destroy": destroy_name,
+                "repair": repair_name,
+                "committed": result.committed,
+                "reason": result.reason,
+                "source_bay": result.source_bay,
+                "removed_block_ids": list(result.removed_block_ids),
+                "assignment_preserved": assignment_preserved,
+                "checker_feasible": checked.feasible,
+                "checker_stage": checked.stage,
+                "objective": checked.objective,
+            }
+        )
+
+    # A rejected candidate must restore both state and PCG64 exactly.
+    rejected_state = _copy_solution_state(base)
+    rejected_before = rejected_state.capture_undo_token()
+    rejected_rng = Generator(PCG64(seed + len(pairs)))
+    rejected_rng_before = deepcopy(rejected_rng.bit_generator.state)
+    rejected = registry.attempt(
+        rejected_state,
+        rejected_rng,
+        destroy_name="d1",
+        repair_name="r3",
+        remove_count=remove_count,
+        commit=False,
+    )
+    restored_check = official_check(
+        ref.prob_info,
+        serialize_non_interlock(rejected_state.placements.values()),
+    )
+    rollback_exact = (
+        not rejected.committed
+        and rejected.reason == "rejected"
+        and rejected_before == rejected_state.capture_undo_token()
+        and rejected_rng_before == rejected_rng.bit_generator.state
+        and restored_check.feasible
+        and restored_check.stage == 5
+    )
+    metrics = {name: asdict(registry.metrics[name]) for name in registry.metrics}
+    applicable = {
+        name: metrics[name]["attempts"] > 0 for name in registry.metrics
+    }
+    candidates_passed = all(
+        row["committed"]
+        and row["assignment_preserved"]
+        and row["checker_feasible"]
+        and row["checker_stage"] == 5
+        for row in candidate_rows
+    )
+    operators_counted = all(
+        metrics[name]["attempts"] > 0 and metrics[name]["successes"] > 0
+        for name in metrics
+    )
+    wall_seconds = time.monotonic() - started
+    passed = (
+        base_check.feasible
+        and base_check.stage == 5
+        and candidates_passed
+        and operators_counted
+        and rollback_exact
+        and wall_seconds <= timelimit + 0.25
+    )
+    return {
+        "record_id": _case_record_id(ref.instance_id, timelimit, seed, "operators"),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "s3-intra-bay-operators",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "subprocess_exit": 0,
+        "signal": None,
+        "checker": checker_payload(base_check),
+        "stage_timing": {"operators_and_full_checks_seconds": wall_seconds},
+        "remove_count": remove_count,
+        "destroy_fraction": remove_count / max(1, len(parsed.blocks)),
+        "operator_metrics": metrics,
+        "operator_applicability": applicable,
+        "candidate_rows": candidate_rows,
+        "successful_candidate_count": sum(row["committed"] for row in candidate_rows),
+        "full_check_count": len(candidate_rows) + 2,
+        "assignment_mismatch_count": sum(
+            not row["assignment_preserved"] for row in candidate_rows
+        ),
+        "checker_failure_count": sum(
+            not row["checker_feasible"] or row["checker_stage"] != 5
+            for row in candidate_rows
+        ),
+        "rollback_exact": rollback_exact,
+        "base_token_unchanged": base_token == base.capture_undo_token(),
+        "timeout": wall_seconds > timelimit + 0.25,
+        "crash": False,
+        "exception": None,
+        "incumbent_verification_count": len(candidate_rows) + 2,
+        "unverified_return_count": 0,
+        "fallback_tier": None,
+        "fallback_reason": None,
+    }
+
+
+def _copy_solution_state(state: SolutionState) -> SolutionState:
+    copied = SolutionState(
+        state.instance,
+        geom=state.geom,
+        shape_catalog=state.shape_catalog,
+    )
+    for placement in state.placements.values():
+        copied.place(placement)
+    copied.assert_invariants()
+    return copied
 
 
 def run_entry_case(
