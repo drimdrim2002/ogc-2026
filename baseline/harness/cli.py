@@ -22,7 +22,13 @@ from .compare import latency_summary
 from .gates import evaluate_s0, latest_summary
 from .package import StageUnsupportedError
 from .report import render_gate_report
-from .runner import repository_provenance, run_assignment_case, run_t0_case
+from .runner import (
+    make_escalation_stress_ref,
+    repository_provenance,
+    run_assignment_case,
+    run_escalation_stress_case,
+    run_t0_case,
+)
 from .schema import EvidenceRun, find_completed_identity, new_run_id, record_identity
 from .selectors import REPO_ROOT, SelectorError, select_instances
 
@@ -632,6 +638,8 @@ def _measure_predicate(
 
 
 def _stress(args: argparse.Namespace) -> int:
+    if args.stage == "s1":
+        return _constructor_stress(args)
     if args.stage != "s0":
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if args.instances != "stress":
@@ -677,6 +685,105 @@ def _stress(args: argparse.Namespace) -> int:
     summary = _solver_summary("stress", "stress", records, passed)
     summary.update(
         timelimits=timelimits, seeds=seeds, faults=faults,
+        timeout_count=sum(bool(record.get("timeout")) for record in records),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _constructor_stress(args: argparse.Namespace) -> int:
+    if args.instances != "stress":
+        raise SelectorError("S1-03 stress requires --instances stress")
+    features = _features(args.feature)
+    scenarios = tuple(features.get("scenario", "").split(","))
+    required = (
+        "negative_origin",
+        "contact",
+        "no_preferred_fit",
+        "bounded_failure",
+    )
+    if scenarios != required:
+        raise SelectorError(
+            "S1-03 stress requires scenario=" + ",".join(required)
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (5.0,) or seeds != (20260710,):
+        raise SelectorError("S1-03 stress requires timelimits=5 and seeds=20260710")
+
+    expected = tuple(
+        f"{scenario}|tl={timelimit:g}|seed={seed}"
+        for scenario in scenarios
+        for timelimit in timelimits
+        for seed in seeds
+    )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s1",
+        command="stress",
+        expected_record_ids=expected,
+        metadata={
+            "slice": "s1-03",
+            "selector": "stress",
+            "features": features,
+        },
+    )
+    fixture_dir = run.run_dir / "fixtures"
+    refs = {
+        scenario: make_escalation_stress_ref(
+            scenario, fixture_dir=fixture_dir
+        )
+        for scenario in scenarios
+    }
+    for scenario in scenarios:
+        for timelimit in timelimits:
+            for seed in seeds:
+                record_id = f"{scenario}|tl={timelimit:g}|seed={seed}"
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_escalation_stress_case(
+                    refs[scenario],
+                    scenario=scenario,
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=features,
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            and record.get("checker", {}).get("feasible") is True
+            and record.get("checker", {}).get("stage") == 5
+            and record.get("placed_exactly_once") is True
+            and record.get("wall_seconds", 999.0) <= 5.0
+            for record in records
+        )
+        and any(record.get("fallback_reason") for record in records)
+    )
+    summary = _solver_summary(
+        "stress", "stress", records, passed, stage="s1"
+    )
+    summary.update(
+        slice="s1-03",
+        timelimits=timelimits,
+        seeds=seeds,
+        scenarios=scenarios,
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in records
+        ),
+        placed_count=sum(int(record.get("placed_count", 0)) for record in records),
+        fallback_reasons=sorted({
+            str(record["fallback_reason"])
+            for record in records
+            if record.get("fallback_reason")
+        }),
         timeout_count=sum(bool(record.get("timeout")) for record in records),
         leak_count=0,
     )

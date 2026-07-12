@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import random
 import unittest
 
+from solver.assign import AssignmentV1
 from solver.checker_adapter import official_check
-from solver.construct import insert_block, time_candidates
+from solver.construct import (
+    anchor_candidates,
+    escalate_insert,
+    insert_block,
+    time_candidates,
+)
 from solver.instance import ProblemInstance
 from solver.serialize import serialize_non_interlock
 from solver.state import Placement, SolutionState
@@ -15,6 +23,97 @@ from tests.fixtures import TWO_SQUARE, block, instance
 
 
 class ConstructorTests(unittest.TestCase):
+    def test_anchor_escalation_and_solo_fallback(self):
+        negative_reference_square = (
+            ((1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)),
+        )
+        parsed = ProblemInstance.parse(
+            instance(
+                [
+                    block(layers=(TWO_SQUARE,), processing=10),
+                    block(
+                        orientations=(negative_reference_square,),
+                        processing=1,
+                    ),
+                ],
+                bays=((6, 6),),
+            )
+        )
+        state = SolutionState(parsed)
+        state.place(Placement(0, 0, 0, 0, 0, 0, 10))
+
+        anchors = anchor_candidates(state, 1, 0, 0, cap=None)
+
+        self.assertEqual((2, 2), anchors[0])
+        self.assertIn((4, 2), anchors, "right contact must use the negative local AABB")
+        self.assertIn((2, 4), anchors, "top contact must use the negative local AABB")
+        x_range, y_range = parsed.blocks[1].orientations[0].integer_position_ranges(
+            parsed.bays[0]
+        ) or (range(0), range(0))
+        self.assertTrue(all(x in x_range and y in y_range for x, y in anchors))
+
+        blocks = [
+            block(layers=(TWO_SQUARE,), release=index, due=200, processing=1)
+            for index in range(17)
+        ]
+        blocks.append(block(layers=(TWO_SQUARE,), release=0, due=1, processing=1))
+        fallback_parsed = ProblemInstance.parse(instance(blocks, bays=((2, 2),)))
+        fallback_state = SolutionState(fallback_parsed)
+        for block_id in range(16):
+            fallback_state.place(
+                Placement(block_id, 0, 0, 0, 0, block_id, block_id + 1)
+            )
+        fallback_state.place(Placement(16, 0, 0, 0, 0, 16, 100))
+
+        escalated = escalate_insert(
+            fallback_state,
+            17,
+            preferred_bay_id=0,
+            preferred_orient_idx=0,
+        )
+
+        self.assertEqual("solo_window", escalated.fallback_reason)
+        self.assertEqual(100, escalated.candidate.placement.entry)
+        fallback_state.place(escalated.candidate.placement)
+        self.assertEqual(18, len(fallback_state.placements))
+        checked = official_check(
+            fallback_parsed.raw,
+            serialize_non_interlock(fallback_state.placements.values()),
+        )
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+
+    def test_escalation_places_tracked_example_once(self):
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "alg_tester"
+            / "example"
+            / "example_B2_b10.json"
+        )
+        prob_info = json.loads(path.read_text(encoding="utf-8"))
+        parsed = ProblemInstance.parse(prob_info)
+        assignment = AssignmentV1(parsed).assign()
+        state = SolutionState(parsed)
+
+        for block_id in assignment.order:
+            preferred = assignment.assignments[block_id]
+            escalated = escalate_insert(
+                state,
+                block_id,
+                preferred_bay_id=preferred.bay_id,
+                preferred_orient_idx=preferred.orient_idx,
+            )
+            self.assertIsNone(state.place(escalated.candidate.placement))
+
+        self.assertEqual(set(range(len(parsed.blocks))), set(state.placements))
+        self.assertEqual(len(parsed.blocks), len(state.placements))
+        checked = official_check(
+            prob_info,
+            serialize_non_interlock(state.placements.values()),
+        )
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+
     def test_same_day_handoff_candidate(self):
         parsed = ProblemInstance.parse(
             instance(

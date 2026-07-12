@@ -63,7 +63,11 @@ class SolutionState:
         return self._placements.get(block_id)
 
     def shape_info(self, placement: Placement) -> ShapeInfo:
-        return self._shapes[placement.block_id][placement.orient_idx]
+        return self.orientation_shape(placement.block_id, placement.orient_idx)
+
+    def orientation_shape(self, block_id: int, orient_idx: int) -> ShapeInfo:
+        """Return the cached exact geometry for one constructor orientation."""
+        return self._shapes[block_id][orient_idx]
 
     def place(self, placement: Placement) -> Placement | None:
         """Install or replace a placement and return the prior value for undo."""

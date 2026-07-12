@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S1 in progress (S1-01 complete)
+Planning status: complete; implementation status: S1 in progress (S1-01 and S1-02 complete; S1-03 active)
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -148,7 +148,7 @@ S0 foundation
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
-| S1 | `IN_PROGRESS` | — | `NOT_RUN` | `constructor=false` | S0 mandatory gate; S1-01 and S1-02 complete | `benchmarks/evidence/s1/s1-02/20260712T130848Z-s1-02/` | pending atomic S1-02 commit | — | S1-03 is eligible after the S1-02 commit is pushed and the branch is clean |
+| S1 | `IN_PROGRESS` | S1-03 | `NOT_RUN` | `constructor=false` | S0 mandatory gate; S1-01 and S1-02 complete | `benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/` | pending atomic S1-03 commit | — | commit and push S1-03; S1-04 becomes eligible only after upstream equality and a clean worktree |
 | S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 mandatory gate | — | — | — | wait for S1 |
 | S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; acceptor `strict` | S2 mandatory gate | — | — | — | wait for S2 |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
@@ -1281,6 +1281,148 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: constructor=false; S1-02 COMPLETE with T=8 default, T=16 escalation constant, and no capped-completeness claim
   next_action: commit and push S1-02, then stop; S1-03 is the next eligible slice
+```
+
+```yaml
+- timestamp: 2026-07-12T22:15:23+09:00
+  stage: S1
+  slice: S1-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 219f272f0afd1c6c385ba39f92537de63bf138af
+  dirty: false
+  commands:
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -n '^### S1-03\\b' docs/fable/implementation-steps/s1-constructor.md
+    - find benchmarks/evidence/s0/gate benchmarks/evidence/s1/s1-01 benchmarks/evidence/s1/s1-02 -name COMPLETE -type f
+    - git merge-base --is-ancestor 219f272f0afd1c6c385ba39f92537de63bf138af HEAD
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-03 adds anchor search and escalation only, with no profiles, multi-start, entry integration, or interlock behavior
+  next_action: add the S1-03 anchor/escalation behavioral test and demonstrate the intended missing anchor/escalation RED
+```
+
+```yaml
+- timestamp: 2026-07-12T22:16:41+09:00
+  stage: S1
+  slice: S1-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 219f272f0afd1c6c385ba39f92537de63bf138af
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_anchor_escalation_and_solo_fallback -v
+  red_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.construct has no anchor_candidates or escalation API
+  feature_default_decision: constructor=false; S1-03 remains disconnected from entry
+  next_action: implement y-major wall/contact anchors and the bounded-to-solo escalation ladder
+```
+
+```yaml
+- timestamp: 2026-07-12T22:18:51+09:00
+  stage: S1
+  slice: S1-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 219f272f0afd1c6c385ba39f92537de63bf138af
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_anchor_escalation_and_solo_fallback -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/green-targeted.txt
+  checker_result: targeted GREEN; negative-local-bound wall/right/top anchors and the forced solo fallback passed, with all 53 current tests green
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; anchor caps are 32 then 64 and escalation remains an unintegrated constructor component
+  next_action: full-check the forced escalation fixture and tracked example with every block placed exactly once
+```
+
+```yaml
+- timestamp: 2026-07-12T22:19:22+09:00
+  stage: S1
+  slice: S1-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 219f272f0afd1c6c385ba39f92537de63bf138af
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_anchor_escalation_and_solo_fallback tests.test_construct.ConstructorTests.test_escalation_places_tracked_example_once -v
+  red_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/checker-proof.txt
+  checker_result: PASS; forced solo-window fixture and tracked example reached official checker Stage 5 with every block placed exactly once
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; escalation is checker-feasible but remains disconnected from entry
+  next_action: implement and run the exact S1-03 structured stress command
+```
+
+```yaml
+- timestamp: 2026-07-12T22:20:57+09:00
+  stage: S1
+  slice: S1-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 219f272f0afd1c6c385ba39f92537de63bf138af
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s1 --instances stress --timelimits 5 --seeds 20260710 --feature scenario=negative_origin,contact,no_preferred_fit,bounded_failure
+  red_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/checker-proof.txt
+  checker_result: PASS; all four stress scenarios reached official checker Stage 5 with every block placed exactly once
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/stress/20260712T132046Z-44239792/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; stress passed with zero checker failures, max wall time 0.0018395840015728027 seconds, and fallback reasons preferred_site_failed and solo_window
+  next_action: run final regression, syntax, frozen-file, cleanup, evidence, and selected-diff checks
+```
+
+```yaml
+- timestamp: 2026-07-12T22:22:05+09:00
+  stage: S1
+  slice: S1-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s1): add anchor search and guaranteed escalation
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_anchor_escalation_and_solo_fallback -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_construct.ConstructorTests.test_anchor_escalation_and_solo_fallback tests.test_construct.ConstructorTests.test_escalation_places_tracked_example_once -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s1 --instances stress --timelimits 5 --seeds 20260710 --feature scenario=negative_origin,contact,no_preferred_fit,bounded_failure
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/construct.py baseline/solver/state.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_construct.py
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux process cleanup inspection
+  red_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/red.txt
+  green_evidence: benchmarks/evidence/s1/s1-03/20260712T131641Z-s1-03/final-regression.txt
+  checker_result: PASS; forced escalation and tracked example reached Stage 5, all 54 tests passed, and every constructed block was placed exactly once
+  benchmark_or_stress_evidence: benchmarks/evidence/s1/stress/20260712T132136Z-1b25e615/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: constructor=false; S1-03 COMPLETE with T/K escalation 8/32 to 16/64, all-fitting-bay retry, bounded tardy expansion, and checker-validated solo fallback
+  next_action: commit and push S1-03, then stop; S1-04 is the next eligible slice
 ```
 
 ## 11. Planning quality audit

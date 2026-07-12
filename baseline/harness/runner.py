@@ -18,6 +18,7 @@ from .selectors import InstanceRef, REPO_ROOT
 try:
     from baseline.solver.assign import AssignmentV1
     from baseline.solver.checker_adapter import official_check
+    from baseline.solver.construct import escalate_insert
     from baseline.solver.incumbent import VerifiedIncumbent
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.serialize import serialize_non_interlock
@@ -26,6 +27,7 @@ try:
 except ModuleNotFoundError:
     from solver.assign import AssignmentV1
     from solver.checker_adapter import official_check
+    from solver.construct import escalate_insert
     from solver.incumbent import VerifiedIncumbent
     from solver.instance import ProblemInstance
     from solver.serialize import serialize_non_interlock
@@ -252,6 +254,204 @@ def run_assignment_case(
         "exception": None,
         "fallback_tier": None,
         "fallback_reason": None,
+    }
+
+
+def make_escalation_stress_ref(
+    scenario: str,
+    *,
+    fixture_dir: Path,
+) -> InstanceRef:
+    """Materialize one preregistered S1-03 escalation fixture."""
+    raw = _escalation_fixture(scenario)
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    encoded = (json.dumps(raw, indent=2, sort_keys=True) + "\n").encode()
+    path = fixture_dir / f"s1-03-{scenario}.json"
+    path.write_bytes(encoded)
+    return InstanceRef(
+        instance_id=f"s1-03-{scenario}",
+        path=path,
+        sha256=hashlib.sha256(encoded).hexdigest(),
+        prob_info=raw,
+    )
+
+
+def run_escalation_stress_case(
+    ref: InstanceRef,
+    *,
+    scenario: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Exercise one S1-03 escalation path and full-check the final state."""
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="anchor-escalation-proof",
+        timelimit=timelimit,
+        seed=seed,
+        features={**features, "scenario_case": scenario},
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    state = SolutionState(parsed)
+    target_id, preferred_bay, preferred_orient = _seed_escalation_state(
+        state, scenario
+    )
+    result = escalate_insert(
+        state,
+        target_id,
+        preferred_bay_id=preferred_bay,
+        preferred_orient_idx=preferred_orient,
+    )
+    previous = state.place(result.candidate.placement)
+    checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(state.placements.values()),
+    )
+    wall_seconds = time.monotonic() - started
+    placed_once = previous is None and len(state.placements) == len(parsed.blocks)
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and placed_once
+        and wall_seconds <= timelimit
+    )
+    return {
+        "record_id": f"{scenario}|tl={timelimit:g}|seed={seed}",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": "stress",
+        "solver": "anchor-escalation-proof",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": {**dict(sorted(features.items())), "scenario_case": scenario},
+        "wall_seconds": wall_seconds,
+        "checker": checker_payload(checked),
+        "block_count": len(parsed.blocks),
+        "placed_count": len(state.placements),
+        "placed_exactly_once": placed_once,
+        "escalation_attempt": result.attempt,
+        "attempted_bays": list(result.attempted_bays),
+        "time_cap": result.time_cap,
+        "anchor_cap": result.anchor_cap,
+        "fallback_reason": result.fallback_reason,
+        "cache": {
+            "hits": state.geom.stats.cache_hits,
+            "misses": state.geom.stats.cache_misses,
+            "evictions": state.geom.stats.cache_evictions,
+            "exact_predicates": state.geom.stats.exact_predicates,
+        },
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+    }
+
+
+def _escalation_fixture(scenario: str) -> dict[str, Any]:
+    square = ((0, 0), (2, 0), (2, 2), (0, 2))
+    if scenario == "negative_origin":
+        negative = ((1, 1), (-1, 1), (-1, -1), (1, -1))
+        return _raw_fixture(
+            "s1-03-negative-origin",
+            ((6, 6),),
+            (
+                _raw_block(square, release=0, due=20, processing=10, preferences=(1,)),
+                _raw_block(negative, release=0, due=20, processing=10, preferences=(1,)),
+            ),
+        )
+    if scenario == "contact":
+        return _raw_fixture(
+            "s1-03-contact",
+            ((4, 2),),
+            tuple(
+                _raw_block(square, release=0, due=20, processing=10, preferences=(1,))
+                for _ in range(2)
+            ),
+        )
+    if scenario == "no_preferred_fit":
+        return _raw_fixture(
+            "s1-03-no-preferred-fit",
+            ((1, 1), (3, 3)),
+            (_raw_block(square, release=0, due=5, processing=1, preferences=(2, 1)),),
+        )
+    if scenario == "bounded_failure":
+        blocks = tuple(
+            _raw_block(
+                square,
+                release=index,
+                due=200,
+                processing=1,
+                preferences=(1,),
+            )
+            for index in range(17)
+        ) + (
+            _raw_block(square, release=0, due=1, processing=1, preferences=(1,)),
+        )
+        return _raw_fixture("s1-03-bounded-failure", ((2, 2),), blocks)
+    raise ValueError(f"unsupported S1-03 stress scenario: {scenario}")
+
+
+def _seed_escalation_state(
+    state: SolutionState,
+    scenario: str,
+) -> tuple[int, int, int]:
+    if scenario in {"negative_origin", "contact"}:
+        state.place(Placement(0, 0, 0, 0, 0, 0, 10))
+        return 1, 0, 0
+    if scenario == "no_preferred_fit":
+        return 0, 0, 0
+    if scenario == "bounded_failure":
+        for block_id in range(16):
+            state.place(Placement(block_id, 0, 0, 0, 0, block_id, block_id + 1))
+        state.place(Placement(16, 0, 0, 0, 0, 16, 100))
+        return 17, 0, 0
+    raise ValueError(f"unsupported S1-03 stress scenario: {scenario}")
+
+
+def _raw_fixture(
+    name: str,
+    bays: tuple[tuple[int, int], ...],
+    blocks: tuple[dict[str, Any], ...],
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "bays": [{"width": width, "height": height} for width, height in bays],
+        "blocks": list(blocks),
+        "weights": {"w1": 1.0, "w2": 1.0, "w3": 1.0},
+    }
+
+
+def _raw_block(
+    layer: tuple[tuple[int, int], ...],
+    *,
+    release: int,
+    due: int,
+    processing: int,
+    preferences: tuple[int, ...],
+) -> dict[str, Any]:
+    return {
+        "release_time": release,
+        "due_date": due,
+        "processing_time": processing,
+        "workload": 1,
+        "bay_preferences": list(preferences),
+        "shape": [{
+            "orientation": 0,
+            "layers": [[list(point) for point in layer]],
+        }],
     }
 
 
