@@ -8,7 +8,11 @@ import math
 import time
 from typing import Any
 
-from .exact import ExactResult, RetimeRequest
+from .exact import AssignmentRequest, AssignmentResult, ExactResult, RetimeRequest
+
+
+ASSIGNMENT_SCALE = 1_000_000
+_CP_SAT_SAFE_INTEGER = (1 << 62) - 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +39,35 @@ class CpSatModelSpec:
     tardiness: tuple[CpSatVariableSpec, ...]
     disjunctions: tuple[CpSatDisjunctionSpec, ...]
     objective_blocks: tuple[int, ...]
+    workers: int
+    seed: int
+    time_limit: float
+    log_search_progress: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CpSatAssignmentPairSpec:
+    block_id: int
+    bay_id: int
+    weighted_load: int
+    preference_penalty: int
+    congestion_demand: int
+    start: int
+
+
+@dataclass(frozen=True, slots=True)
+class CpSatAssignmentModelSpec:
+    scale: int
+    pairs: tuple[CpSatAssignmentPairSpec, ...]
+    congestion_capacities: tuple[tuple[int, int], ...]
+    bay_load_upper_bounds: tuple[tuple[int, int], ...]
+    bay_demand_upper_bounds: tuple[tuple[int, int], ...]
+    z3_upper_bound: int
+    overload_upper_bound: int
+    objective_upper_bound: int
+    w2: int
+    w3: int
+    congestion_weight: int
     workers: int
     seed: int
     time_limit: float
@@ -93,6 +126,269 @@ def build_cpsat_model_spec(
         time_limit=limit,
         log_search_progress=False,
     )
+
+
+def build_cpsat_assignment_spec(
+    request: AssignmentRequest,
+    *,
+    timebox: float,
+) -> CpSatAssignmentModelSpec:
+    """Scale the S4 assignment proposal and reject unsafe int64 models."""
+
+    limit = _timebox(timebox)
+    workloads = dict(request.workloads)
+    factors = dict(request.load_factors)
+    penalties = {
+        (block_id, bay_id): value
+        for block_id, bay_id, value in request.preference_penalties
+    }
+    demands = {
+        (block_id, bay_id): value
+        for block_id, bay_id, value in request.congestion_demands
+    }
+    current = dict(request.current_assignment)
+    pairs = tuple(
+        CpSatAssignmentPairSpec(
+            block_id=block_id,
+            bay_id=bay_id,
+            weighted_load=_scaled(factors[bay_id] * workloads[block_id]),
+            preference_penalty=_scaled(penalties[(block_id, bay_id)]),
+            congestion_demand=_scaled(demands[(block_id, bay_id)]),
+            start=int(current[block_id] == bay_id),
+        )
+        for block_id, bay_id in request.fit_pairs
+    )
+    capacities = tuple(
+        (bay_id, _scaled(value))
+        for bay_id, value in request.congestion_capacities
+    )
+    load_upper_bounds = tuple(
+        (
+            bay_id,
+            sum(
+                pair.weighted_load
+                for pair in pairs
+                if pair.bay_id == bay_id
+            ),
+        )
+        for bay_id in request.bay_ids
+    )
+    z3_upper_bound = sum(
+        max(
+            pair.preference_penalty
+            for pair in pairs
+            if pair.block_id == block_id
+        )
+        for block_id in request.block_ids
+    )
+    capacity_by_bay = dict(capacities)
+    demand_upper_bounds = tuple(
+        (
+            bay_id,
+            sum(
+                pair.congestion_demand
+                for pair in pairs
+                if pair.bay_id == bay_id
+            ),
+        )
+        for bay_id in request.bay_ids
+    )
+    overload_upper_bound = sum(
+        max(
+            0,
+            demand_upper_bound - capacity_by_bay[bay_id],
+        )
+        for bay_id, demand_upper_bound in demand_upper_bounds
+    )
+    max_load_upper_bound = max(
+        (value for _bay_id, value in load_upper_bounds),
+        default=0,
+    )
+    w2 = _scaled(request.weights[0])
+    w3 = _scaled(request.weights[1])
+    congestion_weight = _scaled(request.congestion_weight)
+    objective_upper_bound = (
+        w2 * max_load_upper_bound
+        + w3 * z3_upper_bound
+        + congestion_weight * overload_upper_bound
+    )
+    guarded = (
+        *(pair.weighted_load for pair in pairs),
+        *(pair.preference_penalty for pair in pairs),
+        *(pair.congestion_demand for pair in pairs),
+        *(value for _bay_id, value in capacities),
+        *(value for _bay_id, value in load_upper_bounds),
+        *(value for _bay_id, value in demand_upper_bounds),
+        z3_upper_bound,
+        overload_upper_bound,
+        w2,
+        w3,
+        congestion_weight,
+        objective_upper_bound,
+    )
+    if any(value < 0 or value > _CP_SAT_SAFE_INTEGER for value in guarded):
+        raise OverflowError(
+            "unsafe CP-SAT assignment scaling exceeds the signed int64 safety bound"
+        )
+    return CpSatAssignmentModelSpec(
+        scale=ASSIGNMENT_SCALE,
+        pairs=pairs,
+        congestion_capacities=capacities,
+        bay_load_upper_bounds=load_upper_bounds,
+        bay_demand_upper_bounds=demand_upper_bounds,
+        z3_upper_bound=z3_upper_bound,
+        overload_upper_bound=overload_upper_bound,
+        objective_upper_bound=objective_upper_bound,
+        w2=w2,
+        w3=w3,
+        congestion_weight=congestion_weight,
+        workers=min(request.threads, 4),
+        seed=request.seed,
+        time_limit=limit,
+        log_search_progress=False,
+    )
+
+
+def assign_cpsat(request: AssignmentRequest, timebox: float) -> AssignmentResult:
+    """Solve one scaled assignment proposal and return only pure data."""
+
+    limit = _timebox(timebox)
+    total_started = time.monotonic()
+    if limit <= 0.0:
+        return _empty_assignment("time_limit", "no CP-SAT assignment time remains")
+    try:
+        spec = build_cpsat_assignment_spec(request, timebox=limit)
+    except OverflowError as exc:
+        return _empty_assignment("unavailable", str(exc))
+
+    try:
+        cp_model = importlib.import_module("ortools.sat.python.cp_model")
+    except Exception as exc:
+        return _empty_assignment(
+            "unavailable",
+            f"CP-SAT unavailable at import: {type(exc).__name__}: {exc}",
+            build_s=time.monotonic() - total_started,
+        )
+
+    model: Any | None = None
+    solver: Any | None = None
+    try:
+        try:
+            model = cp_model.CpModel()
+            variables = _populate_assignment_model(model, request, spec)
+            solver = cp_model.CpSolver()
+        except Exception as exc:
+            return _empty_assignment(
+                "error",
+                f"CP-SAT assignment model build error: {type(exc).__name__}: {exc}",
+                build_s=time.monotonic() - total_started,
+            )
+
+        build_s = time.monotonic() - total_started
+        remaining = max(0.0, limit - build_s)
+        if remaining <= 0.0:
+            return _empty_assignment(
+                "time_limit",
+                "CP-SAT assignment construction consumed the timebox",
+                build_s=build_s,
+            )
+        solver.parameters.max_time_in_seconds = max(
+            0.001, remaining - min(0.25, 0.25 * remaining)
+        )
+        solver.parameters.num_search_workers = spec.workers
+        solver.parameters.random_seed = spec.seed
+        solver.parameters.log_search_progress = spec.log_search_progress
+
+        first_solution: list[float | None] = [None]
+        solve_started = time.monotonic()
+
+        class FirstSolutionCallback(cp_model.CpSolverSolutionCallback):
+            def on_solution_callback(self) -> None:
+                if first_solution[0] is None:
+                    first_solution[0] = time.monotonic() - solve_started
+
+        try:
+            status_code = solver.solve(model, FirstSolutionCallback())
+        except Exception as exc:
+            return _empty_assignment(
+                "error",
+                f"CP-SAT assignment optimize error: {type(exc).__name__}: {exc}",
+                build_s=build_s,
+                solve_s=time.monotonic() - solve_started,
+            )
+        solve_s = time.monotonic() - solve_started
+        if status_code not in {cp_model.OPTIMAL, cp_model.FEASIBLE}:
+            status = (
+                "time_limit"
+                if status_code == cp_model.UNKNOWN
+                else "error"
+                if status_code == cp_model.MODEL_INVALID
+                else "no_solution"
+            )
+            return _empty_assignment(
+                status,
+                f"CP-SAT assignment finished without a solution (status={solver.status_name(status_code)})",
+                bound=(
+                    float(solver.best_objective_bound)
+                    / float(spec.scale * spec.scale)
+                ),
+                build_s=build_s,
+                solve_s=solve_s,
+            )
+
+        try:
+            assignments = variables["assignments"]
+            solution = tuple(
+                (
+                    block_id,
+                    next(
+                        bay_id
+                        for candidate_block, bay_id in request.fit_pairs
+                        if candidate_block == block_id
+                        and solver.value(assignments[(block_id, bay_id)])
+                    ),
+                )
+                for block_id in request.block_ids
+            )
+            scale_squared = float(spec.scale * spec.scale)
+            objective = float(solver.objective_value) / scale_squared
+            bound = float(solver.best_objective_bound) / scale_squared
+            z2 = float(
+                solver.value(variables["maximum_load"])
+                - solver.value(variables["minimum_load"])
+            ) / spec.scale
+            z3 = float(solver.value(variables["z3"])) / spec.scale
+            overload = float(
+                sum(solver.value(value) for value in variables["overloads"].values())
+            ) / spec.scale
+        except Exception as exc:
+            return _empty_assignment(
+                "error",
+                f"CP-SAT assignment extraction error: {type(exc).__name__}: {exc}",
+                build_s=build_s,
+                solve_s=solve_s,
+            )
+        first = first_solution[0]
+        if first is None:
+            first = solve_s
+        first = min(max(0.0, float(first)), solve_s)
+        return AssignmentResult(
+            backend="cpsat",
+            status="optimal" if status_code == cp_model.OPTIMAL else "feasible",
+            solution=solution,
+            objective=objective,
+            bound=bound,
+            z2=z2,
+            z3=z3,
+            overload=overload,
+            build_s=build_s,
+            solve_s=solve_s,
+            first_solution_s=first,
+            reason=None,
+        )
+    finally:
+        model = None
+        solver = None
 
 
 def retime_cpsat(request: RetimeRequest, timebox: float) -> ExactResult:
@@ -224,6 +520,109 @@ def retime_cpsat(request: RetimeRequest, timebox: float) -> ExactResult:
         solver = None
 
 
+def _populate_assignment_model(
+    model: Any,
+    request: AssignmentRequest,
+    spec: CpSatAssignmentModelSpec,
+) -> dict[str, Any]:
+    pair_specs = {
+        (item.block_id, item.bay_id): item for item in spec.pairs
+    }
+    assignments = {
+        pair: model.new_bool_var(f"x_{pair[0]}_{pair[1]}")
+        for pair in request.fit_pairs
+    }
+    for block_id in request.block_ids:
+        choices = [
+            assignments[(candidate_block, bay_id)]
+            for candidate_block, bay_id in request.fit_pairs
+            if candidate_block == block_id
+        ]
+        model.add(sum(choices) == 1)
+    for pair, variable in assignments.items():
+        model.add_hint(variable, pair_specs[pair].start)
+
+    load_upper_bounds = dict(spec.bay_load_upper_bounds)
+    loads = {
+        bay_id: model.new_int_var(
+            0,
+            load_upper_bounds[bay_id],
+            f"load_{bay_id}",
+        )
+        for bay_id in request.bay_ids
+    }
+    for bay_id in request.bay_ids:
+        model.add(
+            loads[bay_id]
+            == sum(
+                pair_specs[pair].weighted_load * assignments[pair]
+                for pair in request.fit_pairs
+                if pair[1] == bay_id
+            )
+        )
+    maximum_load_bound = max(load_upper_bounds.values(), default=0)
+    maximum_load = model.new_int_var(
+        0, maximum_load_bound, "maximum_weighted_load"
+    )
+    minimum_load = model.new_int_var(
+        0, maximum_load_bound, "minimum_weighted_load"
+    )
+    model.add_max_equality(maximum_load, list(loads.values()))
+    model.add_min_equality(minimum_load, list(loads.values()))
+
+    z3 = model.new_int_var(0, spec.z3_upper_bound, "preference_penalty")
+    model.add(
+        z3
+        == sum(
+            pair_specs[pair].preference_penalty * assignments[pair]
+            for pair in request.fit_pairs
+        )
+    )
+    capacities = dict(spec.congestion_capacities)
+    demand_upper_bounds = dict(spec.bay_demand_upper_bounds)
+    demands = {
+        bay_id: model.new_int_var(
+            0, demand_upper_bounds[bay_id], f"demand_{bay_id}"
+        )
+        for bay_id in request.bay_ids
+    }
+    overloads = {
+        bay_id: model.new_int_var(
+            0,
+            max(0, demand_upper_bounds[bay_id] - capacities[bay_id]),
+            f"overload_{bay_id}",
+        )
+        for bay_id in request.bay_ids
+    }
+    for bay_id in request.bay_ids:
+        model.add(
+            demands[bay_id]
+            == sum(
+                pair_specs[pair].congestion_demand * assignments[pair]
+                for pair in request.fit_pairs
+                if pair[1] == bay_id
+            )
+        )
+        model.add_max_equality(
+            overloads[bay_id],
+            (demands[bay_id] - capacities[bay_id], 0),
+        )
+    model.minimize(
+        spec.w2 * (maximum_load - minimum_load)
+        + spec.w3 * z3
+        + spec.congestion_weight * sum(overloads.values())
+    )
+    return {
+        "assignments": assignments,
+        "loads": loads,
+        "maximum_load": maximum_load,
+        "minimum_load": minimum_load,
+        "z3": z3,
+        "demands": demands,
+        "overloads": overloads,
+    }
+
+
 def _populate_model(
     cp_model: Any,
     model: Any,
@@ -288,12 +687,48 @@ def _empty(
     )
 
 
+def _empty_assignment(
+    status: str,
+    reason: str,
+    *,
+    bound: float | None = None,
+    build_s: float = 0.0,
+    solve_s: float = 0.0,
+) -> AssignmentResult:
+    return AssignmentResult(
+        backend="cpsat",
+        status=status,
+        solution=None,
+        objective=None,
+        bound=bound,
+        z2=None,
+        z3=None,
+        overload=None,
+        build_s=max(0.0, float(build_s)),
+        solve_s=max(0.0, float(solve_s)),
+        first_solution_s=None,
+        reason=reason,
+    )
+
+
 def _finite_value(value: object) -> float | None:
     try:
         result = float(value)
     except Exception:
         return None
     return result if math.isfinite(result) else None
+
+
+def _scaled(value: float) -> int:
+    numeric = float(value)
+    if not math.isfinite(numeric) or numeric < 0.0:
+        raise ValueError("scaled CP-SAT assignment values must be finite and non-negative")
+    scaled = int(round(numeric * ASSIGNMENT_SCALE))
+    if scaled > _CP_SAT_SAFE_INTEGER:
+        raise OverflowError(
+            "unsafe CP-SAT assignment scaling exceeds the signed int64 safety bound"
+        )
+    return scaled
 
 
 def _timebox(value: float) -> float:

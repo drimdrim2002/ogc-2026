@@ -4,18 +4,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from statistics import median
 
 from .config import DEFAULT_CONFIG, SolverConfig
 from .exact import (
     AssignmentRequest,
+    AssignmentCall,
     AssignmentResult as ExactAssignmentResult,
     AssignmentSolution,
     SOLUTION_STATUSES,
     assign as exact_assign,
 )
 from .geometry import ShapeInfo
+from .cpsat_backend import assign_cpsat
 from .gurobi_backend import assign_gurobi
 from .instance import ProblemInstance
 
@@ -82,6 +84,40 @@ class AssignmentEvaluation:
     z3: float
     overload: float
     objective: float
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentVerification:
+    """Official-check outcome for one constructed assignment proposal."""
+
+    feasible: bool
+    objective: float | None
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentAttempt:
+    """One normalized backend proposal and its exact-float decision."""
+
+    backend: str
+    status: str
+    accepted: bool
+    exact_z2: float | None
+    exact_z3: float | None
+    reason: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentSelection:
+    """Best retained assignment with complete fallback provenance."""
+
+    assignment: AssignmentResult
+    backend: str
+    evaluation: AssignmentEvaluation
+    checker_objective: float | None
+    verified: bool
+    fallback_reason: str | None
+    attempts: tuple[AssignmentAttempt, ...]
 
 
 def assignment_cost(
@@ -530,6 +566,180 @@ def assignment_v2(
     )
 
 
+def choose_assignment_candidate(
+    instance: ProblemInstance,
+    starting_assignment: AssignmentResult,
+    *,
+    config: SolverConfig = DEFAULT_CONFIG,
+    backend_calls: Mapping[str, AssignmentCall] | None = None,
+    verify: Callable[[AssignmentResult], AssignmentVerification] | None = None,
+) -> AssignmentSelection:
+    """Evaluate Gurobi and scaled CP-SAT proposals without risking v1.
+
+    Backend-reported objective terms are never used for acceptance.  Every
+    pure assignment is recomputed with checker-float Z2/Z3 first.  A proposal
+    that regresses exact Z2 or does not improve the exact assignment objective
+    is not viable.  When a construction/check callback is supplied, every
+    viable proposal is checked and only the best verified objective replaces
+    the already-verified v1 incumbent.
+    """
+
+    calls = dict(
+        backend_calls
+        or {
+            "gurobi": assign_gurobi,
+            "cpsat": assign_cpsat,
+        }
+    )
+    if set(calls) != {"gurobi", "cpsat"}:
+        raise ValueError("backend_calls must provide gurobi and cpsat")
+
+    request = assignment_request(instance, starting_assignment, config=config)
+    incumbent_solution = tuple(request.current_assignment)
+    incumbent_evaluation = evaluate_assignment_solution(request, incumbent_solution)
+    incumbent_verification = (
+        verify(starting_assignment) if verify is not None else None
+    )
+    if incumbent_verification is not None and not incumbent_verification.feasible:
+        raise ValueError("starting assignment must be checker-feasible")
+
+    best_assignment = starting_assignment
+    best_backend = "greedy"
+    best_evaluation = incumbent_evaluation
+    best_checker_objective = (
+        incumbent_verification.objective
+        if incumbent_verification is not None
+        else None
+    )
+    best_verified = incumbent_verification is not None
+    attempts: list[AssignmentAttempt] = []
+    fallback: list[str] = []
+
+    for backend in ("gurobi", "cpsat"):
+        raw = exact_assign(
+            backend,
+            request,
+            calls[backend],
+            timebox=config.assignment_timebox_seconds,
+        )
+        if raw.status not in SOLUTION_STATUSES or raw.solution is None:
+            reason = raw.reason or raw.status
+            attempts.append(
+                AssignmentAttempt(backend, raw.status, False, None, None, reason)
+            )
+            fallback.append(f"{backend}:{raw.status}")
+            continue
+
+        evaluated = evaluate_assignment_solution(request, raw.solution)
+        if _rel_greater(evaluated.z2, incumbent_evaluation.z2):
+            reason = "float_z2_regression"
+            attempts.append(
+                AssignmentAttempt(
+                    backend,
+                    raw.status,
+                    False,
+                    evaluated.z2,
+                    evaluated.z3,
+                    reason,
+                )
+            )
+            fallback.append(f"{backend}:{reason}")
+            continue
+        if not _rel_less(evaluated.objective, incumbent_evaluation.objective):
+            reason = "float_objective_non_improvement"
+            attempts.append(
+                AssignmentAttempt(
+                    backend,
+                    raw.status,
+                    False,
+                    evaluated.z2,
+                    evaluated.z3,
+                    reason,
+                )
+            )
+            fallback.append(f"{backend}:{reason}")
+            continue
+
+        proposed = assignment_from_solution(
+            instance,
+            raw.solution,
+            order=starting_assignment.order,
+        )
+        verification = verify(proposed) if verify is not None else None
+        if verification is not None and not verification.feasible:
+            reason = verification.reason or "checker_rejected"
+            attempts.append(
+                AssignmentAttempt(
+                    backend,
+                    raw.status,
+                    False,
+                    evaluated.z2,
+                    evaluated.z3,
+                    reason,
+                )
+            )
+            fallback.append(f"{backend}:checker_rejected")
+            continue
+
+        checker_objective = (
+            verification.objective if verification is not None else None
+        )
+        if verification is not None:
+            if checker_objective is None or not math.isfinite(checker_objective):
+                reason = "checker_objective_missing"
+                attempts.append(
+                    AssignmentAttempt(
+                        backend,
+                        raw.status,
+                        False,
+                        evaluated.z2,
+                        evaluated.z3,
+                        reason,
+                    )
+                )
+                fallback.append(f"{backend}:{reason}")
+                continue
+            better = (
+                best_checker_objective is None
+                or _rel_less(checker_objective, best_checker_objective)
+            )
+        else:
+            better = _rel_less(evaluated.objective, best_evaluation.objective)
+
+        if better:
+            best_assignment = proposed
+            best_backend = backend
+            best_evaluation = evaluated
+            best_checker_objective = checker_objective
+            best_verified = verification is not None
+            accepted = True
+            reason = None
+        else:
+            accepted = False
+            reason = "verified_objective_non_improvement"
+            fallback.append(f"{backend}:{reason}")
+        attempts.append(
+            AssignmentAttempt(
+                backend,
+                raw.status,
+                accepted,
+                evaluated.z2,
+                evaluated.z3,
+                reason,
+            )
+        )
+
+    return AssignmentSelection(
+        assignment=best_assignment,
+        backend=best_backend,
+        evaluation=best_evaluation,
+        checker_objective=best_checker_objective,
+        verified=best_verified,
+        fallback_reason=";".join(fallback) or None,
+        attempts=tuple(attempts),
+    )
+
+
 def _candidate_key(candidate: AssignmentCost) -> tuple[float, float, int, int]:
     return (
         candidate.weighted_cost,
@@ -537,6 +747,16 @@ def _candidate_key(candidate: AssignmentCost) -> tuple[float, float, int, int]:
         candidate.bay_id,
         candidate.orient_idx,
     )
+
+
+def _rel_less(left: float, right: float) -> bool:
+    tolerance = 1e-9 * max(1.0, abs(float(right)))
+    return float(left) < float(right) - tolerance
+
+
+def _rel_greater(left: float, right: float) -> bool:
+    tolerance = 1e-9 * max(1.0, abs(float(right)))
+    return float(left) > float(right) + tolerance
 
 
 def _instance_horizon(instance: ProblemInstance) -> int:

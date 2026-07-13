@@ -28,6 +28,7 @@ from .runner import (
     make_escalation_stress_ref,
     repository_provenance,
     run_assignment_case,
+    run_assignment_fallback_case,
     run_assignment_v2_case,
     run_cap_calibration_case,
     run_constructor_case,
@@ -1881,6 +1882,8 @@ def _measure_predicate(
 
 
 def _stress(args: argparse.Namespace) -> int:
+    if args.stage == "s4":
+        return _s4_assignment_fallback_stress(args)
     if args.stage == "s3":
         return _s3_stress(args)
     if args.stage == "s2":
@@ -1936,6 +1939,136 @@ def _stress(args: argparse.Namespace) -> int:
     summary.update(
         timelimits=timelimits, seeds=seeds, faults=faults,
         timeout_count=sum(bool(record.get("timeout")) for record in records),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s4_assignment_fallback_stress(args: argparse.Namespace) -> int:
+    features = _features(args.feature)
+    faults = tuple(features.get("backend_fault", "").split(","))
+    if features.get("assignment_refinement") != "true" or faults != (
+        "gurobi",
+        "cp_sat",
+        "both",
+    ):
+        raise SelectorError(
+            "S4 assignment fallback stress requires assignment_refinement=true "
+            "and backend_fault=gurobi,cp_sat,both"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    required_timelimits = {
+        "example": (12.0,),
+        "smoke-3": (60.0,),
+    }
+    if args.instances not in required_timelimits:
+        raise SelectorError(
+            "S4 assignment fallback stress supports example or smoke-3"
+        )
+    if timelimits != required_timelimits[args.instances] or seeds != (20260710,):
+        expected = ",".join(
+            f"{value:g}" for value in required_timelimits[args.instances]
+        )
+        raise SelectorError(
+            f"S4 {args.instances} fallback stress requires timelimits={expected} "
+            "and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s4",
+        command="stress",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s4-02",
+            "selector": args.instances,
+            "features": features,
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    expected_ids = tuple(
+        _case_id(ref.instance_id, timelimit, seed, fault)
+        for ref in refs
+        for timelimit in timelimits
+        for seed in seeds
+        for fault in faults
+    )
+    _set_expected(run, expected_ids)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                for fault in faults:
+                    record_id = _case_id(ref.instance_id, timelimit, seed, fault)
+                    if record_id not in run.pending_record_ids:
+                        continue
+                    record = run_assignment_fallback_case(
+                        ref,
+                        selector=args.instances,
+                        timelimit=timelimit,
+                        seed=seed,
+                        features=features,
+                        fault=fault,
+                    )
+                    run.append_record(
+                        _deduplicate(evidence_root, record, rerun=args.rerun)
+                    )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected_ids)
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in records)
+        and all(record.get("prior_checker", {}).get("feasible") is True for record in records)
+        and all(record.get("never_worse") is True for record in records)
+        and all(record.get("z2_nonregression") is True for record in records)
+        and all(record.get("assignment_preserved") is True for record in records)
+        and all(record.get("fallback_reason") for record in records)
+        and all(record.get("fault_applied") == record.get("fault") for record in records)
+        and all(record.get("unverified_return_count") == 0 for record in records)
+        and all(
+            any(
+                attempt.get("backend") == "cpsat"
+                and attempt.get("status") in {"optimal", "feasible"}
+                for attempt in record.get("backend_attempts", ())
+            )
+            for record in records
+            if record.get("fault") == "gurobi"
+        )
+        and all(
+            record.get("selected_backend") == "greedy"
+            for record in records
+            if record.get("fault") == "both"
+        )
+    )
+    summary = _solver_summary(
+        "stress", args.instances, records, passed, stage="s4"
+    )
+    summary.update(
+        slice="s4-02",
+        timelimits=timelimits,
+        seeds=seeds,
+        faults=faults,
+        features=features,
+        fallback_reasons=sorted(
+            str(record["fallback_reason"])
+            for record in records
+            if record.get("fallback_reason")
+        ),
+        selected_backends=sorted(
+            {str(record.get("selected_backend")) for record in records}
+        ),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in records
+        ),
+        never_worse_failure_count=sum(
+            record.get("never_worse") is not True for record in records
+        ),
+        z2_regression_count=sum(
+            record.get("z2_nonregression") is not True for record in records
+        ),
         leak_count=0,
     )
     run.finalize(summary)

@@ -151,7 +151,7 @@ S0 foundation
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
 | S3 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive `false`; dirty `max(3,.03n_b)` | S2 mandatory gate; S3-01 through S3-05 complete | `benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/` | `c0da4a7971c57b85066f2610ead9b68d6305fe65` | — | S4-01 in progress |
-| S4 | `IN_PROGRESS` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | `benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/` | pending `feat(s4): add exact-float Gurobi assignment v2` | — | S4-02 is next after S4-01 commit/push closeout |
+| S4 | `IN_PROGRESS` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | `benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/` | pending `feat(s4): add safe assignment fallbacks` | — | S4-03 is next after S4-02 commit/push closeout |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
 | S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
 
@@ -3212,6 +3212,175 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: assignment_refinement=false; S4-01 adds only the pure exact-float Gurobi assignment proposal/proof and remains disconnected from entry; S3 remains the verified runtime fallback
   next_action: create and push exactly one atomic commit for the nine audited S4-01 paths, verify local HEAD equals upstream with a clean worktree, then S4-02 is eligible
+```
+
+```yaml
+- timestamp: 2026-07-13T18:44:15+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S4-02\\b' docs/fable/implementation-steps/s4-assignment-refinement.md
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/{COMPLETE,gate.json}
+    - inspect benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/{COMPLETE,summary.json}
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 adds only scaled CP-SAT proposal fallback, exact-float post-evaluation, and greedy v1 fallback without entry integration, cross-bay search, or later-stage behavior
+  next_action: add tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float and demonstrate the intended missing fallback RED
+```
+
+```yaml
+- timestamp: 2026-07-13T18:48:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float -v
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.assign has no choose_assignment_candidate fallback API
+  feature_default_decision: assignment_refinement=false; no S4-02 backend or selector implementation exists yet
+  next_action: implement the scaled CP-SAT assignment adapter, overflow preflight, normalized fallback selection, exact-float post-evaluation, and greedy v1 preservation
+```
+
+```yaml
+- timestamp: 2026-07-13T19:10:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/assign.py baseline/solver/cpsat_backend.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_assignment_refinement.py
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt
+  checker_result: targeted GREEN; scaled CP-SAT solve, Gurobi-to-CP-SAT fallback, both-fault greedy preservation, unsafe-scale fallback, and exact-float Z2 rejection all passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 remains a proof/fallback component and is not integrated into entry
+  next_action: run the exact full unittest regression, then the named example fallback checker stress if regression passes
+```
+
+```yaml
+- timestamp: 2026-07-13T19:12:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression.txt
+  checker_result: PASS; all 86 discovered tests passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; no entry integration or S4-03 behavior is enabled
+  next_action: record the named S4-02 stress identity and launch the example three-fault checker stress exactly once
+```
+
+```yaml
+- timestamp: 2026-07-13T19:20:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances example --timelimits 12 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260713T101300Z-s4-02-fallback-stress
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression-final.txt
+  checker_result: PASS on historical pre-audit identity; 3/3 example fault records were Stage 5 feasible, never worse, exact-Z2 non-regressing, and membership preserving
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/stress/20260713T101300Z-s4-02-fallback-stress/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: post-run safety audit found the summed per-bay CP-SAT demand domain was not explicitly included in overflow preflight; the preflight and regression were tightened, so the completed prior stress is historical-only and will not be reused as current-code proof
+  feature_default_decision: assignment_refinement=false; current exact-once tests pass 86/86 and no entry integration or later-slice behavior is enabled
+  next_action: record a fresh named stress identity for the changed dirty hash and run the same required example fault proof once for current code
+```
+
+```yaml
+- timestamp: 2026-07-13T18:53:43+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add safe assignment fallbacks
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances example --timelimits 12 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260713T102100Z-s4-02-fallback-stress-final
+    - ps aux
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression-final.txt
+  checker_result: PASS; current-code stress produced 3/3 Stage 5 feasible records with zero never-worse, exact-Z2, assignment-membership, or unverified-return failures; Gurobi fault selected CP-SAT and both faults preserved greedy v1
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 COMPLETE as a scaled CP-SAT and greedy fallback component with exact-float post-evaluation; no entry integration, S4-03 cross-bay behavior, or S4 full gate was started
+  evidence_note: the immediately preceding rows labeled 19:10, 19:12, and 19:20 were appended during this same session with future wall-clock labels; this row preserves the append-only record and corrects the audit chronology using the actual command/evidence timestamps
+  next_action: stage only the six audited S4-02 files, commit feat(s4): add safe assignment fallbacks, push, verify clean upstream equality, then create the S4-03 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T18:54:21+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add safe assignment fallbacks
+  dirty: true
+  commands:
+    - verify benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/{COMPLETE,summary.json}
+    - verify benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/{COMPLETE,summary.json,records.jsonl,failures.jsonl}
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression-final.txt
+  checker_result: PASS; all S4-02 behavioral, regression, checker, fallback, exact-float, overflow, and cleanup criteria passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 COMPLETE and S4-03 remains unstarted
+  next_action: create and push the single atomic S4-02 commit, verify clean upstream equality, then create exactly one S4-03 task
 ```
 
 ## 11. Planning quality audit

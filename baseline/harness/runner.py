@@ -36,9 +36,11 @@ try:
         sample_destroy_count,
     )
     from baseline.solver.assign import (
+        AssignmentVerification,
         AssignmentV1,
         assignment_from_solution,
         assignment_v2,
+        choose_assignment_candidate,
     )
     from baseline.solver.budget import Budget, BudgetExpired, deadline_reserve
     from baseline.solver.checker_adapter import official_check
@@ -50,14 +52,16 @@ try:
     )
     from baseline.solver.exact import (
         SOLUTION_STATUSES,
+        AssignmentResult as ExactAssignmentResult,
         BackendProbe,
         ExactResult,
         RetimeRequest,
         normalize_result,
         probe_backends,
     )
-    from baseline.solver.cpsat_backend import retime_cpsat
+    from baseline.solver.cpsat_backend import assign_cpsat, retime_cpsat
     from baseline.solver.gurobi_backend import (
+        assign_gurobi,
         build_gurobi_model_spec,
         retime_gurobi,
     )
@@ -81,21 +85,32 @@ except ModuleNotFoundError:
         run_alns,
         sample_destroy_count,
     )
-    from solver.assign import AssignmentV1, assignment_from_solution, assignment_v2
+    from solver.assign import (
+        AssignmentVerification,
+        AssignmentV1,
+        assignment_from_solution,
+        assignment_v2,
+        choose_assignment_candidate,
+    )
     from solver.budget import Budget, BudgetExpired, deadline_reserve
     from solver.checker_adapter import official_check
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
     from solver.exact import (
         SOLUTION_STATUSES,
+        AssignmentResult as ExactAssignmentResult,
         BackendProbe,
         ExactResult,
         RetimeRequest,
         normalize_result,
         probe_backends,
     )
-    from solver.cpsat_backend import retime_cpsat
-    from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
+    from solver.cpsat_backend import assign_cpsat, retime_cpsat
+    from solver.gurobi_backend import (
+        assign_gurobi,
+        build_gurobi_model_spec,
+        retime_gurobi,
+    )
     from solver.incumbent import VerifiedIncumbent
     from solver.entry import solve
     from solver.instance import ProblemInstance
@@ -713,6 +728,177 @@ def run_assignment_v2_case(
         "unverified_return_count": 0,
         "fallback_tier": None,
         "fallback_reason": None,
+    }
+
+
+def run_assignment_fallback_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    fault: str,
+) -> dict[str, Any]:
+    """Force S4 assignment backend faults and retain a checked incumbent."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="assignment-fallback-stress",
+        timelimit=timelimit,
+        seed=seed,
+        features={**features, "fault": fault},
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    config = replace(
+        DEFAULT_CONFIG,
+        assignment_backend="gurobi",
+        assignment_threads=1,
+        constructor_seed=seed,
+    )
+    v1 = AssignmentV1(parsed).assign()
+
+    def verify(candidate: Any) -> AssignmentVerification:
+        try:
+            constructed = construct_fixed_assignment(parsed, candidate)
+            checked = official_check(
+                ref.prob_info,
+                serialize_non_interlock(constructed.placements.values()),
+            )
+        except Exception as exc:
+            return AssignmentVerification(
+                feasible=False,
+                objective=None,
+                reason=f"{type(exc).__name__}: {exc}",
+            )
+        return AssignmentVerification(
+            feasible=checked.feasible and checked.stage == 5,
+            objective=checked.objective,
+            reason=None if checked.feasible else "; ".join(checked.violations),
+        )
+
+    def injected(backend: str) -> Any:
+        def call(request: Any, timebox: float) -> ExactAssignmentResult:
+            del request, timebox
+            return ExactAssignmentResult(
+                backend=backend,
+                status="error",
+                solution=None,
+                objective=None,
+                bound=None,
+                z2=None,
+                z3=None,
+                overload=None,
+                build_s=0.0,
+                solve_s=0.0,
+                first_solution_s=None,
+                reason=f"injected {backend} assignment fault",
+            )
+
+        return call
+
+    calls = {
+        "gurobi": injected("gurobi") if fault in {"gurobi", "both"} else assign_gurobi,
+        "cpsat": injected("cpsat") if fault in {"cp_sat", "both"} else assign_cpsat,
+    }
+    selection = choose_assignment_candidate(
+        parsed,
+        v1,
+        config=config,
+        backend_calls=calls,
+        verify=verify,
+    )
+    v1_state = construct_fixed_assignment(parsed, v1)
+    v1_checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(v1_state.placements.values()),
+    )
+    selected_state = construct_fixed_assignment(parsed, selection.assignment)
+    selected_checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(selected_state.placements.values()),
+    )
+    wall_seconds = time.monotonic() - started
+    selected_membership = tuple(
+        sorted(
+            (placement.block_id, placement.bay_id)
+            for placement in selected_state.placements.values()
+        )
+    )
+    planned_membership = tuple(
+        sorted(
+            (block_id, item.bay_id)
+            for block_id, item in selection.assignment.assignments.items()
+        )
+    )
+    tolerance = 1e-9 * max(1.0, abs(float(v1_checked.objective or 0.0)))
+    never_worse = (
+        v1_checked.objective is not None
+        and selected_checked.objective is not None
+        and selected_checked.objective <= v1_checked.objective + tolerance
+    )
+    z2_nonregression = (
+        v1_checked.obj2 is not None
+        and selected_checked.obj2 is not None
+        and selected_checked.obj2
+        <= v1_checked.obj2 + 1e-9 * max(1.0, abs(v1_checked.obj2))
+    )
+    passed = (
+        v1_checked.feasible
+        and v1_checked.stage == 5
+        and selected_checked.feasible
+        and selected_checked.stage == 5
+        and selected_membership == planned_membership
+        and never_worse
+        and z2_nonregression
+        and selection.fallback_reason is not None
+        and len(selection.attempts) == 2
+        and (fault != "both" or selection.backend == "greedy")
+        and wall_seconds <= timelimit + 0.25
+    )
+    return {
+        "record_id": _case_record_id(ref.instance_id, timelimit, seed, fault),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "assignment-fallback-stress",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "fault": fault,
+        "fault_applied": fault,
+        "wall_seconds": wall_seconds,
+        "subprocess_exit": 0,
+        "signal": None,
+        "checker": checker_payload(selected_checked),
+        "prior_checker": checker_payload(v1_checked),
+        "selected_backend": selection.backend,
+        "backend_attempts": [asdict(attempt) for attempt in selection.attempts],
+        "fallback_tier": selection.backend,
+        "fallback_reason": selection.fallback_reason,
+        "assignment_preserved": selected_membership == planned_membership,
+        "never_worse": never_worse,
+        "z2_nonregression": z2_nonregression,
+        "incumbent_verification_count": 1 + sum(
+            attempt.accepted for attempt in selection.attempts
+        ),
+        "unverified_return_count": 0,
+        "timeout": False,
+        "crash": False,
+        "exception": None,
     }
 
 
