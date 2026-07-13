@@ -21,6 +21,7 @@ from .state import IncumbentStore, SolutionSnapshot, compute_objective
 
 
 LNS_ENABLED = False
+INTERLOCK_ENABLED = False
 
 
 class SafeIncumbentError(RuntimeError):
@@ -58,6 +59,27 @@ def load_optional_phase():
             from .repair_mip import make_mip_repair_engine
 
             repair_engines = (heuristic_repair, make_mip_repair_engine())
+            densify_hook = None
+            if INTERLOCK_ENABLED:
+                from .interlock import InterlockConfig, InterlockContext, densify
+
+                def densify_hook(initial, store, alns_context, densify_budget, retime_hook):
+                    interlock_context = InterlockContext(
+                        instance=alns_context.instance,
+                        kernel=alns_context.kernel,
+                        raw=alns_context.raw,
+                        checker=alns_context.checker,
+                        stalled=True,
+                        config=InterlockConfig(enabled=True),
+                        clock=alns_context.clock,
+                    )
+                    return densify(
+                        initial,
+                        store,
+                        interlock_context,
+                        densify_budget,
+                        retime_hook,
+                    )
 
             def lns_runner(initial, store, raw, checker, lns_budget):
                 context = AlnsContext(
@@ -74,6 +96,7 @@ def load_optional_phase():
                     lns_budget,
                     AlnsConfig(),
                     retime_hook=retime,
+                    densify_hook=densify_hook,
                 )
 
         return OptionalPhaseResult(

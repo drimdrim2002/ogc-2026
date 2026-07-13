@@ -15,6 +15,16 @@ from .entry import solve
 from .geometry import GeometryKernel, PairRelation, PairState, ShapeInfo, TemporalMode
 from .instance import Instance, NoValidPlacement, OrientationInfo, ReferenceRange, parse_instance
 from .retime import RetimingConfig, RetimingResult, nonfree_components, retime
+from .interlock import (
+    DensifyMetrics,
+    DensifyResult,
+    GateDecision,
+    InterlockCandidate,
+    InterlockConfig,
+    InterlockContext,
+    InterlockGate,
+    densify,
+)
 from .neighborhoods import NeighborhoodContext, RepairResult, heuristic_repair
 from .state import CandidateDraft, IndexedSolutionState, Placement, SolutionSnapshot
 
@@ -30,8 +40,13 @@ __all__ = [
     "ConstructionSeed",
     "ConstructorConfig",
     "GeometryKernel",
+    "GateDecision",
     "Instance",
     "IndexedSolutionState",
+    "InterlockCandidate",
+    "InterlockConfig",
+    "InterlockContext",
+    "InterlockGate",
     "NoValidPlacement",
     "NeighborhoodContext",
     "OrientationInfo",
@@ -41,6 +56,8 @@ __all__ = [
     "ReferenceRange",
     "RetimingConfig",
     "RetimingResult",
+    "DensifyMetrics",
+    "DensifyResult",
     "RepairResult",
     "SolutionSnapshot",
     "ShapeInfo",
@@ -48,6 +65,7 @@ __all__ = [
     "construct_complete",
     "commit_insertion_candidate",
     "generate_insertion_candidates",
+    "densify",
     "heuristic_repair",
     "nonfree_components",
     "parse_instance",

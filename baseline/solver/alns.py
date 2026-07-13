@@ -154,6 +154,11 @@ class AlnsMetrics:
     retime_triggers: int
     exit_reason: str
     repair_engines: tuple[tuple[str, int, int, int, float], ...] = ()
+    densify_triggers: int = 0
+    densify_attempts: int = 0
+    densify_improvements: int = 0
+    interlock_improvements: int = 0
+    densify_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +253,7 @@ def run_lns(
     budget: Budget,
     config: AlnsConfig | None = None,
     retime_hook: Callable[..., Any] | None = None,
+    densify_hook: Callable[..., Any] | None = None,
 ) -> AlnsResult:
     """Run bounded ALNS and always return the already validated best payload."""
     config = config or AlnsConfig()
@@ -272,6 +278,12 @@ def run_lns(
     retime_triggers = 0
     pending_retime: set[int] = set()
     stalled_engine_pending = False
+    densify_attempted = False
+    densify_triggers = 0
+    densify_attempts = 0
+    densify_improvements = 0
+    interlock_improvements = 0
+    densify_reason: str | None = None
     phase_time = {"destroy": 0.0, "repair": 0.0, "retime": 0.0, "checker": 0.0}
     engine_stats: dict[str, list[float]] = {}
     cache_before = context.kernel.cache_info()
@@ -600,6 +612,40 @@ def run_lns(
             iterations_since_best = 0
             if retime_hook is not None and pending_retime:
                 apply_pending_retime(metric, operator_index, force=True)
+            if (
+                densify_hook is not None
+                and not densify_attempted
+                and budget.can_start(0.0, margin=0.0001)
+            ):
+                densify_attempted = True
+                densify_triggers += 1
+                before_total = best.objective.total
+                try:
+                    densified = densify_hook(
+                        best_store.snapshot,
+                        best_store,
+                        context,
+                        budget,
+                        retime_hook,
+                    )
+                    densify_metrics = getattr(densified, "metrics", None)
+                    densify_attempts += int(getattr(densify_metrics, "candidates", 0))
+                    densify_improvements += int(getattr(densify_metrics, "installed", 0))
+                    interlock_improvements += int(
+                        getattr(densify_metrics, "interlock_improvements", 0)
+                    )
+                    densify_reason = str(
+                        getattr(densify_metrics, "gate_reason", "UNKNOWN")
+                    )
+                    refreshed = _objective(best_store.snapshot, context.instance)
+                    if refreshed.objective.total < before_total:
+                        best = refreshed
+                        current = refreshed
+                        best_trace.append(best.objective.total)
+                        accepted_trace.append(current.objective.total)
+                        iterations_since_best = 0
+                except Exception as exc:
+                    densify_reason = f"ERROR:{type(exc).__name__}"
         if invariant_errors >= config.max_invariant_errors:
             exit_reason = "INVARIANT_ERROR"
             break
@@ -632,6 +678,11 @@ def run_lns(
             for name, values in engine_stats.items()
         ),
         exit_reason=exit_reason,
+        densify_triggers=densify_triggers,
+        densify_attempts=densify_attempts,
+        densify_improvements=densify_improvements,
+        interlock_improvements=interlock_improvements,
+        densify_reason=densify_reason,
     )
     return AlnsResult(
         snapshot=best_store.snapshot,
