@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -40,10 +41,26 @@ def select_instances(selector: str, *, fixture_dir: Path | None = None) -> tuple
     if selector == "example":
         path = REPO_ROOT / "alg_tester" / "example" / "example_B2_b10.json"
         return (_load_ref("example", path),)
-    if selector in {"training", "smoke-3", "dev-10"}:
+    if selector in {"training", "smoke-3", "dev-10", "high-w23"}:
         refs = _training_refs()
         if selector == "training":
             return tuple(refs[f"prob_{index}"] for index in range(1, 41))
+        if selector == "high-w23":
+            eligible = tuple(
+                ref
+                for ref in refs.values()
+                if len(ref.prob_info.get("bays", ())) >= 2
+            )
+            count = max(1, math.ceil(0.25 * len(eligible)))
+            return tuple(
+                sorted(
+                    eligible,
+                    key=lambda ref: (
+                        -_w23_ratio(ref.prob_info),
+                        int(ref.instance_id.split("_")[-1]),
+                    ),
+                )[:count]
+            )
         ids = SMOKE_IDS if selector == "smoke-3" else DEV_IDS
         return tuple(refs[instance_id] for instance_id in ids)
     if selector in {"synthetic", "stress"}:
@@ -86,6 +103,15 @@ def _training_refs() -> dict[str, InstanceRef]:
             )
         refs[instance_id] = _load_ref(instance_id, paths[0], digest=digest)
     return refs
+
+
+def _w23_ratio(prob_info: dict[str, Any]) -> float:
+    raw = prob_info.get("weights", {})
+    weights = raw if isinstance(raw, dict) else {}
+    w1 = float(weights.get("w1", 1.0))
+    w2 = float(weights.get("w2", 1.0))
+    w3 = float(weights.get("w3", 1.0))
+    return (w2 + w3) / max(w1, 1.0)
 
 
 def _expected_training_hashes() -> dict[str, str]:

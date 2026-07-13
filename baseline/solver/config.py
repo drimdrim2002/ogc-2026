@@ -29,6 +29,11 @@ class SolverConfig:
     retime_pilot_seconds: float = 0.0
     retime_threads: int = 1
     retime_final_sweep: bool = True
+    assignment_backend: str = "gurobi"
+    assignment_timebox_seconds: float = 2.0
+    assignment_threads: int = 4
+    assignment_congestion_cap_fraction: float = 0.85
+    assignment_congestion_weight_multiplier: float = 1.0
     alns: bool = False
     alns_destroy_min_fraction: float = 0.02
     alns_destroy_max_fraction: float = 0.06

@@ -27,6 +27,8 @@ SOLUTION_STATUSES = frozenset({"optimal", "feasible"})
 
 IntMap = tuple[tuple[int, int], ...]
 RetimeSolution = tuple[tuple[int, int, int], ...]
+FloatMap = tuple[tuple[int, float], ...]
+AssignmentSolution = tuple[tuple[int, int], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +104,46 @@ class ExactResult:
 
 
 @dataclass(frozen=True, slots=True)
+class AssignmentRequest:
+    """Immutable exact-float assignment data for the S4 backend boundary."""
+
+    block_ids: tuple[int, ...]
+    bay_ids: tuple[int, ...]
+    fit_pairs: tuple[tuple[int, int], ...]
+    workloads: FloatMap
+    preference_penalties: tuple[tuple[int, int, float], ...]
+    load_factors: FloatMap
+    congestion_demands: tuple[tuple[int, int, float], ...]
+    congestion_capacities: FloatMap
+    current_assignment: IntMap
+    weights: tuple[float, float]
+    congestion_weight: float
+    seed: int
+    threads: int
+
+    def __post_init__(self) -> None:
+        _validate_assignment_request(self)
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentResult:
+    """Backend-independent assignment result containing primitives only."""
+
+    backend: str
+    status: str
+    solution: AssignmentSolution | None
+    objective: float | None
+    bound: float | None
+    z2: float | None
+    z3: float | None
+    overload: float | None
+    build_s: float
+    solve_s: float
+    first_solution_s: float | None
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class BackendHealth:
     """One lazy probe decision with its precise failure boundary."""
 
@@ -148,8 +190,19 @@ class ExactBackend(Protocol):
     def retime(self, request: RetimeRequest, timebox: float) -> ExactResult: ...
 
 
+class AssignmentBackend(Protocol):
+    """S4 assignment protocol kept separate from the frozen S2 contract."""
+
+    def assign(
+        self,
+        request: AssignmentRequest,
+        timebox: float,
+    ) -> AssignmentResult: ...
+
+
 ProbeStep = Callable[[], object]
 RetimeCall = Callable[[RetimeRequest, float], ExactResult]
+AssignmentCall = Callable[[AssignmentRequest, float], AssignmentResult]
 
 
 @dataclass(slots=True)
@@ -283,6 +336,49 @@ def deadline_bounded_call(
     return normalize_result(request, raw, timebox=allowance, observed_s=observed)
 
 
+def assign(
+    backend: str,
+    request: AssignmentRequest,
+    call: AssignmentCall,
+    *,
+    timebox: float,
+    clock: Callable[[], float] = time.monotonic,
+) -> AssignmentResult:
+    """Call one assignment adapter within an immutable wall-clock timebox."""
+
+    if backend not in BACKENDS:
+        raise ValueError(f"unsupported backend: {backend}")
+    allowance = _finite_nonnegative(timebox, "timebox")
+    if allowance <= 0.0:
+        return _empty_assignment_result(
+            backend,
+            "time_limit",
+            "no assignment time remains",
+        )
+    started = float(clock())
+    try:
+        raw = call(request, allowance)
+    except Exception as exc:
+        return _empty_assignment_result(
+            backend,
+            "error",
+            f"{type(exc).__name__}: {exc}",
+        )
+    observed = max(0.0, float(clock()) - started)
+    if isinstance(raw, AssignmentResult) and raw.backend != backend:
+        return _empty_assignment_from(
+            raw,
+            "invalid",
+            f"backend identity mismatch: expected {backend}, got {raw.backend}",
+        )
+    return normalize_assignment_result(
+        request,
+        raw,
+        timebox=allowance,
+        observed_s=observed,
+    )
+
+
 def select_pilot_backend(
     requests: Iterable[RetimeRequest],
     backend_calls: Mapping[str, RetimeCall],
@@ -399,6 +495,99 @@ def normalize_result(
     return result
 
 
+def normalize_assignment_result(
+    request: AssignmentRequest,
+    result: object,
+    *,
+    timebox: float,
+    observed_s: float | None = None,
+) -> AssignmentResult:
+    """Normalize malformed, infeasible, or over-budget assignment output."""
+
+    allowed = _finite_nonnegative(timebox, "timebox")
+    if not isinstance(result, AssignmentResult):
+        return _empty_assignment_result(
+            "unknown",
+            "invalid",
+            "backend returned a non-AssignmentResult",
+        )
+    consumed = result.build_s + result.solve_s
+    if observed_s is not None:
+        consumed = max(consumed, _finite_nonnegative(observed_s, "observed_s"))
+    if not math.isfinite(consumed) or consumed > allowed + 1e-9:
+        return _empty_assignment_from(
+            result,
+            "time_limit",
+            "backend exceeded its assignment timebox",
+        )
+    valid, reason = validate_assignment_result(request, result)
+    if not valid:
+        return _empty_assignment_from(
+            result,
+            "invalid",
+            reason or "invalid assignment result",
+        )
+    if result.status not in SOLUTION_STATUSES:
+        return _empty_assignment_from(result, result.status, result.reason)
+    return result
+
+
+def validate_assignment_result(
+    request: AssignmentRequest,
+    result: AssignmentResult,
+) -> tuple[bool, str | None]:
+    """Validate pure assignment structure without trusting backend objects."""
+
+    if result.backend not in BACKENDS:
+        return False, f"unsupported backend: {result.backend}"
+    if result.status not in RESULT_STATUSES:
+        return False, f"unsupported result status: {result.status}"
+    for label, value in (("build_s", result.build_s), ("solve_s", result.solve_s)):
+        if not _is_finite_nonnegative(value):
+            return False, f"{label} must be finite and non-negative"
+    if result.first_solution_s is not None:
+        if not _is_finite_nonnegative(result.first_solution_s):
+            return False, "first_solution_s must be finite and non-negative"
+        if result.first_solution_s > result.solve_s + 1e-9:
+            return False, "first_solution_s exceeds solve_s"
+    for label, value in (
+        ("objective", result.objective),
+        ("bound", result.bound),
+        ("z2", result.z2),
+        ("z3", result.z3),
+        ("overload", result.overload),
+    ):
+        if value is not None and not _is_finite_number(value):
+            return False, f"{label} must be finite when present"
+    if result.status not in SOLUTION_STATUSES:
+        if result.solution is not None:
+            return False, "non-solution status carried an assignment"
+        return True, None
+    if result.solution is None or result.objective is None:
+        return False, "solution status requires an assignment and objective"
+    if not isinstance(result.solution, tuple):
+        return False, "assignment solution must be an immutable tuple"
+
+    feasible = set(request.fit_pairs)
+    selected: dict[int, int] = {}
+    for item in result.solution:
+        if (
+            not isinstance(item, tuple)
+            or len(item) != 2
+            or not all(_plain_int(value) for value in item)
+        ):
+            return False, "assignment rows must be integer (block, bay) tuples"
+        block_id, bay_id = item
+        if block_id in selected:
+            return False, f"duplicate assignment block {block_id}"
+        if (block_id, bay_id) not in feasible:
+            return False, f"assignment pair {(block_id, bay_id)} is not fit-qualified"
+        selected[block_id] = bay_id
+    if set(selected) != set(request.block_ids):
+        return False, "assignment block set does not match request"
+    return True, None
+
+
 def validate_result(
     request: RetimeRequest,
     result: ExactResult,
@@ -481,6 +670,137 @@ def _validate_int_map(label: str, values: object, expected: set[int]) -> None:
         raise ValueError(f"{label} keys must exactly match block_ids")
 
 
+def _validate_assignment_request(request: AssignmentRequest) -> None:
+    for label, values in (
+        ("block_ids", request.block_ids),
+        ("bay_ids", request.bay_ids),
+    ):
+        if not isinstance(values, tuple):
+            raise TypeError(f"{label} must be a tuple")
+        if any(not _plain_int(value) or value < 0 for value in values):
+            raise ValueError(f"{label} must contain non-negative integers")
+        if len(values) != len(set(values)):
+            raise ValueError(f"{label} must be unique")
+    if not request.bay_ids:
+        raise ValueError("bay_ids must not be empty")
+    blocks = set(request.block_ids)
+    bays = set(request.bay_ids)
+    if not isinstance(request.fit_pairs, tuple):
+        raise TypeError("fit_pairs must be a tuple")
+    if len(request.fit_pairs) != len(set(request.fit_pairs)):
+        raise ValueError("fit_pairs must be unique")
+    if any(
+        not isinstance(pair, tuple)
+        or len(pair) != 2
+        or not all(_plain_int(value) for value in pair)
+        or pair[0] not in blocks
+        or pair[1] not in bays
+        for pair in request.fit_pairs
+    ):
+        raise ValueError("fit_pairs must contain known integer (block, bay) pairs")
+    if any(
+        not any(block_id == candidate for candidate, _ in request.fit_pairs)
+        for block_id in request.block_ids
+    ):
+        raise ValueError("every block must have a fit-qualified bay")
+
+    _validate_float_map(
+        "workloads",
+        request.workloads,
+        blocks,
+        strictly_positive=False,
+    )
+    _validate_float_map(
+        "load_factors",
+        request.load_factors,
+        bays,
+        strictly_positive=True,
+    )
+    _validate_float_map(
+        "congestion_capacities",
+        request.congestion_capacities,
+        bays,
+        strictly_positive=False,
+    )
+    _validate_pair_float_map(
+        "preference_penalties",
+        request.preference_penalties,
+        set(request.fit_pairs),
+    )
+    _validate_pair_float_map(
+        "congestion_demands",
+        request.congestion_demands,
+        set(request.fit_pairs),
+    )
+    _validate_int_map("current_assignment", request.current_assignment, blocks)
+    if any(
+        (block_id, bay_id) not in set(request.fit_pairs)
+        for block_id, bay_id in request.current_assignment
+    ):
+        raise ValueError("current_assignment must use fit-qualified pairs")
+    if (
+        not isinstance(request.weights, tuple)
+        or len(request.weights) != 2
+        or any(not _is_finite_nonnegative(value) for value in request.weights)
+    ):
+        raise ValueError("weights must contain finite non-negative (w2, w3)")
+    if not _is_finite_nonnegative(request.congestion_weight):
+        raise ValueError("congestion_weight must be finite and non-negative")
+    if not _plain_int(request.seed):
+        raise ValueError("seed must be an integer")
+    if not _plain_int(request.threads) or not 1 <= request.threads <= 4:
+        raise ValueError("threads must be an integer from 1 through 4")
+
+
+def _validate_float_map(
+    label: str,
+    values: object,
+    expected: set[int],
+    *,
+    strictly_positive: bool,
+) -> None:
+    if not isinstance(values, tuple):
+        raise TypeError(f"{label} must be a tuple")
+    if any(
+        not isinstance(item, tuple)
+        or len(item) != 2
+        or not _plain_int(item[0])
+        or not _is_finite_number(item[1])
+        for item in values
+    ):
+        raise ValueError(f"{label} must contain integer/float pairs")
+    keys = [key for key, _ in values]
+    if len(keys) != len(set(keys)) or set(keys) != expected:
+        raise ValueError(f"{label} keys must exactly match the request IDs")
+    if any(
+        float(value) <= 0.0 if strictly_positive else float(value) < 0.0
+        for _, value in values
+    ):
+        qualifier = "positive" if strictly_positive else "non-negative"
+        raise ValueError(f"{label} values must be {qualifier}")
+
+
+def _validate_pair_float_map(
+    label: str,
+    values: object,
+    expected: set[tuple[int, int]],
+) -> None:
+    if not isinstance(values, tuple):
+        raise TypeError(f"{label} must be a tuple")
+    if any(
+        not isinstance(item, tuple)
+        or len(item) != 3
+        or not _plain_int(item[0])
+        or not _plain_int(item[1])
+        or not _is_finite_nonnegative(item[2])
+        for item in values
+    ):
+        raise ValueError(f"{label} must contain non-negative (block, bay, value) rows")
+    keys = [(block_id, bay_id) for block_id, bay_id, _ in values]
+    if len(keys) != len(set(keys)) or set(keys) != expected:
+        raise ValueError(f"{label} keys must exactly match fit_pairs")
+
+
 def _request_current_objective(request: RetimeRequest) -> float:
     entries = dict(request.current_entries)
     dues = dict(request.dues)
@@ -522,6 +842,52 @@ def _empty_from(result: ExactResult, status: str, reason: str | None) -> ExactRe
         solution=None,
         objective=None,
         bound=result.bound if _is_finite_number(result.bound) else None,
+        build_s=result.build_s if _is_finite_nonnegative(result.build_s) else 0.0,
+        solve_s=result.solve_s if _is_finite_nonnegative(result.solve_s) else 0.0,
+        first_solution_s=(
+            result.first_solution_s
+            if _is_finite_nonnegative(result.first_solution_s)
+            else None
+        ),
+        reason=reason,
+    )
+
+
+def _empty_assignment_result(
+    backend: str,
+    status: str,
+    reason: str | None,
+) -> AssignmentResult:
+    return AssignmentResult(
+        backend=backend,
+        status=status,
+        solution=None,
+        objective=None,
+        bound=None,
+        z2=None,
+        z3=None,
+        overload=None,
+        build_s=0.0,
+        solve_s=0.0,
+        first_solution_s=None,
+        reason=reason,
+    )
+
+
+def _empty_assignment_from(
+    result: AssignmentResult,
+    status: str,
+    reason: str | None,
+) -> AssignmentResult:
+    return AssignmentResult(
+        backend=result.backend,
+        status=status,
+        solution=None,
+        objective=None,
+        bound=result.bound if _is_finite_number(result.bound) else None,
+        z2=None,
+        z3=None,
+        overload=None,
         build_s=result.build_s if _is_finite_nonnegative(result.build_s) else 0.0,
         solve_s=result.solve_s if _is_finite_nonnegative(result.solve_s) else 0.0,
         first_solution_s=(

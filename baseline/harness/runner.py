@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime
 import hashlib
 import itertools
@@ -35,7 +35,11 @@ try:
         run_alns,
         sample_destroy_count,
     )
-    from baseline.solver.assign import AssignmentV1
+    from baseline.solver.assign import (
+        AssignmentV1,
+        assignment_from_solution,
+        assignment_v2,
+    )
     from baseline.solver.budget import Budget, BudgetExpired, deadline_reserve
     from baseline.solver.checker_adapter import official_check
     from baseline.solver.config import DEFAULT_CONFIG
@@ -45,6 +49,7 @@ try:
         escalate_insert,
     )
     from baseline.solver.exact import (
+        SOLUTION_STATUSES,
         BackendProbe,
         ExactResult,
         RetimeRequest,
@@ -76,12 +81,13 @@ except ModuleNotFoundError:
         run_alns,
         sample_destroy_count,
     )
-    from solver.assign import AssignmentV1
+    from solver.assign import AssignmentV1, assignment_from_solution, assignment_v2
     from solver.budget import Budget, BudgetExpired, deadline_reserve
     from solver.checker_adapter import official_check
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
     from solver.exact import (
+        SOLUTION_STATUSES,
         BackendProbe,
         ExactResult,
         RetimeRequest,
@@ -536,6 +542,255 @@ def run_assignment_case(
         "fallback_tier": None,
         "fallback_reason": None,
     }
+
+
+def run_assignment_v2_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Build v1/v2 assignments, construct both, and prove checker-float parity."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="assignment-v2-gurobi-proof",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    config = replace(
+        DEFAULT_CONFIG,
+        assignment_backend="gurobi",
+        constructor_seed=seed,
+    )
+
+    v1_started = time.monotonic()
+    v1 = AssignmentV1(parsed).assign()
+    v1_constructed = construct_fixed_assignment(parsed, v1)
+    v1_checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(v1_constructed.placements.values()),
+    )
+    v1_seconds = time.monotonic() - v1_started
+
+    v2_started = time.monotonic()
+    backend_result = assignment_v2(parsed, v1, config=config)
+    v2_assignment = (
+        assignment_from_solution(parsed, backend_result.solution, order=v1.order)
+        if backend_result.status in SOLUTION_STATUSES
+        and backend_result.solution is not None
+        else None
+    )
+    v2_constructed = (
+        construct_fixed_assignment(parsed, v2_assignment)
+        if v2_assignment is not None
+        else None
+    )
+    v2_checked = (
+        official_check(
+            ref.prob_info,
+            serialize_non_interlock(v2_constructed.placements.values()),
+        )
+        if v2_constructed is not None
+        else None
+    )
+    v2_seconds = time.monotonic() - v2_started
+    wall_seconds = time.monotonic() - started
+
+    v1_z2_error = _relative_error(v1_checked.obj2, v1.z2)
+    v1_z3_error = _relative_error(v1_checked.obj3, v1.z3)
+    v2_z2_error = _relative_error(
+        v2_checked.obj2 if v2_checked is not None else None,
+        backend_result.z2,
+    )
+    v2_z3_error = _relative_error(
+        v2_checked.obj3 if v2_checked is not None else None,
+        backend_result.z3,
+    )
+    v1_membership = tuple(
+        sorted(
+            (placement.block_id, placement.bay_id)
+            for placement in v1_constructed.placements.values()
+        )
+    )
+    v2_membership = (
+        tuple(
+            sorted(
+                (placement.block_id, placement.bay_id)
+                for placement in v2_constructed.placements.values()
+            )
+        )
+        if v2_constructed is not None
+        else ()
+    )
+    passed = (
+        v1_checked.feasible
+        and v1_checked.stage == 5
+        and v2_checked is not None
+        and v2_checked.feasible
+        and v2_checked.stage == 5
+        and backend_result.status in SOLUTION_STATUSES
+        and backend_result.solution is not None
+        and v1_membership
+        == tuple(sorted((block_id, item.bay_id) for block_id, item in v1.assignments.items()))
+        and v2_membership == tuple(sorted(backend_result.solution))
+        and v1_z2_error is not None
+        and v1_z2_error <= 1e-6
+        and v1_z3_error is not None
+        and v1_z3_error <= 1e-6
+        and v2_z2_error is not None
+        and v2_z2_error <= 1e-6
+        and v2_z3_error is not None
+        and v2_z3_error <= 1e-6
+        and wall_seconds <= timelimit
+    )
+    return {
+        "record_id": _case_record_id(ref.instance_id, timelimit, seed, "none"),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "assignment-v2-gurobi-proof",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "subprocess_exit": 0,
+        "signal": None,
+        "checker": checker_payload(v2_checked) if v2_checked is not None else {},
+        "v1_checker": checker_payload(v1_checked),
+        "stage_timing": {
+            "v1_construct_and_check_seconds": v1_seconds,
+            "v2_assignment_construct_and_check_seconds": v2_seconds,
+            "assignment_build_seconds": backend_result.build_s,
+            "assignment_solve_seconds": backend_result.solve_s,
+            "assignment_first_solution_seconds": backend_result.first_solution_s,
+        },
+        "backend": {
+            "name": backend_result.backend,
+            "status": backend_result.status,
+            "bound": backend_result.bound,
+            "build_seconds": backend_result.build_s,
+            "solve_seconds": backend_result.solve_s,
+            "first_solution_seconds": backend_result.first_solution_s,
+            "fallback": False,
+        },
+        "block_count": len(parsed.blocks),
+        "assigned": len(backend_result.solution or ()),
+        "v1_z2": v1.z2,
+        "v1_z3": v1.z3,
+        "v2_z2": backend_result.z2,
+        "v2_z3": backend_result.z3,
+        "v2_overload": backend_result.overload,
+        "v2_assignment_objective": backend_result.objective,
+        "v1_float_z2_relative_error": v1_z2_error,
+        "v1_float_z3_relative_error": v1_z3_error,
+        "v2_float_z2_relative_error": v2_z2_error,
+        "v2_float_z3_relative_error": v2_z3_error,
+        "v1_membership_preserved": v1_membership
+        == tuple(sorted((block_id, item.bay_id) for block_id, item in v1.assignments.items())),
+        "v2_membership_preserved": v2_membership == tuple(sorted(backend_result.solution or ())),
+        "timeout": backend_result.status == "time_limit",
+        "crash": False,
+        "exception": backend_result.reason,
+        "incumbent_verification_count": 0,
+        "unverified_return_count": 0,
+        "fallback_tier": None,
+        "fallback_reason": None,
+    }
+
+
+def construct_fixed_assignment(
+    instance: ProblemInstance,
+    assignment: Any,
+) -> SolutionState:
+    """Construct a checker-safe proof state without changing proposed bays.
+
+    S4-01 needs to prove the checker-float Z2/Z3 of a pure assignment.  The S1
+    escalation constructor may deliberately move a block to another fitting
+    bay when its bounded preferred-bay search is exhausted, so it cannot prove
+    that assignment.  This proof-only path keeps each requested bay fixed and
+    serializes residents within that bay.  The resulting empty-bay handoffs
+    also avoid treating numerically fragile apparent contact as checker-safe.
+    """
+    expected = set(range(len(instance.blocks)))
+    order = tuple(assignment.order)
+    assignments = assignment.assignments
+    if len(order) != len(expected) or set(order) != expected:
+        raise ValueError("fixed-assignment order must contain every block exactly once")
+    if set(assignments) != expected:
+        raise ValueError("fixed assignment must contain every block exactly once")
+
+    state = SolutionState(instance)
+    bay_available = [0 for _ in instance.bays]
+    for block_id in order:
+        proposed = assignments[block_id]
+        bay_id = proposed.bay_id
+        orient_idx = proposed.orient_idx
+        if (
+            isinstance(bay_id, bool)
+            or not isinstance(bay_id, int)
+            or not 0 <= bay_id < len(instance.bays)
+        ):
+            raise ValueError(f"invalid proposed bay for block {block_id}: {bay_id!r}")
+        if (
+            isinstance(orient_idx, bool)
+            or not isinstance(orient_idx, int)
+            or not 0 <= orient_idx < len(instance.blocks[block_id].orientations)
+        ):
+            raise ValueError(
+                f"invalid proposed orientation for block {block_id}: {orient_idx!r}"
+            )
+        ranges = instance.blocks[block_id].orientations[
+            orient_idx
+        ].integer_position_ranges(instance.bays[bay_id])
+        if ranges is None:
+            raise ValueError(
+                f"proposed assignment does not fit block {block_id} in bay {bay_id}"
+            )
+        block = instance.blocks[block_id]
+        entry = max(block.release_time, bay_available[bay_id])
+        placement = Placement(
+            block_id=block_id,
+            bay_id=bay_id,
+            x=ranges[0].start,
+            y=ranges[1].start,
+            orient_idx=orient_idx,
+            entry=entry,
+            exit=entry + block.dwell,
+        )
+        state.place(placement)
+        bay_available[bay_id] = placement.exit
+    state.assert_invariants()
+    return state
+
+
+def _relative_error(left: float | None, right: float | None) -> float | None:
+    if left is None or right is None:
+        return None
+    left_value = float(left)
+    right_value = float(right)
+    return abs(left_value - right_value) / max(
+        1.0,
+        abs(left_value),
+        abs(right_value),
+    )
 
 
 def run_constructor_case(
