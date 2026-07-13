@@ -19,9 +19,12 @@ from .instance import parse_instance
 from .serialize import serialize
 from .state import IncumbentStore, SolutionSnapshot, compute_objective
 from .runtime import (
+    LONG_BUDGET_ANCHOR_SECONDS,
     RunTrace,
     SubmissionConfig,
+    constructor_candidate_limit,
     constructor_profile_limit,
+    lns_iteration_limit,
     phase_name,
 )
 
@@ -94,6 +97,7 @@ def load_optional_phase(
                 ConstructorConfig(
                     seed=chosen.seed,
                     max_profiles=constructor_profile_limit(budget.limit),
+                    max_candidate_attempts=constructor_candidate_limit(budget.limit),
                 ),
             )
             if trace is not None:
@@ -157,7 +161,11 @@ def load_optional_phase(
                     store,
                     context,
                     lns_budget,
-                    AlnsConfig(seed=chosen.seed),
+                    AlnsConfig(
+                        seed=chosen.seed,
+                        max_iterations=lns_iteration_limit(lns_budget.limit),
+                        stall_time_fraction=0.0,
+                    ),
                     retime_hook=(
                         lambda *args, **kwargs: retime(
                             *args,
@@ -288,12 +296,18 @@ def solve(
     ):
         return store.operations
 
+    search_budget = (
+        budget.anchor(LONG_BUDGET_ANCHOR_SECONDS)
+        if budget.limit >= LONG_BUDGET_ANCHOR_SECONDS
+        else budget
+    )
+
     loader = optional_phase_loader or (lambda: load_optional_phase(chosen, trace))
     try:
         phase = loader()
         if phase is None:
             return store.operations
-        phase_result = phase(instance, store.snapshot, budget)
+        phase_result = phase(instance, store.snapshot, search_budget)
         retimer = phase_result.retimer if isinstance(phase_result, OptionalPhaseResult) else None
         lns_runner = (
             phase_result.lns_runner
@@ -302,7 +316,7 @@ def solve(
         )
         candidates = _candidate_stream(phase_result)
         for candidate, precedence_provider in candidates:
-            if not budget.can_start(budget.checker_p95, margin=0.01):
+            if not search_budget.can_start(search_budget.checker_p95, margin=0.01):
                 break
             if not isinstance(candidate, SolutionSnapshot):
                 continue
@@ -310,7 +324,7 @@ def solve(
                 installed = _check_and_install(
                     raw=raw,
                     instance=instance,
-                    budget=budget,
+                    budget=search_budget,
                     checker=checker,
                     store=store,
                     candidate=candidate,
@@ -327,7 +341,9 @@ def solve(
             # The retimer is optional and candidate-local.  Its input is always
             # the immutable checker-validated snapshot just installed above.
             try:
-                retimed = retimer(store.snapshot, instance, precedence_provider, budget)
+                retimed = retimer(
+                    store.snapshot, instance, precedence_provider, search_budget
+                )
             except Exception as exc:
                 if trace is not None:
                     trace.add_exception("retime", exc)
@@ -355,25 +371,37 @@ def solve(
                 )
                 if installed and trace is not None and retimed_snapshot.objective is not None:
                     trace.add_best(retimed_snapshot.objective.total)
-            elif budget.can_start(budget.checker_p95, margin=0.01):
+            elif search_budget.can_start(
+                search_budget.checker_p95, margin=0.01
+            ):
                 # Backward-compatible hook boundary for custom phases.  The
                 # production retimer returns its canonical full-check evidence.
                 _check_and_install(
                     raw=raw,
                     instance=instance,
-                    budget=budget,
+                    budget=search_budget,
                     checker=checker,
                     store=store,
                     candidate=retimed_snapshot,
                     precedence_provider=precedence_provider,
                     trace=trace,
                 )
-        if lns_runner is not None and budget.can_start(0.0, margin=0.01):
+        if lns_runner is not None and search_budget.can_start(0.0, margin=0.01):
+            try:
+                lns_runner(store.snapshot, store, raw, checker, search_budget)
+            except Exception as exc:
+                if trace is not None:
+                    trace.add_exception("lns", exc)
+        if (
+            lns_runner is not None
+            and budget.limit > search_budget.limit + 1e-9
+            and budget.can_start(0.0, margin=0.01)
+        ):
             try:
                 lns_runner(store.snapshot, store, raw, checker, budget)
             except Exception as exc:
                 if trace is not None:
-                    trace.add_exception("lns", exc)
+                    trace.add_exception("lns_extension", exc)
     except Exception as exc:
         if trace is not None:
             trace.add_exception("optional_phase", exc)

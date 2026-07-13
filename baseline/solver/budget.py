@@ -86,3 +86,21 @@ class Budget:
             checker_samples=self._checker_samples,
             reserve_enabled=False,
         )
+
+    def anchor(self, cap: float) -> "Budget":
+        """Return an absolute window measured from the root start time.
+
+        Unlike ``child``, an anchor does not grant a fresh duration at the
+        point where it is created.  This lets independent long and short runs
+        share the same search deadline and reserve policy for their common
+        prefix while the parent budget remains available for long-run
+        extension work.
+        """
+        duration = min(max(0.0, float(cap)), self.limit)
+        return Budget(
+            start_time=self._start_time,
+            deadline=self._start_time + duration,
+            clock=self._clock,
+            checker_samples=self._checker_samples,
+            reserve_enabled=True,
+        )

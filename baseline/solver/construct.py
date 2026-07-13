@@ -38,6 +38,7 @@ class ConstructorConfig:
     anchor_cap: int = 48
     lattice_cap: int = 512
     max_profiles: int = 6
+    max_candidate_attempts: int | None = None
 
     def __post_init__(self) -> None:
         values = (
@@ -53,6 +54,12 @@ class ConstructorConfig:
             raise ValueError("constructor caps are outside their supported range")
         if self.escalated_time_cap < self.time_cap:
             raise ValueError("escalated time cap must cover the first-pass cap")
+        if self.max_candidate_attempts is not None and (
+            isinstance(self.max_candidate_attempts, bool)
+            or not isinstance(self.max_candidate_attempts, int)
+            or self.max_candidate_attempts <= 0
+        ):
+            raise ValueError("candidate attempt cap must be a positive integer or None")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +98,8 @@ class ConstructionMetrics:
     escalations: int
     fallback_count: int
     placements_committed: int
+    candidate_cap: int | None
+    candidate_cap_exhausted: bool
     timebox_exhausted: bool
     deadline_hit: bool
     construction_time: float
@@ -113,12 +122,21 @@ class _Counters:
     escalations: int = 0
     fallback_count: int = 0
     committed: int = 0
+    candidate_cap_exhausted: bool = False
     timebox_exhausted: bool = False
     deadline_hit: bool = False
 
     @property
     def stop_requested(self) -> bool:
-        return self.timebox_exhausted or self.deadline_hit
+        return self.candidate_cap_exhausted or self.timebox_exhausted or self.deadline_hit
+
+
+def _stop_for_candidate_cap(config: ConstructorConfig, counters: _Counters) -> bool:
+    cap = config.max_candidate_attempts
+    if cap is None or counters.attempted < cap:
+        return False
+    counters.candidate_cap_exhausted = True
+    return True
 
 
 def _reserve_safe_tail(instance: Instance) -> float:
@@ -485,7 +503,9 @@ def _candidate_options(
         found: list[CandidateScore] = []
         for bay_id, orient_idx, reference_range in fitting:
             found_before_option = len(found)
-            if _stop_for_safe_tail(budget, counters, tail_reserve):
+            if _stop_for_candidate_cap(config, counters) or _stop_for_safe_tail(
+                budget, counters, tail_reserve
+            ):
                 break
             bay = instance.bay(bay_id)
             orient = block.orientations[orient_idx]
@@ -512,8 +532,9 @@ def _candidate_options(
                         current_position=current_position,
                     )
                 for position_index, (x, y) in enumerate(positions):
-                    if position_index % 16 == 0 and _stop_for_safe_tail(
-                        budget, counters, tail_reserve
+                    if _stop_for_candidate_cap(config, counters) or (
+                        position_index % 16 == 0
+                        and _stop_for_safe_tail(budget, counters, tail_reserve)
                     ):
                         break
                     counters.attempted += 1
@@ -739,7 +760,7 @@ def construct_complete(
     unplaced = set(order)
     try:
         while unplaced:
-            if _stop_for_safe_tail(
+            if _stop_for_candidate_cap(config, counters) or _stop_for_safe_tail(
                 budget, counters, _reserve_safe_tail(instance)
             ):
                 break
@@ -804,6 +825,8 @@ def construct_complete(
         escalations=counters.escalations,
         fallback_count=counters.fallback_count,
         placements_committed=counters.committed,
+        candidate_cap=config.max_candidate_attempts,
+        candidate_cap_exhausted=counters.candidate_cap_exhausted,
         timebox_exhausted=counters.timebox_exhausted,
         deadline_hit=counters.deadline_hit,
         construction_time=time.monotonic() - started,
@@ -835,7 +858,8 @@ def construct_portfolio(
         return ()
     profile_limit = 1 if budget.limit < 12 else 4 if budget.limit < 60 else config.max_profiles
     seeds = construction_seeds(portfolio, config)[:profile_limit]
-    total_cap = min(20.0, 0.12 * budget.limit, budget.search_remaining())
+    cap_fraction = 0.4 if config.max_candidate_attempts is not None else 0.12
+    total_cap = min(24.0, cap_fraction * budget.limit, budget.search_remaining())
     results: list[ConstructionResult] = []
     for index, seed in enumerate(seeds):
         remaining_profiles = len(seeds) - index

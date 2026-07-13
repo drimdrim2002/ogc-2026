@@ -24,6 +24,11 @@ VARIANTS = (
 )
 
 
+LONG_BUDGET_ANCHOR_SECONDS = 60.0
+LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES = 50_000
+LONG_BUDGET_ANCHOR_LNS_ITERATIONS = 16
+
+
 @dataclass(frozen=True, slots=True)
 class SubmissionConfig:
     seed: int = 20260710
@@ -97,6 +102,25 @@ def phase_name(limit: float) -> str:
 def constructor_profile_limit(limit: float) -> int:
     phase = phase_name(limit)
     return {"safe": 0, "short": 1, "medium": 4, "long": 6}[phase]
+
+
+def constructor_candidate_limit(limit: float) -> int | None:
+    """Return the deterministic constructor quota for the official anchor."""
+    if limit >= LONG_BUDGET_ANCHOR_SECONDS:
+        return LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES
+    return None
+
+
+def lns_iteration_limit(limit: float) -> int | None:
+    """Bound the common anchor prefix; extension search remains deadline-led."""
+    if math.isclose(
+        float(limit),
+        LONG_BUDGET_ANCHOR_SECONDS,
+        rel_tol=0.0,
+        abs_tol=1e-9,
+    ):
+        return LONG_BUDGET_ANCHOR_LNS_ITERATIONS
+    return None
 
 
 def _json_value(value: Any) -> Any:
@@ -176,9 +200,14 @@ class RunTrace:
 
 
 __all__ = [
+    "LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES",
+    "LONG_BUDGET_ANCHOR_LNS_ITERATIONS",
+    "LONG_BUDGET_ANCHOR_SECONDS",
     "RunTrace",
     "SubmissionConfig",
     "VARIANTS",
+    "constructor_candidate_limit",
     "constructor_profile_limit",
+    "lns_iteration_limit",
     "phase_name",
 ]
