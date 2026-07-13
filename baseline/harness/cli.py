@@ -20,7 +20,7 @@ from typing import Any, Iterable, Mapping
 from shapely.affinity import translate
 
 from .compare import latency_summary
-from .gates import evaluate_s0, evaluate_s1, evaluate_s2, latest_summary
+from .gates import evaluate_s0, evaluate_s1, evaluate_s2, evaluate_s3, latest_summary
 from .package import StageUnsupportedError
 from .report import render_gate_report
 from .runner import (
@@ -35,6 +35,8 @@ from .runner import (
     run_retime_fault_case,
     run_s3_operator_case,
     run_s3_control_case,
+    run_s3_integrated_case,
+    s3_prefix_record,
     run_s2_entry_case,
     run_s2_matrix_records,
     run_backend_parity_record,
@@ -146,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _common(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--evidence-root", default="benchmarks/evidence")
     parser.add_argument("--run-id", default="auto")
-    parser.add_argument("--seed", type=int, default=20260710)
+    parser.add_argument("--seed", type=_seed_argument, default=20260710)
     parser.add_argument("--jobs", type=int, default=1)
     parser.add_argument("--feature", action="append", default=[])
     parser.add_argument("--resume")
@@ -328,7 +330,7 @@ def _parity(args: argparse.Namespace) -> int:
         )
         record = run_backend_parity_record(
             cases=args.cases,
-            seed=args.seed,
+            seed=_single_seed(args.seed),
             timebox=2.0,
         )
         run.append_record(record)
@@ -389,7 +391,7 @@ def _parity(args: argparse.Namespace) -> int:
             },
         )
     if args.kind == "geometry":
-        record = _geometry_parity_record(args.cases, args.seed)
+        record = _geometry_parity_record(args.cases, _single_seed(args.seed))
     else:
         if caller == "construct":
             suffix = "test_construct.ConstructorTests.test_seeded_1000_event_candidates_match_checker"
@@ -464,11 +466,13 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 def _benchmark(args: argparse.Namespace) -> int:
     if args.stage == "s3":
-        return (
-            _s3_control_benchmark(args)
-            if args.component == "controls"
-            else _s3_operator_benchmark(args)
-        )
+        if args.component == "controls":
+            return _s3_control_benchmark(args)
+        if args.component == "operators":
+            return _s3_operator_benchmark(args)
+        if args.component is None:
+            return _s3_integrated_benchmark(args)
+        raise StageUnsupportedError(f"unsupported S3 component: {args.component}")
     if args.stage == "s2":
         return (
             _gurobi_retime_benchmark(args)
@@ -508,7 +512,10 @@ def _benchmark(args: argparse.Namespace) -> int:
     )
     _set_expected(run, expected)
     for ref in refs:
-        for timelimit in timelimits:
+        scheduled_limits = (
+            (300.0,) if args.instances == "dev-10" else timelimits
+        )
+        for timelimit in scheduled_limits:
             for seed in seeds:
                 record_id = _case_id(ref.instance_id, timelimit, seed, "none")
                 if record_id not in run.pending_record_ids:
@@ -532,6 +539,156 @@ def _benchmark(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s3_integrated_benchmark(args: argparse.Namespace) -> int:
+    if args.metric != "solver" or args.instances not in {"training", "dev-10"}:
+        raise SelectorError("S3-05 benchmark requires training or dev-10")
+    features = _features(args.feature)
+    if features != {"alns": "true"}:
+        raise SelectorError("S3-05 benchmark requires --feature alns=true")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    expected_limits = (60.0,) if args.instances == "training" else (60.0, 300.0)
+    if timelimits != expected_limits or seeds != (20260710,):
+        raise SelectorError(
+            f"S3-05 {args.instances} benchmark requires timelimits="
+            f"{','.join(f'{item:g}' for item in expected_limits)} and seed=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s3",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s3-05",
+            "selector": args.instances,
+            "features": features,
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl={timelimit:g}|seed=20260710|fault=none"
+        for ref in refs
+        for timelimit in timelimits
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            record_id = (
+                f"{ref.instance_id}|tl={timelimit:g}|seed=20260710|fault=none"
+            )
+            if record_id not in run.pending_record_ids:
+                continue
+            record = run_s3_integrated_case(
+                ref,
+                selector=args.instances,
+                timelimit=timelimit,
+                seed=20260710,
+                features=features,
+            )
+            if args.instances == "dev-10":
+                prefix = s3_prefix_record(ref, record, timelimit=60.0)
+                run.append_record(prefix)
+            record.pop("_epoch_solutions", None)
+            run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    sixty = tuple(
+        record for record in records if float(record.get("timelimit", 0.0)) == 60.0
+    )
+    improved_count = sum(
+        float(record.get("final_objective", float("inf")))
+        < float(record.get("s2_objective", float("-inf")))
+        for record in sixty
+    )
+    regression_count = sum(record.get("never_worse") is not True for record in records)
+    prefix_regression_count = 0
+    longer_regression_count = 0
+    if args.instances == "dev-10":
+        by_instance = {
+            instance_id: {
+                float(record["timelimit"]): record
+                for record in records
+                if record["instance_id"] == instance_id
+            }
+            for instance_id in {str(record["instance_id"]) for record in records}
+        }
+        for paired in by_instance.values():
+            short = paired.get(60.0, {})
+            long = paired.get(300.0, {})
+            prefix_regression_count += (
+                short.get("first_epoch_sha256") != long.get("first_epoch_sha256")
+            )
+            longer_regression_count += float(
+                long.get("final_objective", float("inf"))
+            ) > float(short.get("final_objective", float("-inf")))
+    median_s3 = statistics.median(
+        float(record["final_objective"]) for record in sixty
+    ) if sixty else float("inf")
+    median_s2 = statistics.median(
+        float(record["s2_objective"]) for record in sixty
+    ) if sixty else float("inf")
+    passed = (
+        len(records) == len(expected)
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in records)
+        and all(record.get("assignment_preserved") is True for record in records)
+        and all(record.get("trace_monotonic") is True for record in records)
+        and all(record.get("prefix_consistent") is True for record in records)
+        and all(int(record.get("metrics", {}).get("iterations", 0)) > 0 for record in records)
+        and all(
+            float(record.get("wall_seconds", float("inf")))
+            <= float(record.get("timelimit", 0.0)) + 0.25
+            for record in records
+        )
+        and all(
+            float(record.get("retime_wall_fraction", 1.0))
+            <= DEFAULT_CONFIG.alns_retime_wall_fraction_cap
+            for record in records
+        )
+        and regression_count == 0
+        and prefix_regression_count == 0
+        and longer_regression_count == 0
+    )
+    summary = _solver_summary(
+        "benchmark", args.instances, records, passed, stage="s3"
+    )
+    summary.update(
+        slice="s3-05",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+        improved_count=improved_count,
+        regression_count=regression_count,
+        prefix_regression_count=prefix_regression_count,
+        longer_regression_count=longer_regression_count,
+        median_s3_objective=median_s3,
+        median_s2_objective=median_s2,
+        total_iterations=sum(
+            int(record.get("metrics", {}).get("iterations", 0)) for record in records
+        ),
+        total_accepted=sum(
+            int(record.get("metrics", {}).get("accepted", 0)) for record in records
+        ),
+        checker_mismatch_count=sum(
+            int(record.get("metrics", {}).get("checker_failures", 0))
+            for record in records
+        ),
+        assignment_mismatch_count=sum(
+            record.get("assignment_preserved") is not True for record in records
+        ),
+        operator_attempts={
+            name: sum(
+                int(record.get("operator_metrics", {}).get(name, {}).get("attempts", 0))
+                for record in records
+            )
+            for name in ("d1", "d2", "d3", "d4", "d5", "r1", "r2", "r3")
+        },
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_GATE_FAILURE
 
 
 def _s3_operator_benchmark(args: argparse.Namespace) -> int:
@@ -1446,7 +1603,9 @@ def _predicate_benchmark(args: argparse.Namespace, features: Mapping[str, str]) 
         record_id = f"cap={cap}"
         if record_id not in run.pending_record_ids:
             continue
-        record = _measure_predicate(cap, seed=args.seed, features=features)
+        record = _measure_predicate(
+            cap, seed=_single_seed(args.seed), features=features
+        )
         run.append_record(record)
         table.append(record)
     if not table:
@@ -1557,6 +1716,8 @@ def _measure_predicate(
 
 
 def _stress(args: argparse.Namespace) -> int:
+    if args.stage == "s3":
+        return _s3_stress(args)
     if args.stage == "s2":
         features = _features(args.feature)
         if features.get("backend_fault") == "probe_all":
@@ -1615,6 +1776,95 @@ def _stress(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s3_stress(args: argparse.Namespace) -> int:
+    if args.instances != "stress":
+        raise SelectorError("S3-05 stress requires --instances stress")
+    features = _features(args.feature)
+    faults = tuple(features.get("fault", "").split(","))
+    if features.get("alns") != "true" or faults != (
+        "repair", "accept", "retime", "full_check"
+    ):
+        raise SelectorError(
+            "S3-05 stress requires alns=true and "
+            "fault=repair,accept,retime,full_check"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (5.0, 12.0, 60.0) or seeds != (20260710,):
+        raise SelectorError(
+            "S3-05 stress requires timelimits=5,12,60 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s3",
+        command="stress",
+        expected_record_ids=(),
+        metadata={"slice": "s3-05", "selector": "stress", "features": features},
+        delayed_expected=True,
+    )
+    refs = select_instances("stress", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl={timelimit:g}|seed=20260710|fault={fault}"
+        for ref in refs
+        for timelimit in timelimits
+        for fault in faults
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for fault in faults:
+                record_id = (
+                    f"{ref.instance_id}|tl={timelimit:g}|seed=20260710|fault={fault}"
+                )
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_s3_integrated_case(
+                    ref,
+                    selector="stress",
+                    timelimit=timelimit,
+                    seed=20260710,
+                    features=features,
+                    fault=fault,
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected)
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in records)
+        and all(record.get("never_worse") is True for record in records)
+        and all(record.get("assignment_preserved") is True for record in records)
+        and all(record.get("fault_applied") == record.get("fault") for record in records)
+        and all(record.get("unverified_return_count") == 0 for record in records)
+    )
+    summary = _solver_summary("stress", "stress", records, passed, stage="s3")
+    summary.update(
+        slice="s3-05",
+        timelimits=timelimits,
+        seeds=seeds,
+        faults=faults,
+        features=features,
+        rollback_failure_count=sum(
+            record.get("never_worse") is not True for record in records
+        ),
+        assignment_mismatch_count=sum(
+            record.get("assignment_preserved") is not True for record in records
+        ),
+        fault_miss_count=sum(
+            record.get("fault_applied") != record.get("fault") for record in records
+        ),
+        checker_mismatch_count=sum(
+            record.get("checker", {}).get("feasible") is not True for record in records
+        ),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_SEMANTIC
 
 
 def _exact_probe_stress(args: argparse.Namespace) -> int:
@@ -2026,7 +2276,7 @@ def _ab(args: argparse.Namespace) -> int:
     if args.a != "false" or args.b != "true":
         raise SelectorError("S1-05 A/B requires --a false --b true")
     timelimits = _csv_floats(args.timelimits)
-    seeds = _csv_ints(args.seeds) if args.seeds else (args.seed,)
+    seeds = _seed_values(args)
     if timelimits != (5.0,) or seeds != (20260710,):
         raise SelectorError("S1-05 A/B requires timelimits=5 and seed=20260710")
     features = {"feature": "constructor", "a": "false", "b": "true"}
@@ -2135,7 +2385,7 @@ def _s3_ab(args: argparse.Namespace) -> int:
     if args.instances != "dev-10":
         raise SelectorError("S3-04 A/B requires --instances dev-10")
     timelimits = _csv_floats(args.timelimits)
-    seeds = _csv_ints(args.seeds) if args.seeds else (args.seed,)
+    seeds = _seed_values(args)
     required_seeds = (20260710, 20260711, 20260712)
     if timelimits != (60.0,) or seeds != required_seeds:
         raise SelectorError(
@@ -2367,7 +2617,7 @@ def _s2_ab(args: argparse.Namespace) -> int:
     if args.a != "false" or args.b != "true":
         raise SelectorError("S2-05 A/B requires --a false --b true")
     timelimits = _csv_floats(args.timelimits)
-    seeds = _csv_ints(args.seeds) if args.seeds else (args.seed,)
+    seeds = _seed_values(args)
     if timelimits != (60.0,) or seeds != (20260710,):
         raise SelectorError("S2-05 A/B requires timelimits=60 and seed=20260710")
     features = {"feature": "exact_retime", "a": "false", "b": "true"}
@@ -2490,12 +2740,17 @@ def _s2_ab(args: argparse.Namespace) -> int:
 
 
 def _gate(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1", "s2"}:
+    if args.stage not in {"s0", "s1", "s2", "s3"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} gate requires --latest-complete")
     requested_commit = repository_provenance()["commit"] if args.commit == "HEAD" else args.commit
-    evaluators = {"s0": evaluate_s0, "s1": evaluate_s1, "s2": evaluate_s2}
+    evaluators = {
+        "s0": evaluate_s0,
+        "s1": evaluate_s1,
+        "s2": evaluate_s2,
+        "s3": evaluate_s3,
+    }
     decision = evaluators[args.stage](_evidence_root(args))
     decision["requested_commit"] = requested_commit
     record_id = f"{args.stage}-gate"
@@ -2526,7 +2781,7 @@ def _gate(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1", "s2"}:
+    if args.stage not in {"s0", "s1", "s2", "s3"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} report requires --latest-complete")
@@ -2671,6 +2926,23 @@ def _features(raw: Iterable[str]) -> dict[str, str]:
             raise SelectorError(f"feature must be NAME=VALUE: {item}")
         parsed[name] = value
     return parsed
+
+
+def _seed_argument(raw: str) -> int | tuple[int, ...]:
+    values = _csv_ints(raw)
+    return values[0] if len(values) == 1 else values
+
+
+def _single_seed(value: int | tuple[int, ...]) -> int:
+    if isinstance(value, tuple):
+        raise SelectorError("this command accepts exactly one --seed value")
+    return int(value)
+
+
+def _seed_values(args: argparse.Namespace) -> tuple[int, ...]:
+    if args.seeds:
+        return _csv_ints(args.seeds)
+    return args.seed if isinstance(args.seed, tuple) else (int(args.seed),)
 
 
 def _csv_ints(raw: str) -> tuple[int, ...]:

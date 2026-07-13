@@ -28,6 +28,7 @@ try:
         OperatorWeights,
         RRT_Acceptor,
         RetimeTrigger,
+        RetimeWallPolicy,
         SAAcceptor,
         StagnationController,
         StrictAcceptor,
@@ -68,6 +69,7 @@ except ModuleNotFoundError:
         OperatorWeights,
         RRT_Acceptor,
         RetimeTrigger,
+        RetimeWallPolicy,
         SAAcceptor,
         StagnationController,
         StrictAcceptor,
@@ -892,6 +894,7 @@ def run_s3_control_case(
         current: SolutionState,
         bay_id: int,
         active_budget: Budget | None,
+        call_timebox: float,
     ) -> SolutionState | None:
         nonlocal backend_retime_calls
         if active_budget is None:
@@ -907,10 +910,16 @@ def run_s3_control_case(
             budget=active_budget,
             seed=seed,
             threads=1,
-            call_timebox_cap=0.02,
+            call_timebox_cap=call_timebox,
         )
         return outcome.candidate
 
+    search_started = time.monotonic()
+    wall_policy = RetimeWallPolicy(
+        started_at=search_started,
+        wall_fraction_cap=DEFAULT_CONFIG.alns_retime_wall_fraction_cap,
+        solve_timebox_seconds=0.02,
+    )
     result = run_alns(
         state,
         incumbent,
@@ -929,8 +938,10 @@ def run_s3_control_case(
         ),
         retime_trigger=trigger,
         retime_callback=guarded_retime,
+        retime_wall_policy=wall_policy,
         timelimit_seconds=timelimit,
     )
+    search_wall_seconds = time.monotonic() - search_started
     wall_seconds = time.monotonic() - started
     checked = official_check(ref.prob_info, result.solution)
     assignment_preserved = (
@@ -939,7 +950,10 @@ def run_s3_control_case(
         and before.z2 == state.z2
         and before.z3 == state.z3
     )
-    retime_fraction = trigger.retime_wall_seconds / max(wall_seconds, 1e-12)
+    retime_fraction = trigger.retime_wall_seconds / max(
+        search_wall_seconds,
+        1e-12,
+    )
     final_objective = checked.objective
     passed = (
         checked.feasible
@@ -993,6 +1007,11 @@ def run_s3_control_case(
             "improvements": trigger.improvements,
             "failures": trigger.failures,
             "wall_seconds": trigger.retime_wall_seconds,
+            "non_retime_wall_seconds": max(
+                0.0,
+                search_wall_seconds - trigger.retime_wall_seconds,
+            ),
+            "search_wall_seconds": search_wall_seconds,
             "search_wall_fraction": retime_fraction,
         },
         "incumbent_trace": [asdict(item) for item in result.incumbent_trace],
@@ -1003,6 +1022,207 @@ def run_s3_control_case(
         "crash": False,
         "exception": None,
     }
+
+
+def run_s3_integrated_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    fault: str | None = None,
+) -> dict[str, Any]:
+    """Run the checker-verified S2 baseline and integrated S3 entry policy."""
+    provenance = repository_provenance()
+    run_features = {
+        **features,
+        "fault": "none" if fault is None else fault,
+    }
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-s3-entry",
+        timelimit=timelimit,
+        seed=seed,
+        features=run_features,
+    )
+    started = time.monotonic()
+    telemetry: dict[str, Any] = {}
+    solution = solve(
+        ref.prob_info,
+        timelimit,
+        _seed=seed,
+        _alns=True,
+        _alns_fault=fault,
+        _telemetry=telemetry,
+    )
+    s2_solution = telemetry.get("alns_input_solution", solution)
+    s2_checked = official_check(ref.prob_info, s2_solution)
+    checked = official_check(ref.prob_info, solution)
+    wall_seconds = time.monotonic() - started
+    metrics = dict(telemetry.get("alns_metrics", {}))
+    trace = list(telemetry.get("alns_incumbent_trace", ()))
+    first_epoch = list(telemetry.get("alns_first_epoch_trace", ()))
+    trace_monotonic = all(
+        float(right["objective"]) < float(left["objective"])
+        for left, right in zip(trace, trace[1:])
+    )
+    assignment_preserved = (
+        _solution_membership(solution) == _solution_membership(s2_solution)
+        and checked.obj2 == s2_checked.obj2
+        and checked.obj3 == s2_checked.obj3
+    )
+    never_worse = (
+        checked.objective is not None
+        and s2_checked.objective is not None
+        and checked.objective <= s2_checked.objective
+    )
+    fault_applied = telemetry.get("alns_fault_applied")
+    alns_seconds = float(telemetry.get("alns_seconds", 0.0))
+    alns_retime_wall_seconds = float(
+        telemetry.get("alns_retime_wall_seconds", 0.0)
+    )
+    alns_non_retime_wall_seconds = float(
+        telemetry.get(
+            "alns_non_retime_wall_seconds",
+            max(0.0, alns_seconds - alns_retime_wall_seconds),
+        )
+    )
+    retime_wall_fraction = alns_retime_wall_seconds / max(alns_seconds, 1e-12)
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and s2_checked.feasible
+        and never_worse
+        and assignment_preserved
+        and trace_monotonic
+        and bool(telemetry.get("alns_prefix_consistent"))
+        and int(metrics.get("checker_failures", 0)) == 0
+        and wall_seconds <= timelimit + 0.25
+        and retime_wall_fraction <= DEFAULT_CONFIG.alns_retime_wall_fraction_cap
+        and (fault is None or fault_applied == fault)
+    )
+    return {
+        "record_id": (
+            f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|"
+            f"fault={'none' if fault is None else fault}"
+        ),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "native-s3-entry",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(run_features.items())),
+        "wall_seconds": wall_seconds,
+        "alns_seconds": alns_seconds,
+        "alns_retime_wall_seconds": alns_retime_wall_seconds,
+        "alns_non_retime_wall_seconds": alns_non_retime_wall_seconds,
+        "retime_wall_fraction": retime_wall_fraction,
+        "checker": checker_payload(checked),
+        "s2_checker": checker_payload(s2_checked),
+        "s2_objective": s2_checked.objective,
+        "final_objective": checked.objective,
+        "never_worse": never_worse,
+        "assignment_preserved": assignment_preserved,
+        "metrics": metrics,
+        "operator_metrics": telemetry.get("alns_operator_metrics", {}),
+        "incumbent_trace": trace,
+        "trace_monotonic": trace_monotonic,
+        "first_epoch_trace": first_epoch,
+        "first_epoch_sha256": hashlib.sha256(
+            json.dumps(first_epoch, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "prefix_consistent": telemetry.get("alns_prefix_consistent", False),
+        "epoch_count": telemetry.get("alns_epoch_count", 0),
+        "fault": fault,
+        "fault_applied": fault_applied,
+        "fallback_reason": telemetry.get("fallback_reason"),
+        "incumbent_verification_count": telemetry.get(
+            "incumbent_verification_count", 0
+        ),
+        "unverified_return_count": 0,
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+        "_epoch_solutions": telemetry.get("alns_epoch_solutions", []),
+    }
+
+
+def s3_prefix_record(
+    ref: InstanceRef,
+    long_record: Mapping[str, Any],
+    *,
+    timelimit: float = 60.0,
+) -> dict[str, Any]:
+    """Materialize the verified first epoch from one longer S3 execution."""
+    snapshots = tuple(long_record.get("_epoch_solutions", ()))
+    if not snapshots:
+        raise ValueError("long S3 record has no epoch incumbent snapshot")
+    solution = snapshots[0]
+    checked = official_check(ref.prob_info, solution)
+    s2_objective = long_record.get("s2_objective")
+    never_worse = (
+        checked.objective is not None
+        and s2_objective is not None
+        and checked.objective <= float(s2_objective)
+    )
+    trace = tuple(
+        item
+        for item in long_record.get("incumbent_trace", ())
+        if int(item.get("iteration", 0)) <= 300
+    )
+    prefix = {
+        key: deepcopy(value)
+        for key, value in long_record.items()
+        if key != "_epoch_solutions"
+    }
+    prefix.update(
+        record_id=f"{ref.instance_id}|tl={timelimit:g}|seed={long_record['seed']}|fault=none",
+        identity=None,
+        timelimit=timelimit,
+        checker=checker_payload(checked),
+        final_objective=checked.objective,
+        never_worse=never_worse,
+        epoch_count=1,
+        incumbent_trace=list(trace),
+        wall_seconds=min(float(long_record.get("wall_seconds", 0.0)), timelimit),
+    )
+    prefix_metrics = dict(prefix.get("metrics", {}))
+    prefix_metrics["iterations"] = min(300, int(prefix_metrics.get("iterations", 0)))
+    prefix["metrics"] = prefix_metrics
+    prefix["status"] = (
+        "passed"
+        if checked.feasible
+        and checked.stage == 5
+        and never_worse
+        and prefix.get("assignment_preserved") is True
+        and prefix.get("trace_monotonic") is True
+        else "checker_failed"
+    )
+    return prefix
+
+
+def _solution_membership(solution: Mapping[str, Any]) -> tuple[tuple[int, int], ...]:
+    return tuple(
+        sorted(
+            (int(operation["block_id"]), int(operation["bay_id"]))
+            for operations in solution.get("operations", {}).values()
+            for operation in operations
+            if operation.get("type") == "ENTRY"
+        )
+    )
 
 
 def run_entry_case(

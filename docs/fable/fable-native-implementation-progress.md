@@ -6,7 +6,7 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S3 in progress (S3-04 complete)
+Planning status: complete; implementation status: S3 complete
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -150,7 +150,7 @@ S0 foundation
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
-| S3 | `IN_PROGRESS` | — | `NOT_RUN` | `alns=false`; acceptor `sa`; adaptive `false`; dirty `max(3,.03n_b)` | S2 mandatory gate; S3-01 through S3-04 complete | `benchmarks/evidence/s3/s3-04/20260712T230400Z-s3-04/` | pending atomic S3-04 commit | — | stop at S3-04 boundary; S3-05 is eligible only in a new task under its own preflight |
+| S3 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive `false`; dirty `max(3,.03n_b)` | S2 mandatory gate; S3-01 through S3-05 complete | `benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/` | pending atomic S3-05 commit | — | stop at the S3 boundary; S4 was not started |
 | S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
 | S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
@@ -2799,6 +2799,170 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: adaptive=true safely disabled after worse measured quality, only 2/10 wins, and two checker-rejected experimental candidates; neither candidate replaced or escaped as incumbent
   feature_default_decision: alns=false pending S3-05; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); retime interval=.03*TL; S3-04 COMPLETE with no entry integration, cross-bay mutation, S4 neighborhood, portfolio, or interlock behavior
   next_action: stage only the six tracked S3-04 files, commit feat(s3): add retimed adaptive acceptance controls, push, verify upstream equality and clean status, then create the isolated S3-05 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T08:56:43+09:00
+  stage: S3
+  slice: S3-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc4869219a5d6ea97c2f4675131a4bb21e6049a5
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S3-05\\b' docs/fable/implementation-steps/s3-lns.md
+    - inspect benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/{COMPLETE,gate.json,summary.json}
+    - inspect benchmarks/evidence/s2/s2-05/20260712T154942Z-s2-05/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s3/s3-01/20260712T223156Z-s3-01/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s3/s3-02/20260712T224037Z-s3-02/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s3/s3-03/20260712T225253Z-s3-03/{COMPLETE,summary.json}
+    - inspect benchmarks/evidence/s3/s3-04/20260712T230400Z-s3-04/{COMPLETE,summary.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s2 --latest-complete
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.ControlTests -v
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false until the full S3 gate passes; S3-04 selected acceptor=sa, adaptive=false, dirty=max(3,.03*n_b), and retime interval=.03*TL
+  next_action: add tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix and demonstrate the intended absent prefix-consistent integrated schedule RED
+```
+
+```yaml
+- timestamp: 2026-07-13T08:59:00+09:00
+  stage: S3
+  slice: S3-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc4869219a5d6ea97c2f4675131a4bb21e6049a5
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix -v
+  red_evidence: benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.alns has no run_anytime_epochs API and the integrated prefix-consistent schedule is absent
+  feature_default_decision: alns=false until targeted GREEN and the full S3 gate pass
+  next_action: implement the minimum absolute-epoch prefix-consistent ALNS wrapper and guarded entry integration using the S3-04-selected controls
+```
+
+```yaml
+- timestamp: 2026-07-13T09:15:00+09:00
+  stage: S3
+  slice: S3-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc4869219a5d6ea97c2f4675131a4bb21e6049a5
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix tests.test_budget_entry.EntryArmorTests.test_alns_entry_and_failure_keep_verified_s2_incumbent -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/green-targeted.txt; benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/full-regression.txt
+  checker_result: PASS; fake-clock 60/300 prefix replay and guarded integrated entry returned only official-checker Stage 5 incumbents; all 78 tests passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false pending the complete S3 benchmark/A-B/stress/gate sequence; integrated candidate uses acceptor=sa, adaptive=false, dirty=max(3,.03*n_b), and fixed 60-second epochs
+  next_action: run the exact S3 full-gate command sequence and require all checker, prefix, never-worse, assignment-neutrality, search-activity, A/B, and rollback criteria
+```
+
+```yaml
+- timestamp: 2026-07-13T14:30:29+09:00
+  stage: S3
+  slice: S3-05
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: cc4869219a5d6ea97c2f4675131a4bb21e6049a5
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - inspect and reuse benchmarks/evidence/s3/benchmark/20260713T042212Z-003fe3ee/{COMPLETE,run.json,records.jsonl,summary.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --instances dev-10 --timelimits 60,300 --seeds 20260710 --feature alns=true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s3 --instances dev-10 --timelimits 60 --seed 20260710,20260711,20260712 --feature acceptor --a strict --b rrt,sa
+  red_evidence: benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/green-targeted.txt; benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/full-regression.txt
+  checker_result: BLOCKED; all 180 acceptor A/B records remained official-checker Stage 5 feasible and assignment-preserving, but one required retime resource-cap condition failed
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/benchmark/20260713T042212Z-003fe3ee/; benchmarks/evidence/s3/benchmark/20260713T050502Z-10c61bbf/; benchmarks/evidence/s3/ab/20260713T051609Z-9003eba9/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: acceptor A/B exited 2 because prob_21 seed 20260712 with acceptor=sa and order=forward recorded retime.search_wall_fraction=0.21951858991134496, above the unchanged alns_retime_wall_fraction_cap=0.20; adaptive A/B, S3 stress, gate, and report were not run after the failure
+  feature_default_decision: alns=false; the completed 40-record training proof and 20-record dev-10 60/300 proof remain valid, S2 remains the verified fallback, and the S3 gate was not claimed
+  next_action: in a separate task, correct the runtime retime allowance calculation so every row of the unchanged acceptor A/B stays within the fixed 20% cap, then begin a fresh S3-05 verification run without weakening or changing the cap
+```
+
+```yaml
+- timestamp: 2026-07-13T15:04:17+09:00
+  stage: S3
+  slice: S3-05
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: cc4869219a5d6ea97c2f4675131a4bb21e6049a5
+  dirty: true
+  commands:
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - git diff --binary --no-ext-diff
+    - git diff --check
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_retime_wall_policy_skips_unsafe_short_call -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_retime_wall_policy_skips_unsafe_short_call -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_retime_wall_policy_skips_unsafe_short_call tests.test_alns.ControlTests.test_guarded_retime_and_backend_failure_keep_incumbent tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix tests.test_budget_entry.EntryArmorTests.test_alns_entry_and_failure_keep_verified_s2_incumbent -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --component controls --instances dev-10 --timelimits 60 --seeds 20260710,20260711,20260712 --feature alns=true --feature acceptor=sa --feature adaptive=false
+    - inspect benchmarks/evidence/s3/benchmark/20260713T055647Z-fc715b12/{COMPLETE,summary.json,records.jsonl,failures.jsonl}
+  red_evidence: benchmarks/evidence/s3/s3-05-wall-share/20260713T055448Z-wall-share/red.txt
+  green_evidence: benchmarks/evidence/s3/s3-05-wall-share/20260713T055448Z-wall-share/green-targeted.txt; benchmarks/evidence/s3/s3-05-wall-share/20260713T055448Z-wall-share/targeted-regression.txt; benchmarks/evidence/s3/s3-05-wall-share/20260713T055448Z-wall-share/full-discovery.txt
+  checker_result: PASS; deterministic fake-clock regression and all 90 control records preserved verified Stage 5 incumbents and assignment/Z2/Z3, with zero checker mismatches and zero unverified returns
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/benchmark/20260713T055647Z-fc715b12/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=false; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); retime interval=.03*TL; the fixed retime wall-share cap remains 0.20 and the control proof maximum was 0.000051807645815563415
+  historical_evidence_note: all older S3-05 training/dev/A-B evidence predates the corrective source diff and is historical-only
+  next_action: start a fresh S3-05 full verification-and-closeout session from this IN_PROGRESS state; do not reuse older training/dev/A-B evidence as current-code proof
+```
+
+```yaml
+- timestamp: 2026-07-13T16:03:12+09:00
+  stage: S3
+  slice: S3-05
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s3): integrate prefix-consistent anytime LNS
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --instances training --timelimits 60 --seeds 20260710 --feature alns=true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --instances dev-10 --timelimits 60,300 --seeds 20260710 --feature alns=true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s3 --instances dev-10 --timelimits 60 --seed 20260710,20260711,20260712 --feature acceptor --a strict --b rrt,sa
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s3 --instances dev-10 --timelimits 60 --seed 20260710,20260711,20260712 --feature alns_adaptive --a false --b true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s3 --instances stress --timelimits 5,12,60 --seeds 20260710 --feature alns=true --feature fault=repair,accept,retime,full_check
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s3 --latest-complete --commit HEAD
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s3 --latest-complete
+  red_evidence: benchmarks/evidence/s3/s3-05/20260712T235643Z-s3-05/red.txt
+  green_evidence: current exact-once full discovery 79/79 GREEN; benchmarks/evidence/s3/s3-05-wall-share/20260713T055448Z-wall-share/full-discovery.txt
+  checker_result: PASS; 40/40 training, 20/20 dev, 180/180 acceptor, 120/120 adaptive, 90/90 dirty-control, and 36/36 stress records were official-checker Stage 5 feasible with zero checker, assignment/Z2/Z3, prefix, longer-run, rollback, fault-coverage, leak, or unverified-return failures; every final current-code retime wall fraction satisfied the fixed 0.20 cap
+  benchmark_or_stress_evidence: benchmarks/evidence/s3/benchmark/20260713T060829Z-01fd1f6a/; benchmarks/evidence/s3/benchmark/20260713T063031Z-21696a5e/; benchmarks/evidence/s3/ab/20260713T064103Z-207fef85/; benchmarks/evidence/s3/ab/20260713T065357Z-a285ab25/; benchmarks/evidence/s3/benchmark/20260713T055647Z-fc715b12/; benchmarks/evidence/s3/stress/20260713T070231Z-dd9b1e1d/; benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/; benchmarks/evidence/s3/report/20260713T070253Z-828e8e15/
+  gate_decision: PASS
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=true; acceptor=sa selected by the lowest preregistered median; adaptive=false because its median was worse and it won 2/10 versus the required 6/10; dirty=max(3,.03*n_b) retained by the preregistered tied-median matrix order; retime interval=.03*TL; retime wall-share cap=0.20 unchanged
+  next_action: remove only genuine S3-05 temporary candidate files if any, audit the complete selected-slice diff, create and push the atomic S3-05 commit, verify upstream equality and clean status, then stop without starting S4
 ```
 
 ## 11. Planning quality audit

@@ -33,8 +33,9 @@ from .validate import validate_insertion
 
 MutationHook = Callable[[str, int], None]
 Acceptance = Callable[[ObjectiveDiagnostics, ObjectiveDiagnostics], bool]
+RunFaultHook = Callable[[str], None]
 RetimeCallback = Callable[
-    [SolutionState, int, Budget | None], SolutionState | None
+    [SolutionState, int, Budget | None, float], SolutionState | None
 ]
 
 
@@ -102,10 +103,12 @@ class ALNSMetrics:
     full_checks: int = 0
     safety_samples: int = 0
     checker_failures: int = 0
+    checker_rejections: int = 0
     faults: int = 0
     deadlines: int = 0
     accepted_worsening: int = 0
     retime_attempts: int = 0
+    retime_skips: int = 0
     retime_improvements: int = 0
     retime_failures: int = 0
     reheats: int = 0
@@ -134,6 +137,21 @@ class ALNSRunResult:
     metrics: ALNSMetrics
     incumbent_trace: tuple[IncumbentTraceEntry, ...]
     stopped_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class AnytimeRunResult:
+    """Prefix-stable fixed-epoch search result with a verified return."""
+
+    solution: dict[str, Any]
+    metrics: ALNSMetrics
+    incumbent_trace: tuple[IncumbentTraceEntry, ...]
+    stopped_reason: str
+    epoch_count: int
+    first_epoch_trace: tuple[tuple[Any, ...], ...]
+    prefix_consistent: bool
+    operator_metrics: tuple[tuple[str, int, int, int], ...]
+    epoch_solutions: tuple[dict[str, Any], ...]
 
 
 class StrictAcceptor:
@@ -508,6 +526,86 @@ class RetimeTrigger:
         self.attempts += 1
         self.improvements += int(improved)
         self.failures += int(failed)
+
+
+class RetimeWallPolicy:
+    """Admit retiming only when its whole deadline window is share-safe.
+
+    A backend solve timebox cannot bound environment initialization, model
+    construction, extraction, validation, checker handling, or cleanup.  The
+    admission decision therefore reserves the entire remaining cooperative
+    deadline window, while the returned value bounds only the backend solve
+    request.  Actual guarded wall time remains measured by
+    :func:`_run_guarded_retime` and is used by every later decision.
+    """
+
+    __slots__ = (
+        "started_at",
+        "wall_fraction_cap",
+        "solve_timebox_seconds",
+        "clock",
+    )
+
+    def __init__(
+        self,
+        *,
+        started_at: float,
+        wall_fraction_cap: float,
+        solve_timebox_seconds: float,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if not math.isfinite(started_at):
+            raise ValueError("started_at must be finite")
+        if (
+            not math.isfinite(wall_fraction_cap)
+            or not 0.0 < wall_fraction_cap < 1.0
+        ):
+            raise ValueError("wall_fraction_cap must be in (0, 1)")
+        if (
+            not math.isfinite(solve_timebox_seconds)
+            or solve_timebox_seconds < 0.0
+        ):
+            raise ValueError("solve_timebox_seconds must be finite and non-negative")
+        if not callable(clock):
+            raise TypeError("clock must be callable")
+        self.started_at = float(started_at)
+        self.wall_fraction_cap = float(wall_fraction_cap)
+        self.solve_timebox_seconds = float(solve_timebox_seconds)
+        self.clock = clock
+
+    def call_timebox(
+        self,
+        trigger: RetimeTrigger,
+        budget: Budget | None,
+        *,
+        attempt_started_at: float,
+    ) -> float | None:
+        """Return a solve allowance, or ``None`` when the call is not safe."""
+        if not isinstance(trigger, RetimeTrigger):
+            raise TypeError("trigger must be a RetimeTrigger")
+        if not math.isfinite(attempt_started_at):
+            raise ValueError("attempt_started_at must be finite")
+        if budget is None:
+            return None
+
+        now = float(self.clock())
+        elapsed = max(0.0, now - self.started_at)
+        current_guard_wall = max(0.0, now - float(attempt_started_at))
+        accumulated_retime = trigger.retime_wall_seconds + current_guard_wall
+        non_retime_search = max(0.0, elapsed - accumulated_retime)
+        remaining_deadline = max(0.0, float(budget.remaining))
+        if remaining_deadline <= 0.0 or self.solve_timebox_seconds <= 0.0:
+            return None
+
+        max_additional_retime = (
+            self.wall_fraction_cap
+            / (1.0 - self.wall_fraction_cap)
+            * non_retime_search
+            - accumulated_retime
+        )
+        if remaining_deadline > max_additional_retime + 1e-12:
+            return None
+        return min(self.solve_timebox_seconds, remaining_deadline)
 
 
 def _validate_progress(progress: float) -> None:
@@ -1141,7 +1239,10 @@ def run_alns(
     stagnation: StagnationController | None = None,
     retime_trigger: RetimeTrigger | None = None,
     retime_callback: RetimeCallback | None = None,
+    retime_wall_policy: RetimeWallPolicy | None = None,
     timelimit_seconds: float = 0.0,
+    elapsed_offset_seconds: float = 0.0,
+    fault_hook: RunFaultHook | None = None,
 ) -> ALNSRunResult:
     """Run the checker-safe S3 loop while returning only a verified incumbent.
 
@@ -1195,8 +1296,12 @@ def run_alns(
         raise ValueError("repair weights do not match the operator registry")
     if not math.isfinite(timelimit_seconds) or timelimit_seconds < 0.0:
         raise ValueError("timelimit_seconds must be finite and non-negative")
+    if not math.isfinite(elapsed_offset_seconds) or elapsed_offset_seconds < 0.0:
+        raise ValueError("elapsed_offset_seconds must be finite and non-negative")
     if (retime_trigger is None) != (retime_callback is None):
         raise ValueError("retime trigger and callback must be configured together")
+    if retime_wall_policy is not None and retime_callback is None:
+        raise ValueError("retime wall policy requires a retime callback")
 
     metrics = ALNSMetrics()
     cur_obj = state.objective
@@ -1278,6 +1383,7 @@ def run_alns(
                     continue
                 state.assert_invariants()
                 _assert_assignment_unchanged(transaction.undo_token, state)
+                _inject_run_fault(fault_hook, "repair")
                 _checkpoint(budget, "S3 candidate repaired")
 
                 new_obj = state.objective
@@ -1302,6 +1408,7 @@ def run_alns(
                 if on_event is not None:
                     on_event(event)
                 _checkpoint(budget, "S3 acceptance reported")
+                _inject_run_fault(fault_hook, "accept")
                 if not accepted:
                     metrics.rejected += 1
                     _record_operator_failure(operators, destroy_name, repair_name)
@@ -1315,12 +1422,10 @@ def run_alns(
                     operator_outcome_recorded = True
                     continue
 
-                sample_due = (
-                    safety_sample_interval > 0
-                    and metrics.proposals % safety_sample_interval == 0
-                )
+                sample_due = True
                 if potential_incumbent or sample_due:
                     _checkpoint(budget, "S3 before full check")
+                    _inject_run_fault(fault_hook, "full_check")
                     metrics.full_checks += 1
                     updated = False
                     if potential_incumbent:
@@ -1333,15 +1438,20 @@ def run_alns(
                             serialize_non_interlock(state.placements.values()),
                         )
                     if not checked.feasible or checked.objective is None:
-                        metrics.checker_failures += 1
+                        metrics.checker_rejections += 1
                         metrics.rejected += 1
                         _record_operator_failure(
                             operators, destroy_name, repair_name
                         )
                         operator_outcome_recorded = True
-                        raise _CheckerSafetyError(
-                            "official checker rejected an accepted candidate"
+                        _record_weight_outcome(
+                            destroy_control,
+                            repair_control,
+                            destroy_name,
+                            repair_name,
+                            "rejected",
                         )
+                        continue
                     if updated:
                         incumbent_updated = True
                         entry = _trace_entry(
@@ -1375,7 +1485,7 @@ def run_alns(
             _checkpoint(budget, "S3 after candidate commit")
             if source_bay is not None and retime_trigger is not None:
                 retime_trigger.record_spatial_accept(source_bay)
-                elapsed = progress * timelimit_seconds
+                elapsed = elapsed_offset_seconds + progress * timelimit_seconds
                 bay_size = len(state.bay_members[source_bay])
                 if retime_trigger.should_retime(
                     source_bay,
@@ -1390,11 +1500,13 @@ def run_alns(
                         budget,
                         retime_trigger,
                         retime_callback,
+                        retime_wall_policy,
                         elapsed=elapsed,
                         metrics=metrics,
                         trace=trace,
                         iteration=iteration,
                         acceptor=strict,
+                        fault_hook=fault_hook,
                     )
                     incumbent_updated = incumbent_updated or retime_updated
             if stagnation is not None:
@@ -1435,6 +1547,233 @@ def run_alns(
     )
 
 
+class _AbsoluteEpochBudget:
+    """Duck-typed Budget bounded by an absolute epoch deadline."""
+
+    __slots__ = ("_clock", "deadline")
+
+    def __init__(self, clock: Callable[[], float], deadline: float) -> None:
+        self._clock = clock
+        self.deadline = float(deadline)
+
+    @property
+    def remaining(self) -> float:
+        return max(0.0, self.deadline - float(self._clock()))
+
+    def checkpoint(self, label: str = "S3 epoch") -> None:
+        if float(self._clock()) >= self.deadline:
+            raise BudgetExpired(f"{label} reached the absolute epoch deadline")
+
+
+def run_anytime_epochs(
+    state: SolutionState,
+    incumbent: VerifiedIncumbent,
+    rng: Generator,
+    *,
+    timelimit_seconds: float,
+    epoch_seconds: float = 60.0,
+    iterations_per_epoch: int = 24,
+    continuation_iterations_per_epoch: int | None = None,
+    registry: OperatorRegistry | None = None,
+    remove_count: int | None = None,
+    acceptor_name: str = "strict",
+    adaptive: bool = False,
+    safety_sample_interval: int = 8,
+    retime_trigger: RetimeTrigger | None = None,
+    retime_callback: RetimeCallback | None = None,
+    retime_wall_policy: RetimeWallPolicy | None = None,
+    stagnation: StagnationController | None = None,
+    clock: Callable[[], float] = time.monotonic,
+    on_event: Callable[[ALNSIterationEvent], None] | None = None,
+    fault_hook: RunFaultHook | None = None,
+) -> AnytimeRunResult:
+    """Run fixed decision epochs whose prefix never depends on total budget.
+
+    The declared budget controls only how many absolute epochs are available.
+    RNG state, operator controls, and current state carry forward unchanged.
+    Each epoch has the same iteration quota and fixed deadline, so extending a
+    run can append decisions but cannot alter an earlier epoch.
+    """
+    if not math.isfinite(timelimit_seconds) or timelimit_seconds < 0.0:
+        raise ValueError("timelimit_seconds must be finite and non-negative")
+    if not math.isfinite(epoch_seconds) or epoch_seconds <= 0.0:
+        raise ValueError("epoch_seconds must be finite and positive")
+    if (
+        isinstance(iterations_per_epoch, bool)
+        or not isinstance(iterations_per_epoch, int)
+        or iterations_per_epoch <= 0
+    ):
+        raise ValueError("iterations_per_epoch must be a positive integer")
+    continuation_iterations = (
+        iterations_per_epoch
+        if continuation_iterations_per_epoch is None
+        else continuation_iterations_per_epoch
+    )
+    if (
+        isinstance(continuation_iterations, bool)
+        or not isinstance(continuation_iterations, int)
+        or continuation_iterations <= 0
+    ):
+        raise ValueError(
+            "continuation_iterations_per_epoch must be a positive integer or None"
+        )
+    if acceptor_name not in {"strict", "rrt", "sa"}:
+        raise ValueError(f"unsupported S3 acceptor {acceptor_name!r}")
+
+    operators = OperatorRegistry() if registry is None else registry
+    acceptor = _make_acceptor(acceptor_name, rng, incumbent)
+    destroy_weights = OperatorWeights(
+        operators.destroy_names,
+        adaptive=adaptive,
+    )
+    repair_weights = OperatorWeights(
+        operators.repair_names,
+        adaptive=adaptive,
+    )
+    stall = StagnationController() if stagnation is None else stagnation
+    started = float(clock())
+    hard_deadline = started + float(timelimit_seconds)
+    planned_epochs = math.ceil(timelimit_seconds / epoch_seconds)
+    metrics = ALNSMetrics()
+    initial = incumbent.checker_result
+    trace = [_trace_entry(0, incumbent.solution, initial)]
+    first_epoch_trace: list[tuple[Any, ...]] = []
+    completed_epochs = 0
+    epoch_solutions: list[dict[str, Any]] = []
+    stopped_reason = "budget_exhausted" if planned_epochs == 0 else "max_epochs"
+    iteration_offset = 0
+
+    for epoch_index in range(planned_epochs):
+        now = float(clock())
+        if now >= hard_deadline:
+            stopped_reason = "deadline"
+            break
+        epoch_deadline = min(
+            hard_deadline,
+            started + (epoch_index + 1) * epoch_seconds,
+        )
+        epoch_budget = _AbsoluteEpochBudget(clock, epoch_deadline)
+
+        def record(event: ALNSIterationEvent) -> None:
+            shifted = ALNSIterationEvent(
+                iteration=iteration_offset + event.iteration,
+                destroy_name=event.destroy_name,
+                repair_name=event.repair_name,
+                previous_cur_obj=event.previous_cur_obj,
+                new_obj=event.new_obj,
+                outcome=event.outcome,
+                accepted=event.accepted,
+                potential_incumbent=event.potential_incumbent,
+            )
+            if epoch_index == 0:
+                first_epoch_trace.append(_event_tuple(shifted))
+            if on_event is not None:
+                on_event(shifted)
+
+        epoch_result = run_alns(
+            state,
+            incumbent,
+            rng,
+            max_iterations=(
+                iterations_per_epoch
+                if epoch_index == 0
+                else continuation_iterations
+            ),
+            registry=operators,
+            remove_count=remove_count,
+            acceptor=acceptor,
+            safety_sample_interval=safety_sample_interval,
+            budget=epoch_budget,
+            on_event=record,
+            destroy_weights=destroy_weights,
+            repair_weights=repair_weights,
+            stagnation=stall,
+            retime_trigger=retime_trigger,
+            retime_callback=retime_callback,
+            retime_wall_policy=retime_wall_policy,
+            timelimit_seconds=epoch_seconds,
+            elapsed_offset_seconds=epoch_index * epoch_seconds,
+            fault_hook=fault_hook,
+        )
+        _merge_metrics(metrics, epoch_result.metrics)
+        for item in epoch_result.incumbent_trace[1:]:
+            trace.append(
+                IncumbentTraceEntry(
+                    iteration=iteration_offset + item.iteration,
+                    objective=item.objective,
+                    obj1=item.obj1,
+                    obj2=item.obj2,
+                    obj3=item.obj3,
+                    checker_stage=item.checker_stage,
+                    solution_sha256=item.solution_sha256,
+                )
+            )
+        completed_epochs += 1
+        epoch_solutions.append(incumbent.solution)
+        iteration_offset += epoch_result.metrics.iterations
+        stopped_reason = epoch_result.stopped_reason
+        if stopped_reason.startswith("fault:") or stopped_reason == "checker_failure":
+            break
+
+    return AnytimeRunResult(
+        solution=incumbent.solution,
+        metrics=metrics,
+        incumbent_trace=tuple(trace),
+        stopped_reason=stopped_reason,
+        epoch_count=completed_epochs,
+        first_epoch_trace=tuple(first_epoch_trace),
+        prefix_consistent=True,
+        operator_metrics=tuple(
+            (
+                name,
+                item.attempts,
+                item.successes,
+                item.failures,
+            )
+            for name, item in operators.metrics.items()
+        ),
+        epoch_solutions=tuple(epoch_solutions),
+    )
+
+
+def _make_acceptor(
+    name: str,
+    rng: Generator,
+    incumbent: VerifiedIncumbent,
+) -> StrictAcceptor:
+    if name == "strict":
+        return StrictAcceptor()
+    if name == "rrt":
+        return RRT_Acceptor(initial_deviation=0.03)
+    acceptor = SAAcceptor(rng)
+    objective = incumbent.checker_result.objective
+    scale = max(1.0, abs(float(objective if objective is not None else 1.0)))
+    acceptor.calibrate((0.0025 * scale, 0.005 * scale, 0.01 * scale))
+    return acceptor
+
+
+def _event_tuple(event: ALNSIterationEvent) -> tuple[Any, ...]:
+    return (
+        event.iteration,
+        event.destroy_name,
+        event.repair_name,
+        event.previous_cur_obj,
+        event.new_obj,
+        event.outcome,
+        event.accepted,
+    )
+
+
+def _merge_metrics(target: ALNSMetrics, source: ALNSMetrics) -> None:
+    for name in ALNSMetrics.__dataclass_fields__:
+        setattr(target, name, getattr(target, name) + getattr(source, name))
+
+
+def _inject_run_fault(fault_hook: RunFaultHook | None, point: str) -> None:
+    if fault_hook is not None:
+        fault_hook(point)
+
+
 def _run_guarded_retime(
     state: SolutionState,
     incumbent: VerifiedIncumbent,
@@ -1442,25 +1781,40 @@ def _run_guarded_retime(
     budget: Budget | None,
     trigger: RetimeTrigger,
     callback: RetimeCallback | None,
+    wall_policy: RetimeWallPolicy | None,
     *,
     elapsed: float,
     metrics: ALNSMetrics,
     trace: list[IncumbentTraceEntry],
     iteration: int,
     acceptor: StrictAcceptor,
+    fault_hook: RunFaultHook | None,
 ) -> tuple[float, bool]:
     """Apply only a checker-feasible, assignment-neutral, never-worse retime."""
     if callback is None:
         raise AssertionError("retime callback disappeared")
     before = state.capture_undo_token()
-    started = time.monotonic()
+    wall_clock = time.monotonic if wall_policy is None else wall_policy.clock
+    started = float(wall_clock())
     improved = False
     failed = False
     incumbent_updated = False
     metrics.retime_attempts += 1
     try:
         _checkpoint(budget, "S3 before retime")
-        candidate = callback(state, bay_id, budget)
+        _inject_run_fault(fault_hook, "retime")
+        call_timebox = math.inf
+        if wall_policy is not None:
+            allowance = wall_policy.call_timebox(
+                trigger,
+                budget,
+                attempt_started_at=started,
+            )
+            if allowance is None:
+                metrics.retime_skips += 1
+                return state.objective, False
+            call_timebox = allowance
+        candidate = callback(state, bay_id, budget, call_timebox)
         _checkpoint(budget, "S3 after retime backend")
         if state.capture_undo_token() != before:
             state.restore_undo_token(before)
@@ -1481,7 +1835,7 @@ def _run_guarded_retime(
         )
         metrics.full_checks += 1
         if not checked.feasible or checked.objective is None:
-            metrics.checker_failures += 1
+            metrics.checker_rejections += 1
             return state.objective, False
         with MoveTransaction(state, _detached_rng()) as transaction:
             for block_id in tuple(state.placements):
@@ -1523,7 +1877,7 @@ def _run_guarded_retime(
         trigger.record_retime(
             bay_id,
             elapsed=elapsed,
-            wall_seconds=time.monotonic() - started,
+            wall_seconds=max(0.0, float(wall_clock()) - started),
             improved=improved,
             failed=failed,
         )

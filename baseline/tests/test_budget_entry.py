@@ -29,6 +29,40 @@ class BudgetTests(unittest.TestCase):
 
 
 class EntryArmorTests(unittest.TestCase):
+    def test_alns_entry_and_failure_keep_verified_s2_incumbent(self):
+        prob_info = instance(
+            [
+                block(release=0, due=2, processing=2),
+                block(release=0, due=3, processing=2),
+                block(release=1, due=4, processing=1),
+                block(release=2, due=5, processing=1),
+            ]
+        )
+        s2 = solve(prob_info, 12.0, _alns=False)
+        faulted = solve(
+            prob_info,
+            12.0,
+            _alns=True,
+            _fault="during_alns",
+        )
+        self.assertEqual(s2, faulted)
+
+        telemetry = {}
+        integrated = solve(
+            prob_info,
+            12.0,
+            _retime=False,
+            _alns=True,
+            _telemetry=telemetry,
+        )
+        checked = official_check(prob_info, integrated)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+        self.assertGreater(telemetry["alns_metrics"]["iterations"], 0)
+        self.assertTrue(telemetry["alns_prefix_consistent"])
+        self.assertEqual("sa", telemetry["alns_acceptor"])
+        self.assertFalse(telemetry["alns_adaptive"])
+
     def test_retime_failure_keeps_constructor(self):
         prob_info = instance(
             [

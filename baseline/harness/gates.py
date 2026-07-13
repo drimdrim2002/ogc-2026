@@ -289,3 +289,117 @@ def evaluate_s2(evidence_root: Path) -> dict[str, Any]:
         "selected_timebox": selected_timebox if not failures else None,
         "selected_pilot_budget": selected_pilot if not failures else None,
     }
+
+
+def evaluate_s3(evidence_root: Path) -> dict[str, Any]:
+    """Evaluate integrated safety, prefix, improvement, and control evidence."""
+
+    requirements = (
+        ("benchmark", {"stage": "s3", "slice": "s3-05", "selector": "training"}),
+        ("benchmark", {"stage": "s3", "slice": "s3-05", "selector": "dev-10"}),
+        ("ab", {"stage": "s3", "slice": "s3-04", "feature": "acceptor"}),
+        ("ab", {"stage": "s3", "slice": "s3-04", "feature": "alns_adaptive"}),
+        (
+            "benchmark",
+            {"stage": "s3", "slice": "s3-04", "component": "controls"},
+        ),
+        ("stress", {"stage": "s3", "slice": "s3-05", "selector": "stress"}),
+    )
+    selected: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for command, match in requirements:
+        found = latest_summary(
+            evidence_root,
+            stage="s3",
+            command=command,
+            match=match,
+        )
+        label = f"{command}:{','.join(f'{key}={value}' for key, value in match.items())}"
+        if found is None:
+            failures.append(f"missing complete evidence for {label}")
+            continue
+        run_dir, summary = found
+        selected.append({"requirement": label, "run_dir": str(run_dir), "summary": summary})
+        if summary.get("status") != "passed":
+            failures.append(f"non-passing evidence for {label}")
+
+    def chosen(fragment: str) -> dict[str, Any] | None:
+        return next(
+            (
+                item["summary"]
+                for item in selected
+                if fragment in item["requirement"]
+            ),
+            None,
+        )
+
+    training = chosen("slice=s3-05,selector=training")
+    if training is not None:
+        if training.get("record_count") != 40 or training.get("feasible_count") != 40:
+            failures.append("S3 training benchmark does not contain 40 feasible records")
+        if training.get("regression_count") != 0:
+            failures.append("S3 training benchmark contains an S2 regression")
+        if training.get("assignment_mismatch_count") != 0:
+            failures.append("S3 training benchmark changed assignment/Z2/Z3")
+        if int(training.get("total_iterations", 0)) <= 0:
+            failures.append("S3 training benchmark performed no search")
+        if int(training.get("checker_mismatch_count", 0)) != 0:
+            failures.append("S3 training benchmark contains a checker mismatch")
+
+    dev = chosen("slice=s3-05,selector=dev-10")
+    if dev is not None:
+        if dev.get("record_count") != 20 or dev.get("feasible_count") != 20:
+            failures.append("S3 dev benchmark does not contain 20 feasible records")
+        if int(dev.get("prefix_regression_count", 0)) != 0:
+            failures.append("S3 dev benchmark is not prefix consistent")
+        if int(dev.get("longer_regression_count", 0)) != 0:
+            failures.append("an S3 300-second result is worse than its 60-second pair")
+        if int(dev.get("regression_count", 0)) != 0:
+            failures.append("S3 dev benchmark contains an S2 regression")
+        if int(dev.get("improved_count", 0)) < 5:
+            failures.append("S3 improves fewer than 5 of 10 dev instances")
+        if float(dev.get("median_s3_objective", float("inf"))) >= float(
+            dev.get("median_s2_objective", float("-inf"))
+        ):
+            failures.append("S3 median objective is not strictly below paired S2")
+        if int(dev.get("total_accepted", 0)) <= 0:
+            failures.append("S3 dev benchmark accepted no candidates")
+        attempts = dev.get("operator_attempts", {})
+        for name in ("d1", "d2", "d3", "d4", "d5", "r1", "r2", "r3"):
+            if int(attempts.get(name, 0)) <= 0:
+                failures.append(f"S3 operator {name} was never attempted")
+
+    acceptor = chosen("feature=acceptor")
+    if acceptor is not None and acceptor.get("selected_acceptor") != "sa":
+        failures.append("S3 acceptor evidence did not select sa")
+    adaptive = chosen("feature=alns_adaptive")
+    if adaptive is not None and adaptive.get("selected_adaptive") is not False:
+        failures.append("S3 adaptive evidence did not select false")
+    controls = chosen("component=controls")
+    if controls is not None and controls.get("selected_dirty") != [3, 0.03]:
+        failures.append("S3 dirty-trigger evidence did not select [3, 0.03]")
+
+    stress = chosen("slice=s3-05,selector=stress")
+    if stress is not None:
+        if stress.get("feasible_count") != stress.get("record_count"):
+            failures.append("S3 stress contains checker infeasibility")
+        if int(stress.get("rollback_failure_count", 0)) != 0:
+            failures.append("S3 stress contains a rollback/incumbent regression")
+        if int(stress.get("assignment_mismatch_count", 0)) != 0:
+            failures.append("S3 stress changed assignment/Z2/Z3")
+        if int(stress.get("fault_miss_count", 0)) != 0:
+            failures.append("S3 stress failed to exercise every fault boundary")
+        if int(stress.get("leak_count", 0)) != 0:
+            failures.append("S3 stress contains a process leak")
+
+    return {
+        "stage": "s3",
+        "status": "passed" if not failures else "failed",
+        "decision": "PASS" if not failures else "FAIL",
+        "selected_evidence": selected,
+        "failures": failures,
+        "alns": not failures,
+        "acceptor": "sa" if not failures else None,
+        "adaptive": False,
+        "dirty_trigger": [3, 0.03] if not failures else None,
+    }

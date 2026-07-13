@@ -7,6 +7,14 @@ from dataclasses import asdict
 import time
 from typing import Any
 
+from numpy.random import Generator, PCG64
+
+from .alns import (
+    RetimeTrigger,
+    RetimeWallPolicy,
+    StagnationController,
+    run_anytime_epochs,
+)
 from .budget import Budget
 from .config import DEFAULT_CONFIG
 from .construct import construct_multistart
@@ -14,7 +22,7 @@ from .cpsat_backend import retime_cpsat
 from .gurobi_backend import retime_gurobi
 from .incumbent import VerifiedIncumbent
 from .instance import ProblemInstance
-from .retime import retime_sweep
+from .retime import retime_bay, retime_sweep
 from .trivial import build_t0
 
 
@@ -35,6 +43,8 @@ def solve(
     _seed: int | None = None,
     _retime_timebox: float | None = None,
     _retime_pilot: float | None = None,
+    _alns: bool | None = None,
+    _alns_fault: str | None = None,
     _telemetry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build T0, optionally improve it, and return only a verified incumbent.
@@ -89,6 +99,17 @@ def solve(
                 )
         budget.checkpoint("post-constructor pipeline")
 
+        alns_enabled = DEFAULT_CONFIG.alns if _alns is None else _alns
+        backend_calls = {
+            "gurobi": retime_gurobi,
+            "cpsat": retime_cpsat,
+        }
+        available = (
+            ("gurobi", "cpsat")
+            if DEFAULT_CONFIG.retime_backend == "auto"
+            else (DEFAULT_CONFIG.retime_backend,)
+        )
+        alns_retime_backend = available[0]
         retime_enabled = DEFAULT_CONFIG.exact_retime if _retime is None else _retime
         if retime_enabled and budget.remaining > 0.0:
             _inject_fault(_fault, "during_retime")
@@ -104,16 +125,10 @@ def solve(
                 if _retime_pilot is None
                 else float(_retime_pilot)
             )
-            backend_calls = {
-                "gurobi": retime_gurobi,
-                "cpsat": retime_cpsat,
-            }
-            available = (
-                ("gurobi", "cpsat")
-                if DEFAULT_CONFIG.retime_backend == "auto"
-                else (DEFAULT_CONFIG.retime_backend,)
+            exact_allowance = (
+                min(budget.remaining, 5.0) if alns_enabled else budget.remaining
             )
-            exact_budget = Budget(budget.remaining, reserve=0.0)
+            exact_budget = Budget(exact_allowance, reserve=0.0)
             initial = retime_sweep(
                 current_state,
                 incumbent,
@@ -127,6 +142,8 @@ def solve(
                 pilot_budget_cap=pilot_budget,
             )
             current_state = initial.state
+            if initial.pilot.backend is not None:
+                alns_retime_backend = initial.pilot.backend
             final = None
             if (
                 DEFAULT_CONFIG.retime_final_sweep
@@ -166,6 +183,105 @@ def solve(
                     retime_before_z1=before_retime_z1,
                     retime_after_z1=incumbent.checker_result.obj1,
                 )
+
+        if alns_enabled and budget.remaining > 0.0:
+            _inject_fault(_fault, "during_alns")
+            alns_started = time.monotonic()
+            if _telemetry is not None:
+                _telemetry["alns_input_solution"] = incumbent.solution
+            seed = DEFAULT_CONFIG.constructor_seed if _seed is None else _seed
+            rng = Generator(PCG64(seed))
+            trigger = RetimeTrigger(
+                min_dirty=DEFAULT_CONFIG.alns_dirty_minimum,
+                dirty_fraction=DEFAULT_CONFIG.alns_dirty_fraction,
+                min_interval_fraction=DEFAULT_CONFIG.alns_retime_interval_fraction,
+            )
+            wall_policy = RetimeWallPolicy(
+                started_at=alns_started,
+                wall_fraction_cap=DEFAULT_CONFIG.alns_retime_wall_fraction_cap,
+                solve_timebox_seconds=min(
+                    DEFAULT_CONFIG.retime_timebox_seconds,
+                    1.0,
+                ),
+            )
+
+            def guarded_retime(state, bay_id, active_budget, call_timebox):
+                if active_budget is None:
+                    return None
+                outcome = retime_bay(
+                    state,
+                    bay_id,
+                    alns_retime_backend,
+                    backend_calls[alns_retime_backend],
+                    budget=active_budget,
+                    seed=seed,
+                    threads=DEFAULT_CONFIG.retime_threads,
+                    call_timebox_cap=call_timebox,
+                )
+                return outcome.candidate
+
+            def alns_fault(point):
+                if _alns_fault is None:
+                    return
+                if _alns_fault not in {"repair", "accept", "retime", "full_check"}:
+                    raise ValueError(f"unknown S3 fault point: {_alns_fault}")
+                if point == _alns_fault:
+                    if _telemetry is not None:
+                        _telemetry["alns_fault_applied"] = point
+                    raise InjectedEntryFault(f"injected S3 fault at {point}")
+
+            alns_result = run_anytime_epochs(
+                current_state,
+                incumbent,
+                rng,
+                timelimit_seconds=budget.remaining,
+                epoch_seconds=60.0,
+                iterations_per_epoch=300,
+                continuation_iterations_per_epoch=1,
+                acceptor_name=DEFAULT_CONFIG.alns_acceptor,
+                adaptive=DEFAULT_CONFIG.alns_adaptive,
+                safety_sample_interval=8,
+                retime_trigger=trigger,
+                retime_callback=guarded_retime,
+                retime_wall_policy=wall_policy,
+                stagnation=StagnationController(
+                    reheat_after=6,
+                    expand_after=12,
+                    restart_after=18,
+                ),
+                fault_hook=alns_fault,
+            )
+            if _telemetry is not None:
+                _telemetry.update(
+                    alns_seconds=time.monotonic() - alns_started,
+                    alns_metrics=asdict(alns_result.metrics),
+                    alns_incumbent_trace=[
+                        asdict(item) for item in alns_result.incumbent_trace
+                    ],
+                    alns_first_epoch_trace=[
+                        list(item) for item in alns_result.first_epoch_trace
+                    ],
+                    alns_prefix_consistent=alns_result.prefix_consistent,
+                    alns_epoch_count=alns_result.epoch_count,
+                    alns_stopped_reason=alns_result.stopped_reason,
+                    alns_operator_metrics={
+                        name: {
+                            "attempts": attempts,
+                            "successes": successes,
+                            "failures": failures,
+                        }
+                        for name, attempts, successes, failures
+                        in alns_result.operator_metrics
+                    },
+                    alns_retime_wall_seconds=trigger.retime_wall_seconds,
+                    alns_non_retime_wall_seconds=max(
+                        0.0,
+                        time.monotonic() - alns_started - trigger.retime_wall_seconds,
+                    ),
+                    alns_acceptor=DEFAULT_CONFIG.alns_acceptor,
+                    alns_adaptive=DEFAULT_CONFIG.alns_adaptive,
+                    alns_epoch_solutions=list(alns_result.epoch_solutions),
+                )
         if _telemetry is not None:
             _telemetry["incumbent_verification_count"] = incumbent.verification_count
         return incumbent.solution
@@ -184,7 +300,12 @@ def _inject_fault(fault: FaultHook, point: str) -> None:
     if callable(fault):
         fault(point)
         return
-    known_points = {"after_incumbent", "during_constructor", "during_retime"}
+    known_points = {
+        "after_incumbent",
+        "during_constructor",
+        "during_retime",
+        "during_alns",
+    }
     if fault not in known_points:
         raise ValueError(f"unknown entry fault point: {fault}")
     if fault == point:

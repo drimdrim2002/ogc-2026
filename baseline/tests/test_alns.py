@@ -773,7 +773,7 @@ class ControlTests(unittest.TestCase):
                 min_interval_fraction=0.0,
             )
 
-            def retime(current, bay_id, budget):
+            def retime(current, bay_id, budget, _call_timebox):
                 self.assertEqual(0, bay_id)
                 if mode == "fail":
                     raise RuntimeError("forced backend failure")
@@ -844,6 +844,151 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(before.bay_loads, state.objective_diagnostics.bay_loads)
         self.assertEqual(before.z2, state.z2)
         self.assertEqual(before.z3, state.z3)
+
+
+class AnytimeTests(unittest.TestCase):
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+
+        def __call__(self):
+            return self.now
+
+        def advance(self, seconds):
+            self.now += float(seconds)
+
+    def test_300_budget_contains_60_prefix(self):
+        def run(timelimit):
+            prob_info, state, incumbent = AcceptanceTests._single_block_fixture(
+                current_exit=100
+            )
+            clock = self.FakeClock()
+            events = []
+
+            def record(event):
+                events.append(
+                    (
+                        event.iteration,
+                        event.destroy_name,
+                        event.repair_name,
+                        event.previous_cur_obj,
+                        event.new_obj,
+                        event.outcome,
+                        event.accepted,
+                    )
+                )
+                clock.advance(10.0)
+
+            result = alns.run_anytime_epochs(
+                state,
+                incumbent,
+                Generator(PCG64(20260710)),
+                timelimit_seconds=timelimit,
+                epoch_seconds=60.0,
+                iterations_per_epoch=6,
+                registry=AcceptanceTests._scripted_registry(range(99, 69, -1)),
+                remove_count=1,
+                acceptor_name="strict",
+                adaptive=False,
+                clock=clock,
+                on_event=record,
+            )
+            checked = official_check(prob_info, result.solution)
+            self.assertTrue(checked.feasible, checked.violations)
+            return events, result
+
+        short_events, short = run(60.0)
+        long_events, long = run(300.0)
+
+        self.assertEqual(short_events, long_events[: len(short_events)])
+        self.assertEqual(6, len(short_events))
+        self.assertEqual(30, len(long_events))
+        self.assertLessEqual(
+            long.incumbent_trace[-1].objective,
+            short.incumbent_trace[-1].objective,
+        )
+        self.assertTrue(short.prefix_consistent)
+        self.assertTrue(long.prefix_consistent)
+        self.assertEqual(short_events, list(long.first_epoch_trace))
+
+    def test_retime_wall_policy_skips_unsafe_short_call(self):
+        nominal_solve_timebox = 0.01
+        actual_backend_wall = 0.25
+
+        def run_case(*, timelimit, search_wall):
+            prob_info, state, incumbent = AcceptanceTests._single_block_fixture(
+                current_exit=100
+            )
+            before = state.capture_undo_token()
+            clock = self.FakeClock()
+            budget = Budget(timelimit, clock=clock, reserve=0.0)
+            trigger = alns.RetimeTrigger(
+                min_dirty=1,
+                dirty_fraction=0.01,
+                min_interval_fraction=0.0,
+            )
+            policy = alns.RetimeWallPolicy(
+                started_at=clock(),
+                wall_fraction_cap=0.20,
+                solve_timebox_seconds=nominal_solve_timebox,
+                clock=clock,
+            )
+            backend_calls = 0
+
+            def record(_event):
+                clock.advance(search_wall)
+
+            def retime(_current, bay_id, _active_budget, call_timebox):
+                nonlocal backend_calls
+                self.assertEqual(0, bay_id)
+                self.assertLessEqual(call_timebox, nominal_solve_timebox)
+                backend_calls += 1
+                clock.advance(actual_backend_wall)
+                return None
+
+            result = alns.run_alns(
+                state,
+                incumbent,
+                Generator(PCG64(20260710)),
+                max_iterations=1,
+                registry=AcceptanceTests._scripted_registry((99,)),
+                remove_count=1,
+                budget=budget,
+                on_event=record,
+                retime_trigger=trigger,
+                retime_callback=retime,
+                retime_wall_policy=policy,
+                timelimit_seconds=timelimit,
+            )
+            checked = official_check(prob_info, result.solution)
+            self.assertTrue(checked.feasible, checked.violations)
+            self.assertEqual(5, checked.stage)
+            self.assertEqual(before.bay_members, state.bay_members)
+            self.assertEqual(before.bay_loads, state.objective_diagnostics.bay_loads)
+            self.assertEqual(before.z2, state.z2)
+            self.assertEqual(before.z3, state.z3)
+            return clock(), backend_calls, trigger, result
+
+        long_wall, long_calls, long_trigger, long_result = run_case(
+            timelimit=5.0,
+            search_wall=4.0,
+        )
+        self.assertEqual(1, long_calls)
+        self.assertGreater(actual_backend_wall, nominal_solve_timebox)
+        self.assertEqual(actual_backend_wall, long_trigger.retime_wall_seconds)
+        self.assertLessEqual(
+            long_trigger.retime_wall_seconds / long_wall,
+            0.20,
+        )
+        self.assertEqual(99.0, long_result.incumbent_trace[-1].objective)
+
+        short_wall, short_calls, short_trigger, short_result = run_case(
+            timelimit=1.0,
+            search_wall=0.1,
+        )
+        self.assertEqual(0, short_calls)
+        self.assertLessEqual(short_trigger.retime_wall_seconds, 0.20 * short_wall)
+        self.assertEqual(99.0, short_result.incumbent_trace[-1].objective)
 
 
 if __name__ == "__main__":
