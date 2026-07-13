@@ -18,11 +18,12 @@ P0~P6 통합 운영 단계. 새 optimization algorithm 범위를 추가하지 �
 
 ## 5. 현재 저장소 상태
 
-- tracked training data는 10-block example 하나이고 daily-40은 `.gitignore`의 `data/`, `alg_tester/example/train*/` 아래 외부 제공을 전제한다.
-- `baseline/run_myalgorithm.py` default는 존재하지 않는 `../alg_tester/example/train 2/prob_1.json`.
-- `baseline`은 `__init__.py` 없는 directory-on-sys.path 실행 관례다.
-- checker copy 두 개가 현재 동일하나 어느 것이 tester subprocess 권위인지 packaging smoke가 필요하다.
-- 제출 archive 규칙과 Gurobi production entitlement는 저장소에 없다.
+- D-013 prerequisite remediation에서 official baseline v1.3 `utils.py` 두 copy를 SHA-256 `d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94`로 고정했다.
+- local daily-40은 공식 Training Set 1/2와 40/40 byte 일치하며 `.gitignore`의 `data/` 아래 benchmark 입력으로만 존재한다. source/submission/release archive에는 포함하지 않는다.
+- `baseline/run_myalgorithm.py`는 positional instance가 필수인 local-only debug tool이고 submission에서 제외한다.
+- file-location load, `cd baseline; import myalgorithm`, repository-root `import baseline.myalgorithm` 세 import 경로를 지원한다.
+- 제출은 root `myalgorithm.py`와 sibling `solver/`만 허용하며 15MB, no-network/no-parent-access, public-silence, no-default-multiprocessing, Gurobi Threads<=4 계약을 적용한다.
+- P5/P6 submission default는 constructor gate 전까지 계속 OFF다.
 
 ## 6. 구현 범위
 
@@ -44,8 +45,8 @@ gate를 통과시키기 위한 알고리즘 재설계, checker 수정, benchmark
 
 - 변경 `baseline/myalgorithm.py`, `baseline/solver/entry.py`, `budget.py`, 각 config flag, `baseline/run_myalgorithm.py`, 필요 시 `baseline/README.txt`.
 - 추가 `baseline/tests/test_packaging.py`, `test_deadline.py`, `test_exception_matrix.py`, `test_stress_contract.py`.
-- benchmark harness 위치는 현재 설계 layout에 없으므로 `baseline/benchmark_ogc_sage.py` 또는 `experiments/` 중 제출 archive 제외가 쉬운 위치를 결정 기록 후 신설.
-- benchmark raw/summary는 git 추적 여부와 경로를 결정한 뒤 진행 문서에 기록. 소스와 섞지 않는다.
+- benchmark harness는 tracked `experiments/ogc_sage/benchmark_ogc_sage.py`로 고정한다.
+- benchmark raw/summary는 gitignored `artifacts/ogc_sage/step9/<run-id>/{raw.jsonl,summary.json}`에 두고, tracked evidence manifest에는 경로/hash/요약만 기록한다.
 
 ## 9. 파일별 책임
 
@@ -146,13 +147,14 @@ matrix에 최소 `gurobipy absent`, import error, license error, size limit, mod
 
 ## 17. 테스트 실행 명령
 
-정확한 harness 이름은 D-record 후 고정하되 기본 명령은 다음 형태다.
+tracked harness와 artifact 경로는 D-013으로 고정했다. 정확한 matrix/subset/config 명령은 D-014를 따른다.
 
 ```bash
 cd baseline
 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
-/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmark_ogc_sage.py --data-manifest <approved-manifest> --budgets 10 60 300 --seeds 20260710 20260711 20260712 20260713 20260714
-/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmark_ogc_sage.py --data-manifest <approved-manifest> --budgets 1800 --seeds 20260710 --subset <approved-long-subset>
+cd ..
+/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python experiments/ogc_sage/benchmark_ogc_sage.py run --gate final --budgets 10 60 300 --seeds 20260710 20260711 20260712 20260713 20260714
+/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python experiments/ogc_sage/benchmark_ogc_sage.py run --gate exploitation --budgets 1800 --seeds 20260710 --instances prob_39.json
 ```
 
 실제 명령/manifest/hash는 진행 문서에 복사한다. 이번 계획 작업에서는 어느 명령도 실행하지 않는다.
@@ -193,12 +195,9 @@ gate를 충족하지 못하면 9단계는 완료가 아니며 “차단” 또�
 
 ## 23. 미해결 사항
 
-- official daily-40 위치/hash와 redistribution 정책(O-001).
-- 제출 archive 허용 구조, file size, dependencies, network/threads, logging 규칙(O-002).
-- tester import working directory/package 계약(O-003).
-- debug runner default 경로 정책(O-004).
-- production Gurobi entitlement/model limit(O-005).
-- benchmark harness/results의 추적 경로는 위 규칙을 확인한 후 결정한다.
+- O-001~O-005/O-007/O-008의 정책·checker·경로 계약은 D-013에서 해결됐다.
+- 남은 항목은 실제 constructor/feature/correctness/1800초/archive gate 결과와 Ubuntu 24.04 equivalent smoke 증거다.
+- production Gurobi의 명시적 model-size 보장은 없으므로 기존 hard cap과 pure-Python fallback을 유지하며 local restricted-license 성공을 entitlement 증거로 사용하지 않는다.
 
 ## 24. 커밋 경계
 

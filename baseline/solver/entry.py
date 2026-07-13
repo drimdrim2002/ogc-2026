@@ -18,6 +18,12 @@ from .fallback import build_safe_candidate
 from .instance import parse_instance
 from .serialize import serialize
 from .state import IncumbentStore, SolutionSnapshot, compute_objective
+from .runtime import (
+    RunTrace,
+    SubmissionConfig,
+    constructor_profile_limit,
+    phase_name,
+)
 
 
 LNS_ENABLED = False
@@ -40,27 +46,84 @@ class OptionalPhaseResult:
     lns_runner: Callable[..., Any] | None = None
 
 
-def load_optional_phase():
+def load_optional_phase(
+    config: SubmissionConfig | None = None,
+    trace: RunTrace | None = None,
+):
     """Import optional assignment/constructor code after the safe full check."""
-    from .assignment import try_assignment_portfolio
-    from .construct import construct_portfolio
+    from .assignment import AssignmentConfig, try_assignment_portfolio
+    from .construct import ConstructorConfig, construct_portfolio
     from .geometry import GeometryKernel
-    from .retime import retime
+    from .retime import RetimingConfig, retime
+
+    chosen = config or SubmissionConfig(
+        lns_enabled=LNS_ENABLED,
+        interlock_enabled=INTERLOCK_ENABLED,
+    )
 
     def assignment_phase(instance, snapshot, budget):
         del snapshot  # Seeds guide step 4; they never replace the incumbent directly.
+        phase = phase_name(budget.limit)
         geometry = GeometryKernel.from_instance(instance)
-        portfolio = try_assignment_portfolio(instance, geometry, budget)
-        construction = construct_portfolio(instance, geometry, portfolio, budget)
+        portfolio = None
+        if chosen.assignment_enabled:
+            started = time.monotonic()
+            portfolio = try_assignment_portfolio(
+                instance,
+                geometry,
+                budget,
+                AssignmentConfig(seed=chosen.seed),
+            )
+            if trace is not None:
+                trace.add_phase_time("assignment", time.monotonic() - started)
+                trace.assignment = {
+                    "status": portfolio.status,
+                    "runtime": portfolio.runtime,
+                    "gap": portfolio.gap,
+                    "lower_bound": portfolio.lower_bound,
+                    "seed_count": len(portfolio.seeds),
+                    "diagnostics": portfolio.diagnostics[:64],
+                }
+        construction = ()
+        if chosen.constructor_enabled:
+            construction = construct_portfolio(
+                instance,
+                geometry,
+                portfolio,
+                budget,
+                ConstructorConfig(
+                    seed=chosen.seed,
+                    max_profiles=constructor_profile_limit(budget.limit),
+                ),
+            )
+            if trace is not None:
+                for result in construction:
+                    trace.construction.append(
+                        {
+                            "status": result.status,
+                            "complete": result.complete,
+                            "metrics": result.metrics,
+                        }
+                    )
+                    trace.add_phase_time(
+                        "constructor", result.metrics.construction_time
+                    )
         lns_runner = None
-        if LNS_ENABLED:
+        if chosen.lns_enabled and phase in {"medium", "long"}:
             from .alns import AlnsConfig, AlnsContext, run_lns
             from .neighborhoods import heuristic_repair
-            from .repair_mip import make_mip_repair_engine
 
-            repair_engines = (heuristic_repair, make_mip_repair_engine())
+            repair_engines = (heuristic_repair,)
+            if chosen.mip_enabled:
+                from .repair_mip import MipRepairConfig, make_mip_repair_engine
+
+                repair_engines += (
+                    make_mip_repair_engine(
+                        config=MipRepairConfig(seed=chosen.seed)
+                    ),
+                )
             densify_hook = None
-            if INTERLOCK_ENABLED:
+            if chosen.interlock_enabled and phase == "long":
                 from .interlock import InterlockConfig, InterlockContext, densify
 
                 def densify_hook(initial, store, alns_context, densify_budget, retime_hook):
@@ -89,15 +152,33 @@ def load_optional_phase():
                     checker=checker,
                     repair_engines=repair_engines,
                 )
-                return run_lns(
+                result = run_lns(
                     initial,
                     store,
                     context,
                     lns_budget,
-                    AlnsConfig(),
-                    retime_hook=retime,
+                    AlnsConfig(seed=chosen.seed),
+                    retime_hook=(
+                        lambda *args, **kwargs: retime(
+                            *args,
+                            **kwargs,
+                            config=RetimingConfig(seed=chosen.seed),
+                        )
+                        if chosen.retime_enabled
+                        else None
+                    ),
                     densify_hook=densify_hook,
                 )
+                if trace is not None:
+                    trace.operator_stats = {
+                        name: metrics for name, metrics in result.metrics.per_operator
+                    }
+                    trace.model_stats["lns"] = result.metrics
+                    for name, duration in result.metrics.time_by_phase:
+                        trace.add_phase_time(f"lns_{name}", duration)
+                    for objective in result.metrics.best_trace:
+                        trace.add_best(objective)
+                return result
 
         return OptionalPhaseResult(
             candidates=tuple(
@@ -107,7 +188,15 @@ def load_optional_phase():
             ),
             assignment_portfolio=portfolio,
             precedence_provider=geometry,
-            retimer=retime,
+            retimer=(
+                lambda *args, **kwargs: retime(
+                    *args,
+                    **kwargs,
+                    config=RetimingConfig(seed=chosen.seed),
+                )
+                if chosen.retime_enabled
+                else None
+            ),
             lns_runner=lns_runner,
         )
 
@@ -133,13 +222,20 @@ def _check_and_install(
     store: IncumbentStore,
     candidate: SolutionSnapshot,
     precedence_provider: Any | None,
+    trace: RunTrace | None = None,
 ) -> bool:
     candidate = candidate.with_objective(compute_objective(instance, candidate))
     candidate_operations = serialize(candidate, precedence_provider)
     check_started = time.monotonic()
     candidate_result = checker(copy.deepcopy(raw), copy.deepcopy(candidate_operations))
-    budget.record_checker_duration(time.monotonic() - check_started)
-    return store.install_if_valid(candidate, candidate_operations, candidate_result)
+    duration = time.monotonic() - check_started
+    budget.record_checker_duration(duration)
+    if trace is not None:
+        trace.add_checker(duration)
+    installed = store.install_if_valid(candidate, candidate_operations, candidate_result)
+    if installed and trace is not None and candidate.objective is not None:
+        trace.add_best(candidate.objective.total)
+    return installed
 
 
 def solve(
@@ -147,27 +243,52 @@ def solve(
     timelimit: float,
     checker: Callable[[dict, dict], dict] = check_feasibility,
     optional_phase_loader: Callable[[], Any] | None = None,
+    *,
+    config: SubmissionConfig | None = None,
+    trace: RunTrace | None = None,
 ) -> dict:
+    chosen = config or SubmissionConfig.from_defaults()
     raw = copy.deepcopy(dict(prob_info))
     budget = Budget.start(timelimit)
+    if trace is not None:
+        trace.phase = phase_name(budget.limit)
     instance = parse_instance(raw)
+    fallback_started = time.monotonic()
     fallback = build_safe_candidate(instance, budget)
+    if trace is not None:
+        trace.add_phase_time("fallback", time.monotonic() - fallback_started)
     fallback_operations = serialize(fallback)
 
     check_started = time.monotonic()
     checker_result = checker(copy.deepcopy(raw), copy.deepcopy(fallback_operations))
-    budget.record_checker_duration(time.monotonic() - check_started)
+    duration = time.monotonic() - check_started
+    budget.record_checker_duration(duration)
+    if trace is not None:
+        trace.add_checker(duration)
     store = IncumbentStore(instance)
     if not store.install_if_valid(fallback, fallback_operations, checker_result):
         raise SafeIncumbentError(
             "mandatory safe candidate failed full checker validation: "
             f"stage={checker_result.get('stage')} violations={checker_result.get('violations')}"
         )
+    if trace is not None and fallback.objective is not None:
+        trace.add_best(fallback.objective.total)
 
     if float(timelimit) < 2.0 or not budget.can_start(0.0, margin=0.01):
         return store.operations
+    if not any(
+        (
+            chosen.assignment_enabled,
+            chosen.constructor_enabled,
+            chosen.retime_enabled,
+            chosen.lns_enabled,
+            chosen.mip_enabled,
+            chosen.interlock_enabled,
+        )
+    ):
+        return store.operations
 
-    loader = optional_phase_loader or load_optional_phase
+    loader = optional_phase_loader or (lambda: load_optional_phase(chosen, trace))
     try:
         phase = loader()
         if phase is None:
@@ -194,8 +315,11 @@ def solve(
                     store=store,
                     candidate=candidate,
                     precedence_provider=precedence_provider,
+                    trace=trace,
                 )
-            except Exception:
+            except Exception as exc:
+                if trace is not None:
+                    trace.add_exception("candidate_checker", exc)
                 continue
             if not installed or retimer is None:
                 continue
@@ -204,15 +328,33 @@ def solve(
             # the immutable checker-validated snapshot just installed above.
             try:
                 retimed = retimer(store.snapshot, instance, precedence_provider, budget)
-            except Exception:
+            except Exception as exc:
+                if trace is not None:
+                    trace.add_exception("retime", exc)
                 continue
+            if trace is not None:
+                trace.retiming.append(
+                    {
+                        "status": getattr(retimed, "status", None),
+                        "runtime": getattr(retimed, "runtime", None),
+                        "primary": getattr(retimed, "primary", None),
+                        "bound": getattr(retimed, "bound", None),
+                        "gap": getattr(retimed, "gap", None),
+                        "diagnostics": getattr(retimed, "diagnostics", ())[:64],
+                    }
+                )
+                trace.add_phase_time("retime", float(getattr(retimed, "runtime", 0.0)))
             retimed_snapshot = getattr(retimed, "snapshot", None)
             if not isinstance(retimed_snapshot, SolutionSnapshot) or retimed_snapshot is store.snapshot:
                 continue
             retimed_operations = getattr(retimed, "operations", None)
             retimed_checker = getattr(retimed, "checker_result", None)
             if retimed_operations is not None and retimed_checker is not None:
-                store.install_if_valid(retimed_snapshot, retimed_operations, retimed_checker)
+                installed = store.install_if_valid(
+                    retimed_snapshot, retimed_operations, retimed_checker
+                )
+                if installed and trace is not None and retimed_snapshot.objective is not None:
+                    trace.add_best(retimed_snapshot.objective.total)
             elif budget.can_start(budget.checker_p95, margin=0.01):
                 # Backward-compatible hook boundary for custom phases.  The
                 # production retimer returns its canonical full-check evidence.
@@ -224,12 +366,16 @@ def solve(
                     store=store,
                     candidate=retimed_snapshot,
                     precedence_provider=precedence_provider,
+                    trace=trace,
                 )
         if lns_runner is not None and budget.can_start(0.0, margin=0.01):
             try:
                 lns_runner(store.snapshot, store, raw, checker, budget)
-            except Exception:
-                pass
-    except Exception:
+            except Exception as exc:
+                if trace is not None:
+                    trace.add_exception("lns", exc)
+    except Exception as exc:
+        if trace is not None:
+            trace.add_exception("optional_phase", exc)
         return store.operations
     return store.operations
