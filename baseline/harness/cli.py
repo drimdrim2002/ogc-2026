@@ -32,6 +32,7 @@ from .runner import (
     run_assignment_v2_case,
     run_cap_calibration_case,
     run_constructor_case,
+    run_cross_bay_case,
     run_entry_case,
     run_escalation_stress_case,
     run_exact_probe_fault_case,
@@ -1187,6 +1188,8 @@ def _s2_entry_benchmark(args: argparse.Namespace) -> int:
 
 
 def _s4_assignment_benchmark(args: argparse.Namespace) -> int:
+    if args.component == "cross_bay":
+        return _s4_cross_bay_benchmark(args)
     if args.component != "assignment_v2":
         raise StageUnsupportedError(
             "S4-01 benchmark only supports --component assignment_v2"
@@ -1250,6 +1253,127 @@ def _s4_assignment_benchmark(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return exit_code
+
+
+def _s4_cross_bay_benchmark(args: argparse.Namespace) -> int:
+    if args.metric != "solver" or args.instances != "high-w23":
+        raise SelectorError(
+            "S4-03 cross-bay benchmark requires the default metric and high-w23"
+        )
+    features = _features(args.feature)
+    if features != {"cross_bay": "true"}:
+        raise SelectorError(
+            "S4-03 benchmark requires --feature cross_bay=true"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (60.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S4-03 benchmark requires timelimits=60 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s4",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={"component": "cross_bay", "selector": args.instances},
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        _case_id(ref.instance_id, timelimit, seed, "none")
+        for ref in refs
+        for timelimit in timelimits
+        for seed in seeds
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                record_id = _case_id(ref.instance_id, timelimit, seed, "none")
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_cross_bay_case(
+                    ref,
+                    selector=args.instances,
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=features,
+                )
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    records = _effective_records(run.records)
+    summary, exit_code = _cross_bay_summary(
+        records,
+        expected_record_count=len(expected),
+        selector=args.instances,
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return exit_code
+
+
+def _cross_bay_summary(
+    records: Iterable[Mapping[str, Any]],
+    *,
+    expected_record_count: int,
+    selector: str,
+    timelimits: tuple[float, ...],
+    seeds: tuple[int, ...],
+    features: Mapping[str, str],
+) -> tuple[dict[str, Any], int]:
+    rows = tuple(records)
+    passed = len(rows) == expected_record_count and all(
+        record.get("status") in {"passed", "deduplicated"}
+        and record.get("checker", {}).get("feasible") is True
+        and record.get("checker", {}).get("stage") == 5
+        and record.get("prior_checker", {}).get("feasible") is True
+        and record.get("prior_checker", {}).get("stage") == 5
+        and record.get("move_attempts") == 1
+        and record.get("swap_attempts") == 1
+        and isinstance(record.get("move_accepted"), int)
+        and isinstance(record.get("swap_accepted"), int)
+        and 0 <= record.get("move_accepted", -1) <= 1
+        and 0 <= record.get("swap_accepted", -1) <= 1
+        and record.get("cross_bay_attempts") == 2
+        and record.get("d6_attempts") == 2
+        and record.get("unverified_return_count") == 0
+        and _optional_float_at_most(
+            record,
+            "wall_seconds",
+            _finite_float(record.get("timelimit")) or 60.0,
+        )
+        for record in rows
+    )
+    summary = _solver_summary(
+        "benchmark", selector, list(rows), passed, stage="s4"
+    )
+    summary.update(
+        slice="s4-03",
+        component="cross_bay",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        expected_record_count=expected_record_count,
+        move_attempts=sum(int(record.get("move_attempts", 0)) for record in rows),
+        move_accepted=sum(int(record.get("move_accepted", 0)) for record in rows),
+        swap_attempts=sum(int(record.get("swap_attempts", 0)) for record in rows),
+        swap_accepted=sum(int(record.get("swap_accepted", 0)) for record in rows),
+        d6_attempts=sum(int(record.get("d6_attempts", 0)) for record in rows),
+        retime_backend_attempts=sum(
+            int(record.get("retime_backend_attempts", 0)) for record in rows
+        ),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            or record.get("checker", {}).get("stage") != 5
+            for record in rows
+        ),
+    )
+    return summary, EXIT_PASS if passed else EXIT_CHECKER_FAILURE
 
 
 def _assignment_v2_summary(

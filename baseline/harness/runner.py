@@ -24,6 +24,7 @@ from .selectors import InstanceRef, REPO_ROOT
 
 try:
     from baseline.solver.alns import (
+        CrossBayRegistry,
         OperatorRegistry,
         OperatorWeights,
         RRT_Acceptor,
@@ -33,6 +34,8 @@ try:
         StagnationController,
         StrictAcceptor,
         run_alns,
+        rank_cross_bay_candidates,
+        run_cross_bay_candidate,
         sample_destroy_count,
     )
     from baseline.solver.assign import (
@@ -74,6 +77,7 @@ try:
     from baseline.solver.trivial import build_t0
 except ModuleNotFoundError:
     from solver.alns import (
+        CrossBayRegistry,
         OperatorRegistry,
         OperatorWeights,
         RRT_Acceptor,
@@ -83,6 +87,8 @@ except ModuleNotFoundError:
         StagnationController,
         StrictAcceptor,
         run_alns,
+        rank_cross_bay_candidates,
+        run_cross_bay_candidate,
         sample_destroy_count,
     )
     from solver.assign import (
@@ -902,6 +908,175 @@ def run_assignment_fallback_case(
     }
 
 
+def run_cross_bay_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Attempt one exact-ranked move and swap with two-bay S2 retiming."""
+
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="guarded-cross-bay-refinement",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    started = time.monotonic()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    v1 = AssignmentV1(parsed).assign()
+    state = construct_fixed_assignment(parsed, v1)
+    incumbent = VerifiedIncumbent(parsed)
+    prior_checked = incumbent.register_initial(state)
+    prior_sha = _solution_sha(incumbent.solution)
+    budget = Budget(timelimit)
+    rng = Generator(PCG64(seed))
+    registry = CrossBayRegistry()
+    attempt_rows: list[dict[str, Any]] = []
+    retime_backend_attempts = 0
+
+    def retime_affected_bay(
+        current: SolutionState,
+        bay_id: int,
+        current_budget: Budget | None,
+    ) -> SolutionState | None:
+        nonlocal retime_backend_attempts
+        if current_budget is None:
+            raise ValueError("cross-bay harness retime requires a budget")
+        retime_backend_attempts += 1
+        outcome = retime_bay(
+            current,
+            bay_id,
+            "gurobi",
+            retime_gurobi,
+            budget=current_budget,
+            seed=seed,
+            threads=DEFAULT_CONFIG.retime_threads,
+            call_timebox_cap=DEFAULT_CONFIG.retime_timebox_seconds,
+        )
+        return outcome.candidate or _copy_solution_state(current)
+
+    for kind in ("move", "swap"):
+        candidates = rank_cross_bay_candidates(state, registry=registry)
+        selected = next((item for item in candidates if item.kind == kind), None)
+        if selected is None:
+            attempt_rows.append(
+                {
+                    "kind": kind,
+                    "attempted": False,
+                    "accepted": False,
+                    "reason": "not_applicable",
+                }
+            )
+            continue
+        result = run_cross_bay_candidate(
+            state,
+            incumbent,
+            selected,
+            rng,
+            retime=retime_affected_bay,
+            budget=budget,
+        )
+        attempt_rows.append(
+            {
+                "kind": kind,
+                "attempted": True,
+                "accepted": result.committed,
+                "reason": result.reason,
+                "block_ids": list(selected.block_ids),
+                "source_bays": list(selected.source_bays),
+                "target_bays": list(selected.target_bays),
+                "delta_z2": selected.delta_z2,
+                "delta_z3": selected.delta_z3,
+                "exact_weighted_delta": selected.exact_weighted_delta,
+                "congestion_delta": selected.congestion_delta,
+                "affected_bays": list(result.affected_bays),
+                "retimed_bays": list(result.retimed_bays),
+                "checker_feasible": result.checker_feasible,
+                "checker_stage": result.checker_stage,
+                "incumbent_sha256": result.incumbent_sha256,
+                "mutation_count": result.mutation_count,
+            }
+        )
+
+    checked = incumbent.checker_result
+    final_sha = _solution_sha(incumbent.solution)
+    wall_seconds = time.monotonic() - started
+    move_attempts = sum(
+        row["kind"] == "move" and row["attempted"] for row in attempt_rows
+    )
+    swap_attempts = sum(
+        row["kind"] == "swap" and row["attempted"] for row in attempt_rows
+    )
+    move_accepted = sum(
+        row["kind"] == "move" and row["accepted"] for row in attempt_rows
+    )
+    swap_accepted = sum(
+        row["kind"] == "swap" and row["accepted"] for row in attempt_rows
+    )
+    passed = (
+        prior_checked.feasible
+        and prior_checked.stage == 5
+        and checked.feasible
+        and checked.stage == 5
+        and move_attempts == 1
+        and swap_attempts == 1
+        and move_accepted <= move_attempts
+        and swap_accepted <= swap_attempts
+        and final_sha == _solution_sha(incumbent.solution)
+        and wall_seconds <= timelimit
+    )
+    return {
+        "record_id": _case_record_id(ref.instance_id, timelimit, seed, "none"),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "guarded-cross-bay-refinement",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(features.items())),
+        "wall_seconds": wall_seconds,
+        "subprocess_exit": 0,
+        "signal": None,
+        "checker": checker_payload(checked),
+        "prior_checker": checker_payload(prior_checked),
+        "attempts": attempt_rows,
+        "cross_bay_attempts": move_attempts + swap_attempts,
+        "cross_bay_accepted": move_accepted + swap_accepted,
+        "move_attempts": move_attempts,
+        "move_accepted": move_accepted,
+        "swap_attempts": swap_attempts,
+        "swap_accepted": swap_accepted,
+        "d6_attempts": move_attempts + swap_attempts,
+        "retime_backend_attempts": retime_backend_attempts,
+        "full_check_count": incumbent.verification_count,
+        "incumbent_verification_count": incumbent.verification_count,
+        "prior_incumbent_sha256": prior_sha,
+        "incumbent_sha256": final_sha,
+        "unverified_return_count": 0,
+        "timeout": False,
+        "crash": False,
+        "exception": None,
+        "fallback_tier": "s3" if final_sha == prior_sha else "cross_bay",
+        "fallback_reason": None if final_sha != prior_sha else "no verified improvement",
+    }
+
+
 def construct_fixed_assignment(
     instance: ProblemInstance,
     assignment: Any,
@@ -1260,6 +1435,11 @@ def _copy_solution_state(state: SolutionState) -> SolutionState:
         copied.place(placement)
     copied.assert_invariants()
     return copied
+
+
+def _solution_sha(solution: Mapping[str, Any]) -> str:
+    payload = json.dumps(solution, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 def run_s3_control_case(

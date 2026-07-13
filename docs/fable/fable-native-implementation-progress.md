@@ -151,7 +151,7 @@ S0 foundation
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
 | S3 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive `false`; dirty `max(3,.03n_b)` | S2 mandatory gate; S3-01 through S3-05 complete | `benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/` | `c0da4a7971c57b85066f2610ead9b68d6305fe65` | — | S4-01 in progress |
-| S4 | `IN_PROGRESS` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | `benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/` | pending `feat(s4): add safe assignment fallbacks` | — | S4-03 is next after S4-02 commit/push closeout |
+| S4 | `IN_PROGRESS` | — | `NOT_RUN` | `assignment_refinement=false`; `cross_bay=false` | S3 mandatory gate; S4-01 through S4-03 complete | `benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/` | pending `feat(s4): add guarded cross-bay refinement` | — | commit/push S4-03, then S4-04 is eligible to integrate and run the full S4 gate |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
 | S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
 
@@ -3381,6 +3381,177 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   failure_or_fallback_reason: null
   feature_default_decision: assignment_refinement=false; S4-02 COMPLETE and S4-03 remains unstarted
   next_action: create and push the single atomic S4-02 commit, verify clean upstream equality, then create exactly one S4-03 task
+```
+
+```yaml
+- timestamp: 2026-07-13T18:58:22+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S4-03\\b' docs/fable/implementation-steps/s4-assignment-refinement.md
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/COMPLETE
+    - inspect benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/COMPLETE
+    - inspect benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/COMPLETE
+    - inspect benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/COMPLETE
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S4-03 adds only guarded move/swap/D6 refinement and does not integrate entry, run the S4 full gate, or add S5/S6 behavior
+  next_action: add tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta and demonstrate the intended missing cross-bay registry RED
+```
+
+```yaml
+- timestamp: 2026-07-13T18:59:59+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta -v
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.alns has no CrossBayRegistry and the S4-only move/swap/D6 guarded transaction API is absent
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S3 OperatorRegistry remains unchanged
+  next_action: implement the minimum S4-only cross-bay registry, exact-float candidate ranking, two-bay repair/retime transaction, checker-gated incumbent update, and exact rollback
+```
+
+```yaml
+- timestamp: 2026-07-13T19:06:00+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_successful_move_and_swap_are_fully_checked -v
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt
+  checker_result: PASS; successful synthetic move and swap each reached official checker Stage 5, and injected repair, retime, and full-check faults preserved the exact pre-candidate state and incumbent SHA
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; exact Z2/Z3 is the primary ranking key, measured congestion is tie-breaking telemetry only, and only VerifiedIncumbent.try_update can authorize replacement
+  next_action: extend the S4 harness for the exact named cross_bay benchmark, then run targeted S4-03 and S3 regressions before the full suite
+```
+
+```yaml
+- timestamp: 2026-07-13T19:04:35+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: PASS; 3/3 S4-03 tests, 12/12 S3 regression tests, and 89/89 full discovery tests passed; synthetic move and swap reached Stage 5 and all injected failure boundaries restored exact state/incumbent SHA
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; entry integration and the S4 full gate remain unstarted
+  next_action: record the exact named benchmark identity and launch the required high-w23 cross-bay benchmark once
+```
+
+```yaml
+- timestamp: 2026-07-13T19:04:35+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component cross_bay --instances high-w23 --timelimits 60 --seeds 20260710 --feature cross_bay=true --run-id 20260713T100435Z-s4-03-cross-bay
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: pending named benchmark
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/benchmark-launch.json; pending benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false
+  run_identity: run_id=20260713T100435Z-s4-03-cross-bay; commit=239d5fe57519db002e3521a832149ab8f3f7ea45; dirty_diff_hash=efd8f44b7c77bf9517471b9a97d998a99a6fab51b10396285bb15f8e27fcdc5b; selector=high-w23; expected_record_count=10; timelimits=60; seeds=20260710; features=cross_bay=true
+  next_action: launch the named benchmark exactly once; if it exits nonzero, record the exact failure and stop without edits or rerun
+```
+
+```yaml
+- timestamp: 2026-07-13T19:07:56+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component cross_bay --instances high-w23 --timelimits 60 --seeds 20260710 --feature cross_bay=true --run-id 20260713T100435Z-s4-03-cross-bay
+    - inspect benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+    - ps aux
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: PASS; 10/10 high-w23 records reached official checker Stage 5 with zero checker failures and zero unverified returns
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; 10/10 moves and 10/10 swaps were attempted, 9 moves and 9 swaps were accepted, D6 recorded 20 attempts, and 40 affected-bay S2 retime calls completed; S4-04 owns entry integration and default selection
+  next_action: finish cleanup and selected-slice diff/evidence audits, record S4-03 COMPLETE, then commit and push only S4-03
+```
+
+```yaml
+- timestamp: 2026-07-13T19:09:00+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add guarded cross-bay refinement
+  dirty: true
+  commands:
+    - verify benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/{COMPLETE,red.txt,green-targeted.txt,regression.txt,summary.json}
+    - verify benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+    - ps aux
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - git status --short --branch
+    - git diff --stat
+    - git diff --name-only
+    - git ls-files --others --exclude-standard
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: PASS; synthetic move and swap reached official checker Stage 5; repair, retime, and full-check fault injection preserved the exact pre-candidate state and incumbent SHA; 10/10 benchmark records were Stage 5 feasible
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S4-03 COMPLETE as a guarded proof/search component with exact-float ranking, two-bay S2 retiming, and checker-only incumbent replacement; S4-04 remains unstarted and owns integration/default/gate decisions
+  next_action: stage only the five audited S4-03 tracked files, commit feat(s4): add guarded cross-bay refinement, push, verify clean upstream equality, then create exactly one S4-04 task
 ```
 
 ## 11. Planning quality audit

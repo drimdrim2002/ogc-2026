@@ -37,6 +37,9 @@ RunFaultHook = Callable[[str], None]
 RetimeCallback = Callable[
     [SolutionState, int, Budget | None, float], SolutionState | None
 ]
+CrossBayRetimeCallback = Callable[
+    [SolutionState, int, Budget | None], SolutionState | None
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +64,51 @@ class OperatorAttemptResult:
     repair_name: str
     source_bay: int | None
     removed_block_ids: tuple[int, ...]
+    mutation_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class CrossBayOperator:
+    """One S4-only assignment-changing neighborhood declaration."""
+
+    name: str
+    changes_assignment: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class CrossBayCandidate:
+    """A pure move/swap proposal ranked by exact assignment diagnostics."""
+
+    kind: str
+    block_ids: tuple[int, ...]
+    source_bays: tuple[int, ...]
+    target_bays: tuple[int, ...]
+    target_orients: tuple[int, ...]
+    before_z2: float
+    after_z2: float
+    delta_z2: float
+    before_z3: float
+    after_z3: float
+    delta_z3: float
+    exact_weighted_delta: float
+    congestion_delta: float
+    priority: tuple[float | int | tuple[int, ...], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class CrossBayAttemptResult:
+    """Guarded S4 candidate outcome with rollback and checker provenance."""
+
+    committed: bool
+    reason: str
+    kind: str
+    affected_bays: tuple[int, ...]
+    retimed_bays: tuple[int, ...]
+    checker_feasible: bool
+    checker_stage: int | None
+    checker_objective: float | None
+    incumbent_updated: bool
+    incumbent_sha256: str
     mutation_count: int
 
 
@@ -762,6 +810,520 @@ class MoveTransaction:
         if not self._closed:
             self.rollback()
         return False
+
+
+class CrossBayRegistry:
+    """Separate S4 registry; the S3 intra-bay registry remains immutable."""
+
+    def __init__(self) -> None:
+        items = tuple(
+            CrossBayOperator(name) for name in ("move", "swap", "d6")
+        )
+        if any(not item.changes_assignment for item in items):
+            raise AssertionError("S4 cross-bay operators must change assignment")
+        self.operators: Mapping[str, CrossBayOperator] = MappingProxyType(
+            {item.name: item for item in items}
+        )
+
+    @property
+    def operator_names(self) -> tuple[str, ...]:
+        return tuple(self.operators)
+
+
+def rank_cross_bay_candidates(
+    state: SolutionState,
+    *,
+    registry: CrossBayRegistry | None = None,
+    limit: int | None = None,
+) -> tuple[CrossBayCandidate, ...]:
+    """Enumerate fit-safe moves/swaps with checker-float Z2/Z3 deltas.
+
+    The D6 declaration owns the combined rebalance pool.  Exact weighted
+    assignment delta is the primary key; measured area-time congestion breaks
+    ties only and can never authorize an incumbent replacement.
+    """
+    if not isinstance(state, SolutionState):
+        raise TypeError("state must be a SolutionState")
+    operators = CrossBayRegistry() if registry is None else registry
+    if not isinstance(operators, CrossBayRegistry):
+        raise TypeError("registry must be a CrossBayRegistry")
+    if limit is not None and (
+        isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
+    ):
+        raise ValueError("limit must be a positive integer or None")
+    state.assert_invariants()
+    placements = tuple(sorted(state.placements.values(), key=lambda item: item.block_id))
+    candidates: list[CrossBayCandidate] = []
+
+    if "move" in operators.operators or "d6" in operators.operators:
+        for placement in placements:
+            for target_bay in range(len(state.instance.bays)):
+                if target_bay == placement.bay_id:
+                    continue
+                orient = _preferred_target_orientation(
+                    state, placement.block_id, target_bay, placement.orient_idx
+                )
+                if orient is None:
+                    continue
+                candidates.append(
+                    _cross_bay_candidate(
+                        state,
+                        kind="move",
+                        block_ids=(placement.block_id,),
+                        source_bays=(placement.bay_id,),
+                        target_bays=(target_bay,),
+                        target_orients=(orient,),
+                    )
+                )
+
+    if "swap" in operators.operators or "d6" in operators.operators:
+        for index, left in enumerate(placements):
+            for right in placements[index + 1 :]:
+                if left.bay_id == right.bay_id:
+                    continue
+                left_orient = _preferred_target_orientation(
+                    state, left.block_id, right.bay_id, left.orient_idx
+                )
+                right_orient = _preferred_target_orientation(
+                    state, right.block_id, left.bay_id, right.orient_idx
+                )
+                if left_orient is None or right_orient is None:
+                    continue
+                candidates.append(
+                    _cross_bay_candidate(
+                        state,
+                        kind="swap",
+                        block_ids=(left.block_id, right.block_id),
+                        source_bays=(left.bay_id, right.bay_id),
+                        target_bays=(right.bay_id, left.bay_id),
+                        target_orients=(left_orient, right_orient),
+                    )
+                )
+
+    ordered = tuple(sorted(candidates, key=lambda item: item.priority))
+    return ordered if limit is None else ordered[:limit]
+
+
+def run_cross_bay_candidate(
+    state: SolutionState,
+    incumbent: VerifiedIncumbent,
+    candidate: CrossBayCandidate,
+    rng: Generator,
+    *,
+    retime: CrossBayRetimeCallback,
+    budget: Budget | None = None,
+    fault_hook: RunFaultHook | None = None,
+    on_mutation: MutationHook | None = None,
+) -> CrossBayAttemptResult:
+    """Repair, retime, full-check, and atomically decide one S4 candidate."""
+    if not isinstance(state, SolutionState):
+        raise TypeError("state must be a SolutionState")
+    if not isinstance(incumbent, VerifiedIncumbent) or not incumbent.has_incumbent:
+        raise ValueError("cross-bay refinement requires a verified incumbent")
+    if not isinstance(candidate, CrossBayCandidate):
+        raise TypeError("candidate must be a CrossBayCandidate")
+    if not isinstance(rng, Generator):
+        raise TypeError("rng must be a numpy.random.Generator")
+    if not callable(retime):
+        raise TypeError("retime must be callable")
+    _validate_cross_bay_candidate(state, candidate)
+
+    affected_bays = tuple(sorted(set((*candidate.source_bays, *candidate.target_bays))))
+    incumbent_sha = _solution_sha256(incumbent.solution)
+    checked = incumbent.checker_result
+    active_point = "transaction"
+    transaction: MoveTransaction | None = None
+    retimed_bays: list[int] = []
+
+    try:
+        with MoveTransaction(state, rng, on_mutation=on_mutation) as transaction:
+            _checkpoint(budget, "S4 cross-bay transaction start")
+            originals: list[Placement] = []
+            for block_id in candidate.block_ids:
+                original = state.remove(block_id)
+                if original is None:
+                    raise AssertionError(f"cross-bay block {block_id} disappeared")
+                originals.append(original)
+                transaction.record_mutation(f"remove:cross_bay:{block_id}")
+
+            active_point = "repair"
+            for original, target_bay, target_orient in zip(
+                originals,
+                candidate.target_bays,
+                candidate.target_orients,
+                strict=True,
+            ):
+                _checkpoint(budget, "S4 cross-bay repair")
+                inserted = insert_block(
+                    state,
+                    original.block_id,
+                    bays_try=(target_bay,),
+                    preferred_orient_idx=target_orient,
+                    time_cap=None,
+                    anchor_cap=ESCALATED_ANCHOR_CAP,
+                )
+                if inserted is None or inserted.placement.bay_id != target_bay:
+                    return _cross_bay_failure(
+                        candidate,
+                        affected_bays,
+                        retimed_bays,
+                        "repair_failed",
+                        incumbent,
+                        transaction.mutation_count,
+                    )
+                if not validate_insertion(state, inserted.placement):
+                    return _cross_bay_failure(
+                        candidate,
+                        affected_bays,
+                        retimed_bays,
+                        "repair_failed",
+                        incumbent,
+                        transaction.mutation_count,
+                    )
+                if state.place(inserted.placement) is not None:
+                    raise AssertionError("cross-bay repair replaced an existing block")
+                transaction.record_mutation(
+                    f"insert:cross_bay:{original.block_id}:{target_bay}"
+                )
+            state.assert_invariants()
+            _assert_cross_bay_float_delta(transaction.undo_token, state, candidate)
+            _inject_run_fault(fault_hook, "repair")
+
+            active_point = "retime"
+            for bay_id in affected_bays:
+                _checkpoint(budget, f"S4 cross-bay retime bay {bay_id}")
+                before_callback = state.capture_undo_token()
+                retimed = retime(state, bay_id, budget)
+                if state.capture_undo_token() != before_callback:
+                    state.restore_undo_token(before_callback)
+                    raise AssertionError("cross-bay retime callback mutated current state")
+                if retimed is None:
+                    return _cross_bay_failure(
+                        candidate,
+                        affected_bays,
+                        retimed_bays,
+                        "retime_failed",
+                        incumbent,
+                        transaction.mutation_count,
+                    )
+                _validate_cross_bay_retime(before_callback, retimed, bay_id)
+                _install_state_copy(state, retimed, transaction)
+                retimed_bays.append(bay_id)
+            _assert_cross_bay_float_delta(transaction.undo_token, state, candidate)
+            _inject_run_fault(fault_hook, "retime")
+
+            active_point = "full_check"
+            _checkpoint(budget, "S4 cross-bay before full check")
+            _inject_run_fault(fault_hook, "full_check")
+            updated = incumbent.try_update(state)
+            checked = incumbent.last_checker_result
+            if not updated:
+                reason = "checker_rejected" if not checked.feasible else "not_improving"
+                return _cross_bay_failure(
+                    candidate,
+                    affected_bays,
+                    retimed_bays,
+                    reason,
+                    incumbent,
+                    transaction.mutation_count,
+                    checked=checked,
+                )
+            transaction.commit()
+            incumbent_sha = _solution_sha256(incumbent.solution)
+            return CrossBayAttemptResult(
+                committed=True,
+                reason="accepted",
+                kind=candidate.kind,
+                affected_bays=affected_bays,
+                retimed_bays=tuple(retimed_bays),
+                checker_feasible=checked.feasible,
+                checker_stage=checked.stage,
+                checker_objective=checked.objective,
+                incumbent_updated=True,
+                incumbent_sha256=incumbent_sha,
+                mutation_count=transaction.mutation_count,
+            )
+    except BudgetExpired:
+        return _cross_bay_failure(
+            candidate,
+            affected_bays,
+            retimed_bays,
+            "deadline",
+            incumbent,
+            0 if transaction is None else transaction.mutation_count,
+        )
+    except Exception:
+        return _cross_bay_failure(
+            candidate,
+            affected_bays,
+            retimed_bays,
+            f"fault:{active_point}",
+            incumbent,
+            0 if transaction is None else transaction.mutation_count,
+        )
+
+
+def _cross_bay_candidate(
+    state: SolutionState,
+    *,
+    kind: str,
+    block_ids: tuple[int, ...],
+    source_bays: tuple[int, ...],
+    target_bays: tuple[int, ...],
+    target_orients: tuple[int, ...],
+) -> CrossBayCandidate:
+    after_z2, after_z3, congestion_delta = _cross_bay_assignment_values(
+        state,
+        block_ids=block_ids,
+        source_bays=source_bays,
+        target_bays=target_bays,
+        target_orients=target_orients,
+    )
+    delta_z2 = after_z2 - state.z2
+    delta_z3 = after_z3 - state.z3
+    _w1, w2, w3 = state.instance.weights
+    exact_delta = w2 * delta_z2 + w3 * delta_z3
+    kind_order = 0 if kind == "move" else 1
+    priority: tuple[float | int | tuple[int, ...], ...] = (
+        exact_delta,
+        congestion_delta,
+        kind_order,
+        block_ids,
+        target_bays,
+    )
+    return CrossBayCandidate(
+        kind=kind,
+        block_ids=block_ids,
+        source_bays=source_bays,
+        target_bays=target_bays,
+        target_orients=target_orients,
+        before_z2=state.z2,
+        after_z2=after_z2,
+        delta_z2=delta_z2,
+        before_z3=state.z3,
+        after_z3=after_z3,
+        delta_z3=delta_z3,
+        exact_weighted_delta=exact_delta,
+        congestion_delta=congestion_delta,
+        priority=priority,
+    )
+
+
+def _cross_bay_assignment_values(
+    state: SolutionState,
+    *,
+    block_ids: tuple[int, ...],
+    source_bays: tuple[int, ...],
+    target_bays: tuple[int, ...],
+    target_orients: tuple[int, ...],
+) -> tuple[float, float, float]:
+    loads = list(state.objective_diagnostics.bay_loads)
+    area_time = [0.0 for _ in state.instance.bays]
+    for placement in state.placements.values():
+        block = state.instance.blocks[placement.block_id]
+        area_time[placement.bay_id] += state.shape_info(placement).area * block.dwell
+    before_congestion = max(
+        (
+            area_time[bay.bay_id] / max(1.0, bay.area * _instance_horizon(state))
+            for bay in state.instance.bays
+        ),
+        default=0.0,
+    )
+    z3 = state.z3
+    for block_id, source_bay, target_bay, target_orient in zip(
+        block_ids, source_bays, target_bays, target_orients, strict=True
+    ):
+        placement = state.get(block_id)
+        if placement is None or placement.bay_id != source_bay:
+            raise ValueError("candidate source membership does not match current state")
+        block = state.instance.blocks[block_id]
+        loads[source_bay] -= block.workload
+        loads[target_bay] += block.workload
+        best = max(block.bay_preferences)
+        z3 += (
+            best
+            - block.bay_preferences[target_bay]
+            - (best - block.bay_preferences[source_bay])
+        )
+        area_time[source_bay] -= state.shape_info(placement).area * block.dwell
+        area_time[target_bay] += (
+            state.orientation_shape(block_id, target_orient).area * block.dwell
+        )
+    after_z2 = _load_range_from_state(state, loads)
+    after_congestion = max(
+        (
+            area_time[bay.bay_id] / max(1.0, bay.area * _instance_horizon(state))
+            for bay in state.instance.bays
+        ),
+        default=0.0,
+    )
+    return after_z2, z3, after_congestion - before_congestion
+
+
+def _load_range_from_state(state: SolutionState, loads: Sequence[float]) -> float:
+    if len(state.instance.bays) < 2:
+        return 0.0
+    average_area = sum(bay.area for bay in state.instance.bays) / len(
+        state.instance.bays
+    )
+    normalized = tuple(
+        average_area / bay.area * float(load)
+        for bay, load in zip(state.instance.bays, loads, strict=True)
+    )
+    return max(normalized) - min(normalized)
+
+
+def _preferred_target_orientation(
+    state: SolutionState,
+    block_id: int,
+    bay_id: int,
+    preferred: int,
+) -> int | None:
+    fitting = state.instance.fitting_orientations(block_id, bay_id)
+    if not fitting:
+        return None
+    if preferred in fitting:
+        return preferred
+    return min(
+        fitting,
+        key=lambda orient: (state.orientation_shape(block_id, orient).area, orient),
+    )
+
+
+def _validate_cross_bay_candidate(
+    state: SolutionState, candidate: CrossBayCandidate
+) -> None:
+    expected_count = 1 if candidate.kind == "move" else 2
+    if candidate.kind not in {"move", "swap"}:
+        raise ValueError("cross-bay candidate kind must be move or swap")
+    fields = (
+        candidate.block_ids,
+        candidate.source_bays,
+        candidate.target_bays,
+        candidate.target_orients,
+    )
+    if any(len(field) != expected_count for field in fields):
+        raise ValueError("cross-bay candidate fields have inconsistent lengths")
+    if len(set(candidate.block_ids)) != expected_count:
+        raise ValueError("cross-bay candidate blocks must be unique")
+    regenerated = _cross_bay_candidate(
+        state,
+        kind=candidate.kind,
+        block_ids=candidate.block_ids,
+        source_bays=candidate.source_bays,
+        target_bays=candidate.target_bays,
+        target_orients=candidate.target_orients,
+    )
+    for name in (
+        "before_z2",
+        "after_z2",
+        "delta_z2",
+        "before_z3",
+        "after_z3",
+        "delta_z3",
+        "exact_weighted_delta",
+        "congestion_delta",
+    ):
+        if not math.isclose(
+            float(getattr(candidate, name)),
+            float(getattr(regenerated, name)),
+            rel_tol=1e-12,
+            abs_tol=1e-12,
+        ):
+            raise ValueError(f"stale or inexact cross-bay candidate {name}")
+
+
+def _assert_cross_bay_float_delta(
+    before: StateUndoToken,
+    state: SolutionState,
+    candidate: CrossBayCandidate,
+) -> None:
+    if not math.isclose(
+        state.z2 - before.z2, candidate.delta_z2, rel_tol=1e-12, abs_tol=1e-12
+    ):
+        raise AssertionError("cross-bay candidate Z2 delta is not exact")
+    if not math.isclose(
+        state.z3 - before.z3, candidate.delta_z3, rel_tol=1e-12, abs_tol=1e-12
+    ):
+        raise AssertionError("cross-bay candidate Z3 delta is not exact")
+
+
+def _validate_cross_bay_retime(
+    before: StateUndoToken,
+    candidate: SolutionState,
+    bay_id: int,
+) -> None:
+    if not isinstance(candidate, SolutionState):
+        raise TypeError("cross-bay retime must return SolutionState or None")
+    if candidate.capture_undo_token()._owner_id == before._owner_id:
+        raise ValueError("cross-bay retime must return an isolated state copy")
+    if set(candidate.placements) != {item.block_id for item in before.placements}:
+        raise AssertionError("cross-bay retime changed the block set")
+    before_by_id = {item.block_id: item for item in before.placements}
+    for block_id, placement in candidate.placements.items():
+        original = before_by_id[block_id]
+        if (
+            placement.bay_id,
+            placement.x,
+            placement.y,
+            placement.orient_idx,
+        ) != (
+            original.bay_id,
+            original.x,
+            original.y,
+            original.orient_idx,
+        ):
+            raise AssertionError("cross-bay retime changed assignment or fixed layout")
+        if placement.bay_id != bay_id and placement != original:
+            raise AssertionError("cross-bay retime changed an unaffected bay")
+    candidate.assert_invariants()
+
+
+def _install_state_copy(
+    state: SolutionState,
+    candidate: SolutionState,
+    transaction: MoveTransaction,
+) -> None:
+    for block_id in sorted(state.placements):
+        replacement = candidate.get(block_id)
+        current = state.get(block_id)
+        if replacement is None or current is None:
+            raise AssertionError("retime copy lost a placement")
+        if replacement != current:
+            state.place(replacement)
+            transaction.record_mutation(f"retime:{block_id}")
+    state.assert_invariants()
+
+
+def _cross_bay_failure(
+    candidate: CrossBayCandidate,
+    affected_bays: tuple[int, ...],
+    retimed_bays: Sequence[int],
+    reason: str,
+    incumbent: VerifiedIncumbent,
+    mutation_count: int,
+    *,
+    checked: CheckerResult | None = None,
+) -> CrossBayAttemptResult:
+    result = incumbent.checker_result if checked is None else checked
+    return CrossBayAttemptResult(
+        committed=False,
+        reason=reason,
+        kind=candidate.kind,
+        affected_bays=affected_bays,
+        retimed_bays=tuple(retimed_bays),
+        checker_feasible=result.feasible,
+        checker_stage=result.stage,
+        checker_objective=result.objective,
+        incumbent_updated=False,
+        incumbent_sha256=_solution_sha256(incumbent.solution),
+        mutation_count=mutation_count,
+    )
+
+
+def _solution_sha256(solution: Mapping[str, Any]) -> str:
+    payload = json.dumps(solution, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(payload).hexdigest()
 
 
 class D1RandomRemoval(DestroyOperator):
