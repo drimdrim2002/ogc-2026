@@ -65,6 +65,8 @@ class MipRepairConfig:
             raise TypeError("MIP caps, threads, and seed must be integers")
         if min(integer_values[:5]) <= 0:
             raise ValueError("MIP caps and threads must be positive")
+        if self.threads > 4:
+            raise ValueError("Gurobi threads cannot exceed 4")
         if self.max_blocks > 16 or self.max_per_block > 32 or self.max_product > 512:
             raise ValueError("MIP hard caps are 16 blocks, 32 candidates, product 512")
         if not 0.0 < self.min_timebox_s <= self.max_timebox_s <= 3.0:
@@ -755,9 +757,8 @@ class _GurobiBackend:
         for ref in request.incumbent_choice:
             z[ref].Start = 1.0
 
-        qmax = model.addVar(lb=-gp.GRB.INFINITY, name="qmax")
-        qmin = model.addVar(lb=-gp.GRB.INFINITY, name="qmin")
         row_map = dict(request.rows)
+        normalized_loads = []
         for bay_id, factor in enumerate(request.load_factors):
             load = request.unchanged_loads[bay_id] + gp.quicksum(
                 request.workloads[block_id] * z[block_id, candidate_index]
@@ -766,8 +767,19 @@ class _GurobiBackend:
                 if candidate.bay_id == bay_id
             )
             normalized = factor * load
-            model.addConstr(qmax >= normalized, name=f"qmax_{bay_id}")
-            model.addConstr(qmin <= normalized, name=f"qmin_{bay_id}")
+            normalized_loads.append(normalized)
+        if len(normalized_loads) < 2:
+            z2 = 0.0
+        else:
+            qmax = model.addVar(lb=-gp.GRB.INFINITY, name="z2_max")
+            qmin = model.addVar(lb=-gp.GRB.INFINITY, name="z2_min")
+            z2 = model.addVar(lb=0.0, vtype=gp.GRB.INTEGER, name="z2_floor")
+            for bay_id, normalized in enumerate(normalized_loads):
+                model.addConstr(qmax >= normalized, name=f"z2_max_{bay_id}")
+                model.addConstr(qmin <= normalized, name=f"z2_min_{bay_id}")
+            load_range = qmax - qmin
+            model.addConstr(z2 <= load_range, name="z2_lower")
+            model.addConstr(load_range <= z2 + (1.0 - 1e-7), name="z2_upper")
         known = gp.quicksum(
             (
                 request.w1 * candidate.cost_parts.tardiness
@@ -777,7 +789,7 @@ class _GurobiBackend:
             for block_id, row in request.rows
             for candidate_index, candidate in enumerate(row)
         )
-        model.setObjective(known + request.w2 * (qmax - qmin), gp.GRB.MINIMIZE)
+        model.setObjective(known + request.w2 * z2, gp.GRB.MINIMIZE)
         model.optimize()
         status = self._status_name(gp, model.Status)
         if model.SolCount <= 0:

@@ -1,7 +1,8 @@
-"""Local debug runner for myalgorithm.py.
+"""Local-only debug runner for a required problem-instance path.
 
-Edit INSTANCE_PATH and TIMELIMIT below, then press F5 (Debug myalgorithm).
-CLI args override these defaults when provided.
+Example:
+    cd baseline
+    python run_myalgorithm.py ../alg_tester/example/example_B2_b10.json
 """
 from __future__ import annotations
 
@@ -15,11 +16,7 @@ from utils import check_feasibility
 
 _BASELINE_DIR = pathlib.Path(__file__).resolve().parent
 
-# --- Edit these before debugging ---------------------------------------------
-# Relative to baseline/, or use an absolute path.
-INSTANCE_PATH = "../alg_tester/example/train 2/prob_1.json"
 TIMELIMIT = 60.0
-# -----------------------------------------------------------------------------
 
 
 def _resolve_instance(path: str) -> pathlib.Path:
@@ -33,9 +30,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run and check myalgorithm locally")
     parser.add_argument(
         "instance",
-        nargs="?",
-        default=INSTANCE_PATH,
-        help="path to problem JSON (default: INSTANCE_PATH in this file)",
+        help=(
+            "path to problem JSON; tracked example: "
+            "../alg_tester/example/example_B2_b10.json (run from baseline/)"
+        ),
     )
     parser.add_argument(
         "--timelimit",
@@ -56,9 +54,9 @@ def main() -> None:
     print(f"Timelimit: {args.timelimit}s")
     print("Running algorithm...\n")
 
-    t0 = time.time()
+    t0 = time.monotonic()
     solution = algorithm(prob_info, args.timelimit)
-    elapsed = time.time() - t0
+    elapsed = time.monotonic() - t0
 
     result = check_feasibility(prob_info, solution)
 

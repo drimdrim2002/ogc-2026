@@ -16,6 +16,7 @@ from typing import Any, Protocol
 from .budget import Budget
 from .geometry import GeometryKernel
 from .instance import Instance
+from .state import checker_z2
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +82,10 @@ class AssignmentConfig:
     soft_mem_limit: float = 12.0
 
     def __post_init__(self) -> None:
+        if isinstance(self.threads, bool) or not isinstance(self.threads, int):
+            raise TypeError("threads must be an integer")
+        if not 1 <= self.threads <= 4:
+            raise ValueError("Gurobi threads must be between 1 and 4")
         if not 1 <= self.portfolio_size <= self.max_portfolio_size <= 32:
             raise ValueError("portfolio size must be between 1 and 32")
         if self.relative_gap < 0 or self.hamming_fraction < 0:
@@ -216,7 +221,7 @@ def evaluate_assignment(
             raise ValueError(f"block {block_id} is assigned to a non-fitting bay")
         bay_loads[bay_id] += data.load_coefficient[block_id][bay_id]
         z3 += data.preference_loss[block_id][bay_id]
-    z2 = max(bay_loads) - min(bay_loads) if len(bay_loads) > 1 else 0.0
+    z2 = checker_z2(bay_loads)
     weighted = instance.weights.w2 * z2 + instance.weights.w3 * z3
     return AssignmentObjective(z2=z2, z3=z3, weighted=weighted)
 
@@ -604,6 +609,22 @@ class _GurobiBackend:
         model.Params.Seed = request.seed
         model.Params.TimeLimit = max(0.001, request.time_limit)
 
+    @staticmethod
+    def _floored_range(model: Any, gp: Any, loads: list[Any], *, name: str) -> Any:
+        """Model the official integer floor of max(loads) - min(loads)."""
+        if len(loads) < 2:
+            return 0.0
+        qmax = model.addVar(lb=-gp.GRB.INFINITY, name=f"{name}_max")
+        qmin = model.addVar(lb=-gp.GRB.INFINITY, name=f"{name}_min")
+        floored = model.addVar(lb=0.0, vtype=gp.GRB.INTEGER, name=f"{name}_floor")
+        for index, load in enumerate(loads):
+            model.addConstr(qmax >= load, name=f"{name}_max_{index}")
+            model.addConstr(qmin <= load, name=f"{name}_min_{index}")
+        load_range = qmax - qmin
+        model.addConstr(floored <= load_range, name=f"{name}_lower")
+        model.addConstr(load_range <= floored + (1.0 - 1e-7), name=f"{name}_upper")
+        return floored
+
     def solve_exact(self, request: ExactAssignmentRequest) -> BackendResult:
         gp = self.gp
         started = time.monotonic()
@@ -614,23 +635,22 @@ class _GurobiBackend:
             for i, bays in enumerate(request.data.feasible_bays)
             for j in bays
         }
-        qmax = model.addVar(lb=-gp.GRB.INFINITY, name="qmax")
-        qmin = model.addVar(lb=-gp.GRB.INFINITY, name="qmin")
         for i, bays in enumerate(request.data.feasible_bays):
             model.addConstr(gp.quicksum(x[i, j] for j in bays) == 1, name=f"assign_{i}")
         bay_count = request.data.bay_count
+        loads = []
         for j in range(bay_count):
             load = gp.quicksum(
                 request.data.load_coefficient[i][j] * x[i, j]
                 for i, bays in enumerate(request.data.feasible_bays)
                 if j in bays
             )
-            model.addConstr(qmax >= load, name=f"qmax_{j}")
-            model.addConstr(qmin <= load, name=f"qmin_{j}")
+            loads.append(load)
+        z2 = self._floored_range(model, gp, loads, name="z2")
         preference = gp.quicksum(
             request.data.preference_loss[i][j] * var for (i, j), var in x.items()
         )
-        objective = request.w2 * (qmax - qmin) + request.w3 * preference
+        objective = request.w2 * z2 + request.w3 * preference
         model.setObjective(objective, gp.GRB.MINIMIZE)
         model.optimize()
         first_status = self._status_name(gp, model.Status)
@@ -702,14 +722,13 @@ class _GurobiBackend:
             for j in bays
             for t in request.candidate_times[i]
         }
-        qmax = model.addVar(lb=-gp.GRB.INFINITY, name="qmax")
-        qmin = model.addVar(lb=-gp.GRB.INFINITY, name="qmin")
         for i, bays in enumerate(request.data.feasible_bays):
             model.addConstr(
                 gp.quicksum(y[i, j, t] for j in bays for t in request.candidate_times[i]) == 1,
                 name=f"choose_{i}",
             )
         bay_count = len(request.bay_areas)
+        loads = []
         for j in range(bay_count):
             load = gp.quicksum(
                 request.data.load_coefficient[i][j] * y[i, j, t]
@@ -717,8 +736,8 @@ class _GurobiBackend:
                 if j in bays
                 for t in request.candidate_times[i]
             )
-            model.addConstr(qmax >= load, name=f"qmax_{j}")
-            model.addConstr(qmin <= load, name=f"qmin_{j}")
+            loads.append(load)
+        z2 = self._floored_range(model, gp, loads, name="z2")
         slack: dict[tuple[int, int], Any] = {}
         all_dates = sorted(
             {
@@ -753,7 +772,7 @@ class _GurobiBackend:
         )
         objective = (
             request.w1 * tardiness
-            + request.w2 * (qmax - qmin)
+            + request.w2 * z2
             + request.w3 * preference
             + request.slack_price * gp.quicksum(slack.values())
         )

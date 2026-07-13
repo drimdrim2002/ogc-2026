@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+from pathlib import Path
 import unittest
 
 from solver.serialize import EmptyPrecedenceProvider, SerializationError, serialize
@@ -28,6 +30,16 @@ class FakePrecedenceProvider:
 
 
 class CheckerContractTests(unittest.TestCase):
+    def test_official_checker_hash_and_copy_identity(self):
+        repository = Path(__file__).resolve().parents[2]
+        baseline_checker = (repository / "baseline" / "utils.py").read_bytes()
+        tester_checker = (repository / "alg_tester" / "utils.py").read_bytes()
+        expected = "d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94"
+
+        self.assertEqual(expected, hashlib.sha256(baseline_checker).hexdigest())
+        self.assertEqual(expected, hashlib.sha256(tester_checker).hexdigest())
+        self.assertEqual(baseline_checker, tester_checker)
+
     def test_half_open_handover(self):
         prob = instance([block(), block()])
         result = checker(prob, placement_ops([(0, 0, 0, 0, 0, 0, 2), (1, 0, 0, 0, 0, 2, 4)]))
@@ -40,13 +52,31 @@ class CheckerContractTests(unittest.TestCase):
         self.assertTrue(result["feasible"], result)
         self.assertEqual(5, result["stage"])
 
-    def test_simultaneous_entries_free_pass_obstructed_fail(self):
+    def test_simultaneous_entries_skip_stage_two_but_collisions_fail_stage_four(self):
         prob = instance([block(), block()])
         free = checker(prob, placement_ops([(0, 0, 0, 0, 0, 0, 2), (1, 0, 0, 3, 0, 0, 2)]))
         obstructed = checker(prob, placement_ops([(0, 0, 0, 0, 0, 0, 2), (1, 0, 0, 0, 0, 0, 2)]))
         self.assertTrue(free["feasible"], free)
         self.assertFalse(obstructed["feasible"])
-        self.assertEqual(2, obstructed["stage"])
+        self.assertEqual(4, obstructed["stage"])
+
+    def test_simultaneous_entry_order_is_validated_at_stage_five(self):
+        low = [rectangle(0, 0, 2, 2)]
+        capped = [rectangle(0, 0, 2, 2), rectangle(4, 0, 6, 2)]
+        prob = instance(
+            [block(orientations=[low]), block(orientations=[capped])],
+            bays=((12, 12),),
+        )
+        ordered = placement_ops([(0, 0, 0, 4, 0, 0, 5), (1, 0, 0, 0, 0, 0, 4)])
+        result = checker(prob, ordered)
+        self.assertTrue(result["feasible"], result)
+        self.assertEqual(5, result["stage"])
+
+        reversed_solution = copy.deepcopy(ordered)
+        reversed_solution["operations"]["0"].reverse()
+        result = checker(prob, reversed_solution)
+        self.assertFalse(result["feasible"])
+        self.assertEqual(5, result["stage"])
 
     def test_serializer_requires_free_approval_for_same_bay_entries(self):
         snapshot = SolutionSnapshot(

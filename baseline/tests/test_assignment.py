@@ -219,6 +219,8 @@ class AssignmentContractTests(unittest.TestCase):
                 self.assertEqual(status, map_backend_status(*fixture))
 
     def test_time_limit_and_threads_follow_global_cap(self):
+        with self.assertRaises(ValueError):
+            AssignmentConfig(threads=5)
         raw = instance([block(preferences=(1, 1))], bays=((10, 10), (10, 10)))
         parsed = parse_instance(raw)
         geometry = GeometryKernel.from_instance(parsed)

@@ -11,3 +11,5 @@ alg_tester/example/train*/
 alg_tester/example/*.zip
 .omo/
 .understand-anything/
+artifacts/ogc_sage/step9/*/
+!artifacts/ogc_sage/step9/.gitkeep

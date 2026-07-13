@@ -185,6 +185,8 @@ class RetimingPurePythonTests(unittest.TestCase):
     def test_config_rejects_invalid_component_cap(self):
         with self.assertRaises(ValueError):
             RetimingConfig(max_free=0)
+        with self.assertRaises(ValueError):
+            RetimingConfig(threads=5)
 
     def test_component_preprocessing_stops_at_child_deadline(self):
         from solver.budget import Budget

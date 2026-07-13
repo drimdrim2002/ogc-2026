@@ -38,8 +38,8 @@ class RetimingConfig:
             raise TypeError("threads must be an integer")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
             raise TypeError("seed must be an integer")
-        if self.max_free <= 0 or self.threads <= 0:
-            raise ValueError("max_free and threads must be positive")
+        if self.max_free <= 0 or not 1 <= self.threads <= 4:
+            raise ValueError("max_free must be positive and Gurobi threads must be 1..4")
         if (
             isinstance(self.time_cap_s, bool)
             or not isinstance(self.time_cap_s, (int, float))

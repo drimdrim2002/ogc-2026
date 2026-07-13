@@ -1,0 +1,67 @@
+{
+  "dataset": {
+    "training_set_1": {
+      "url": "https://optichallenge.com/assets/training_instances_20260531-CWCx_z9X.zip",
+      "archive_sha256": "b9a5790f3ef04edfeec1631531a65f56687e166e11fc10141a74c5f893790aee",
+      "instances": {
+        "prob_1.json": "cfc8ef491797c29c7e93e676f7bdb302770808e5bb90024551d4513ab1b1626b",
+        "prob_2.json": "940f837283b34e14d30972be28d8b453482e24706687d1791dc11e11ffbeab1c",
+        "prob_3.json": "876b92509ef6f46ff7e262aadf73188ee728aab7cd6457f4bc4332e501fbe2f8",
+        "prob_4.json": "083c542f989fe84f0e3fb0833bd761c9048ee91b834c48db36574a6290d119c9",
+        "prob_5.json": "09df36a4d17c213d6cf07a5584317a160533c0f6757375c1ab8bf917f8e6ec71",
+        "prob_6.json": "89f5f1394d401292249a3f649d281560f75e0b18ef0c4494a878ba7ae42727dd",
+        "prob_7.json": "f628dd71f102eb879463c14a8d3e1bf21bbc67177f52b1fa7e93ebc9c8e06179",
+        "prob_8.json": "2ded41a5b5559e3659cd35c545ef47ec83cdf4d4a474c6c81d4f6a62f799bfd8",
+        "prob_9.json": "df9eab0a0ced6a227ee2e174cbe479ca87a7a02d12c936c09c1e26c9c46cd47a",
+        "prob_10.json": "dce28a56e0a3c8d486e9ae0b577777d22086b09d3d32f00582e845471fff07a9",
+        "prob_11.json": "e3d23c29f487fec465b8d214766ed33d1a8837c3bfbaa865e0d23fe2b86a0595",
+        "prob_12.json": "25a48e10df48262b2b03c8a70c906114fdd496ce6820d4b5ffd2d96e2c539f35",
+        "prob_13.json": "c9f80bc0a084fe8398d138216af24c4af38059371364945d2435aeb9866a66a6",
+        "prob_14.json": "6c8572b811442afc9f7f464d16890be76ff5787c87392dd0c8adaae04043872d",
+        "prob_15.json": "35bf75bd4623da91b29c85c70c5267d20195a7eda1593416954c533ccd84db5d",
+        "prob_16.json": "f2da1f9aa5b9444096169e1dfe1b5f3d52baab4bcb57aaa098e39bec46b8414d",
+        "prob_17.json": "ad039b418fe1264896e25ac109fb1f526ebfa495567250059267c31cf6570b7a",
+        "prob_18.json": "fa90bc58bc76294c7bb35f10aba9563e0adbdc62543cb7d6394ea82f0667fbe5",
+        "prob_19.json": "5e85387a0de3fb1c46d07b536795f00f6be4e50c26d548a204da9cfe0246cc72",
+        "prob_20.json": "bb3eb8c6fbef8d1dee0134c6cef6504dd495ae53a258676d92f6ac53356c75d4"
+      }
+    },
+    "training_set_2": {
+      "url": "https://optichallenge.com/assets/train-set2-UXyrUSG6.zip",
+      "archive_sha256": "dbe2245bb18b2a5df8bff33d24e65ce137fd21e7cc5579921c11c293d8994bf3",
+      "instances": {
+        "prob_21.json": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b",
+        "prob_22.json": "798f79582b85ca8b312b70b5b6dcbedf4ab1610807c027b9fadf68af6b2d3d12",
+        "prob_23.json": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+        "prob_24.json": "b236dc3e0a3326bf25af9762754fdb9ac8cd2277cc5eb030c37162c51d111e60",
+        "prob_25.json": "bc05276709763260f8412c37742106d34f44991e0d6ecf163c5e183727057fb5",
+        "prob_26.json": "8eec21f19c23dc5ff463ee4b929a2061f03b6a4373926916e3c9cdda15050060",
+        "prob_27.json": "4cc738ab2969376a7c771c26cb5a9dabc690b91c7b211b05c996e2d2abaf1e99",
+        "prob_28.json": "8f77e8c499896e62e03850d6047b2d90ae659a4f303318a2dee3f1ef87b5f93c",
+        "prob_29.json": "f83da7555c1b75e5ab58615e6f02211302c4e137da7a9ce5d23a12aabab45a6c",
+        "prob_30.json": "480254878cd42f7494c3b0260fbb69c0c992bebcf7297ee608ec006addd4a9d4",
+        "prob_31.json": "f6aa85fc72c10f7d33a7f3b235c57d55ccbd612a2de9e2bd149dde3e3bdd599a",
+        "prob_32.json": "34d916d766ca3ba861961b0eadd56b6d506353ba4e1674023932c9daa28badfd",
+        "prob_33.json": "01a59c5da7b9cd36437f4dbb12783a07f11727cc2a39e740c30462fd11ed04fd",
+        "prob_34.json": "1e63f9aa31461c1e62c24e9c1d17b594dcb612ffd32d3af0fcc9bd8471822866",
+        "prob_35.json": "b8bf652d489132360f543c0ab029c2c866f0683c0ed040f825dd03363df3e7af",
+        "prob_36.json": "66e25156f4e3f55c51c21f371c643dd6a53d50a66d858adeedcc8dfb924bc3f4",
+        "prob_37.json": "247fd27de8cf15d82aae23ec364dec79f6ef30bf39ce5aed2e3d66d1d295cc53",
+        "prob_38.json": "e7f9accc8a0f20da377455d0ff38d599ce922c18416c95ccccb0c020aa7e8722",
+        "prob_39.json": "baac66c946de74ae63de5672a9c53ca2150a1724602f552f8588bdabb6153965",
+        "prob_40.json": "8da9a9830346564aa1717ea0303e283add26a263860794b1ebbd5cbc2fb7e58c"
+      }
+    }
+  },
+  "config": null,
+  "commit": null,
+  "artifacts": {
+    "raw": "artifacts/ogc_sage/step9/<run-id>/raw.jsonl",
+    "raw_sha256": null,
+    "summary": "artifacts/ogc_sage/step9/<run-id>/summary.json",
+    "summary_sha256": null
+  },
+  "command": null,
+  "environment": null,
+  "result_summary": "NOT_RUN_PREREQUISITE_REMEDIATION_ONLY"
+}

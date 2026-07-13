@@ -74,6 +74,14 @@ class AssignmentDelta:
     weighted: float
 
 
+def checker_z2(normalized_loads: Iterable[float]) -> float:
+    """Return the official checker v1.3 floored normalized-load range."""
+    values = tuple(float(value) for value in normalized_loads)
+    if len(values) < 2:
+        return 0.0
+    return float(math.floor(max(values) - min(values)))
+
+
 class IndexedSolutionState:
     """Transactional constructor draft with bay interval and load indexes.
 
@@ -152,7 +160,7 @@ class IndexedSolutionState:
 
     @staticmethod
     def _load_range(values: tuple[float, ...]) -> float:
-        return max(values) - min(values) if len(values) > 1 else 0.0
+        return checker_z2(values)
 
     def assignment_delta(self, block_id: int, bay_id: int) -> AssignmentDelta:
         block = self.instance.block(block_id)
@@ -226,7 +234,7 @@ def compute_objective(instance: Instance, snapshot: SolutionSnapshot) -> Objecti
         average_area / bay.area * bay_loads[bay.index]
         for bay in instance.bays
     ]
-    z2 = max(normalized) - min(normalized) if len(normalized) >= 2 else 0.0
+    z2 = checker_z2(normalized)
     total = instance.weights.w1 * z1 + instance.weights.w2 * z2 + instance.weights.w3 * z3
     return ObjectiveParts(z1=z1, z2=z2, z3=z3, total=total)
 

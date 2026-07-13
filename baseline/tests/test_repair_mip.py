@@ -21,7 +21,7 @@ from solver.repair_mip import (
     inspect_selection,
     repair_with_mip,
 )
-from solver.state import Placement, SolutionSnapshot, compute_objective
+from solver.state import Placement, SolutionSnapshot, checker_z2, compute_objective
 from tests.helpers import block, instance
 
 
@@ -46,7 +46,7 @@ class EnumeratingBackend:
             request.load_factors[bay_id] * value
             for bay_id, value in enumerate(loads)
         ]
-        z2 = max(normalized) - min(normalized) if len(normalized) > 1 else 0.0
+        z2 = checker_z2(normalized)
         return known + request.w2 * z2
 
     def solve(self, request):
@@ -120,6 +120,7 @@ class CandidatePreparationTests(unittest.TestCase):
             {"max_blocks": 17, "max_per_block": 1},
             {"max_blocks": 1, "max_per_block": 33},
             {"max_blocks": 1, "max_per_block": 1, "max_product": 513},
+            {"threads": 5},
         ):
             with self.subTest(kwargs=kwargs), self.assertRaises(ValueError):
                 MipRepairConfig(**kwargs)

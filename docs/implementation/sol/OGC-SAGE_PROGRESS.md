@@ -10,21 +10,22 @@
 - 기준 브랜치: `start-point`
 - 작업 브랜치: `sol-native-implementation`
 - 계획 문서 상태: 작성 완료
-- 구현 상태: 8단계 gated one-way interlock densifier 완료(pure gate/pressure/window, bounded integer offsets, exact one-way filter, affected transaction, retime→canonical full-check→strict install, stall hook/metrics)
-- 테스트 상태: 8단계 전용 15/15, 전체 1~8단계 `baseline/tests` 153/153 PASS; synthetic 및 real `prob_4` witness `Z1 7→0`, actual nested mode와 Stage 5 PASS
-- 다음 단계 진입: 9단계 hardening 진입 가능. 단, submission `LNS_ENABLED=False`, `INTERLOCK_ENABLED=False`와 predefined dense-subset usefulness gate는 9단계 완료 전까지 계속 off
+- 구현 상태: 9단계 진입 prerequisite remediation 완료. 공식 baseline v1.3 checker를 원본 그대로 설치하고 1~8단계 objective/serializer/model transaction을 재정합화했으며 O-001~O-005/O-007/O-008을 승인 정책으로 닫았다. 9단계 hardening, benchmark, archive rehearsal은 시작하지 않았다.
+- 테스트 상태: official-checker 묶음 39/39, 영향 단계 suite 156/156, 전체 `baseline/tests` 156/156 PASS. 세 import 형태와 isolated clean-copy tester smoke도 Stage 5 PASS; daily-40 correctness/performance matrix와 600-run benchmark는 미실행이다.
+- 다음 단계 진입: 9단계 hardening 진입 가능. prerequisite remediation 완료만 의미하며 9단계 완료 또는 release 가능을 의미하지 않는다. `LNS_ENABLED=False`, `INTERLOCK_ENABLED=False`를 유지한다.
 
 설계와 저장소가 충돌할 때 구현자가 임의로 해석하지 않는다. 이 문서의 “결정 및 미해결 사항”에 기록하고 결정권자의 승인을 받은 뒤 관련 단계 문서를 함께 갱신한다.
 
 ## 2. 현재 저장소 기준선
 
 - 공개 진입점 `baseline/myalgorithm.py`는 guarded import로 `solver.entry.solve`를 호출하고, 먼저 checker-validated safe incumbent를 만든다.
-- `baseline/solver/`에 1단계 기반 모듈, 2단계 checker-parity geometry kernel, 3단계 optional assignment master, 4단계 event-aware exact constructor, 5단계 indicator 기반 exact four-state retimer, 6단계 pure-Python heuristic LNS, 7단계 optional bounded candidate-selection MIP repair, 8단계 gated one-way interlock densifier가 있고 `baseline/tests/`에 153개 `unittest` 계약·단위·통합 테스트가 있다. `baseline/` 자체의 `__init__.py`는 없으며 양쪽 import smoke가 통과한 상태다.
-- `baseline/utils.py`와 `alg_tester/utils.py`는 현재 byte-for-byte 동일하다. checker 권위는 변경 금지 대상인 `baseline/utils.py::check_feasibility`로 고정한다.
-- `baseline/baseline_greedy.py`는 비교 기준으로 동결한다. 새 구현에서 import하거나 수정하지 않는다.
+- `baseline/solver/`에 1단계 기반 모듈, 2단계 checker-parity geometry kernel, 3단계 optional assignment master, 4단계 event-aware exact constructor, 5단계 indicator 기반 exact four-state retimer, 6단계 pure-Python heuristic LNS, 7단계 optional bounded candidate-selection MIP repair, 8단계 gated one-way interlock densifier가 있고 `baseline/tests/`에 156개 `unittest` 계약·단위·통합 테스트가 있다. `baseline/` 자체의 `__init__.py`는 없으며 file-location/실행 디렉터리/package import smoke가 통과한 상태다.
+- `baseline/utils.py`와 `alg_tester/utils.py`는 공식 baseline v1.3 archive 원본과 각각 byte-for-byte 동일하고 SHA-256 `d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94`로 test-lock됐다. checker는 다시 변경 금지 대상이다.
+- `baseline/baseline_greedy.py`는 비교 기준으로 동결되어 1~8단계 동안 변경되지 않았다. 공식 baseline v1.3 copy와도 hash가 다르지만(local `8ec2cc81...`, official `e9cd8e3e...`) 금지 파일이므로 임의로 맞추지 않는다.
 - 환경 파일에는 Python 3.12, Shapely 2.1+, Gurobi 13.0.2가 있으나 별도 test dependency는 없다. 따라서 새 테스트는 표준 라이브러리 `unittest`를 사용한다.
-- Git 추적 예제는 `alg_tester/example/example_B2_b10.json` 하나다. 로컬 gitignored 검증 데이터는 `data/train 2/prob_1..20.json`, `data/train/prob_21..40.json`에 40개가 제공되었고 2026-07-12 기준 번호 집합 `{1..40}`, JSON 파싱, `bays`/`blocks`/`weights` 존재를 확인했다. 공식 출처·기대 hash·redistribution 정책은 여전히 확정해야 한다.
-- `baseline/run_myalgorithm.py`의 기본 instance 경로는 현재 존재하지 않는다. 9단계에서 CLI 기본값 처리 방식을 결정한다.
+- Git 추적 예제는 `alg_tester/example/example_B2_b10.json` 하나다. 로컬 gitignored 검증 데이터 40개는 공식 Training Set 1/2와 40/40 byte 일치한다. 공식 URL/archive hash와 각 instance hash만 tracked evidence manifest에 기록하며 training data는 source/submission/release archive에 재배포하지 않는다.
+- `baseline/run_myalgorithm.py`는 submission 밖 local debug tool이며 instance positional argument가 필수이고, tracked example 도움말과 `time.monotonic()`을 사용한다.
+- 공식 권위 artifact: [Problem Statement v1.2](https://optichallenge.com/assets/problem-statement-latest-DBm0ZUoF.pdf) SHA-256 `1f7fb17e31fad327259ec967cf143dc5b2baada33b759ab4f926c732659e1e2c`; [baseline v1.3](https://optichallenge.com/assets/baseline-latest-oxXm57Lz.zip) `c37248b9e7f1b8597450d5346a5b25538a7f16f390697b00474cdbd0921bc6c3`; [Training Set 1](https://optichallenge.com/assets/training_instances_20260531-CWCx_z9X.zip) `b9a5790f3ef04edfeec1631531a65f56687e166e11fc10141a74c5f893790aee`; [Training Set 2](https://optichallenge.com/assets/train-set2-UXyrUSG6.zip) `dbe2245bb18b2a5df8bff33d24e65ce137fd21e7cc5579921c11c293d8994bf3`; [FAQ](https://optichallenge.com/faq).
 
 ## 3. 구현 순서와 P0~P6 매핑
 
@@ -38,7 +39,7 @@
 | 6 | 완료 | P5 일부 | 6개 heuristic destroy, regret-2/3 repair, current/best/candidate, SA/adaptation/stall/metrics | 전용 23/23·전체 118/118; submission 활성화 gate는 계속 off |
 | 7 | 완료 | P5 완성 | bounded candidate-selection Gurobi repair와 cut loop | 전용 20/20·전체 138/138; failure/transaction/Stage 5 green |
 | 8 | 완료 | P6 | gate된 one-way interlock densifier와 final retiming | 전용 15/15·전체 153/153; gate/transaction/witness/rollback green |
-| 9 | 진입 가능 | P0~P6 운영 | packaging, exception/deadline/stress hardening, daily-40 validation gates | 모든 필수 gate 통과 후 릴리스 가능 |
+| 9 | 진입 가능(미완료) | P0~P6 운영 | prerequisite checker/contract remediation 완료; packaging, exception/deadline/stress hardening, daily-40 validation gates는 미실행 | 9단계 hardening 진입 가능; benchmark/archive rehearsal 전이며 릴리스 불가 |
 
 P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계, P4는 5·9단계, P5는 6·7·9단계, P6는 8·9단계에서 추적한다. 모든 P0~P6 요소가 최소 한 단계에 배정되어 있다.
 
@@ -127,6 +128,34 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | 2026-07-13 / 8 | Python 3.12.11, Shapely 2.1.2, Gurobi 13.0.2 restricted non-production(2027-11-29 만료); deterministic synthetic/real witness | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_interlock tests.test_interlock_integration -v` | 종료 0, 전용 15/15 PASS; gate 전 분기, `.45` threshold, 8% cap, pressure/window, exact I/K filter, negative-AABB fit, host ranking, transaction, stall hook, strict install, failure/cycle/default-off 포함 | synthetic pressure `0.5`, exact `I_OUTER`, retimer actual `K_NESTED`, `Z1/total 7→0`, Stage 5, parity 0; real `prob_4` source 24/46 witness도 `I_OUTER/K_NESTED`, `7→0`, Stage 5, parity 0. real pressure `0.045942...`이므로 usefulness witness일 뿐 default `.45` activation 증거로 사용하지 않음 | 최초 구현/정식 suite 모두 green; retime exception은 후보별 rollback하고 input serialized identity 보존 | `baseline/solver/interlock.py`, `baseline/tests/{test_interlock,test_interlock_integration}.py` |
 | 2026-07-13 / 8 | 동일 환경 | `cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v` | 종료 0, 전체 153/153 PASS | 1~7단계 checker/objective/four-state/Gurobi fallback 회귀 포함; gate-off, nonbeneficial, license/error, same-exit cycle은 validated best/Stage 5를 보존 | 전용 15/15 뒤 전체 153/153 연속 PASS | `baseline/tests/` |
 | 2026-07-13 / 8 완료 감사 | tracked example, `LNS_ENABLED=False`, `INTERLOCK_ENABLED=False` | public `algorithm(raw,5.0)` baseline/root 양쪽 import smoke, `compileall`, `git diff --check`, checker `cmp`, 금지 파일/time API 감사 | 모두 종료 0; 양쪽 public Stage 5 `(Z1,Z2,Z3,total)=(0.0,14.671260826994029,46.0,1022.6988257889582)`로 7단계 gate-off 결과와 동일; `rg 'time\.time\('` 0건; static audit PASS | densifier는 MIP repair와 분리되고 ALNS stall hook에서 최대 1회 호출. AABB는 reject-only, exact kernel/retime/canonical serializer/full checker/strict store가 acceptance 권위. submission gate 둘 다 계속 off | 실패 없음; 전체 40개 benchmark 미실행 | `alg_tester/example/example_B2_b10.json`, 변경 파일 diff |
+| 2026-07-13 / 9A 선행 감사 | 공식 OGC 2026 website, Problem Statement v1.2, FAQ, baseline v1.3, Training Set 1/2; worktree `252f0e4c3e38f8d4e8d898940788fbec6198089a` | `git ls-remote origin refs/heads/sol-native-implementation`; 공식 asset를 `/tmp/ogc-step9-9a-20260713/`에만 `curl -fL -o`로 수집; `shasum -a 256`; `unzip -l`; 40개 `cmp -s`; official/local `utils.py` 및 `baseline_greedy.py` `cmp`/`diff`; 확정 인터페이스·금지 파일 static `rg`/`git diff` | 원격 ref가 지정 8단계 커밋과 일치. 공식 archive hash: Problem Statement `1f7fb17e...`, baseline `c37248b9...`, Set 1 `b9a5790f...`, Set 2 `dbe2245b...`; daily-40 40/40 byte 일치. official/local checker hash `d45aaeaf...`/`d0347a3e...` 불일치, official/local greedy `e9cd8e3e...`/`8ec2cc81...` 불일치 | worktree 내부 checker 두 copy는 동일하고 금지 파일은 1~8단계 동안 diff 0. 하지만 official checker는 simultaneous ENTRY Stage 2와 `Z2` floor semantics가 달라 기존 objective/four-state evidence를 actual submission checker 증거로 사용할 수 없음 | O-001~O-005 전부를 권위 있게 닫지 못했고 O-007 checker 충돌을 발견해 9A에서 중단. 9단계 tests/benchmark/archive/commit/push 미실행 | 임시 공식 asset: `/tmp/ogc-step9-9a-20260713/`(git 비추적); 본 진행 문서만 변경 |
+| 2026-07-13 / 9 prerequisite artifact·dataset | Python 3.12.13, macOS 26.5.2 arm64; 공식 asset는 `/tmp/ogc-step9-remediation-20260713/`에만 저장 | 네 URL에 `curl -fL -o`; `shasum -a 256`; Set 1 `prob_1..20`/Set 2 `prob_21..40` 각각 `cmp -s`와 `shasum -a 256` | Problem Statement v1.2 `1f7fb17e31fad327259ec967cf143dc5b2baada33b759ab4f926c732659e1e2c`; baseline v1.3 `c37248b9e7f1b8597450d5346a5b25538a7f16f390697b00474cdbd0921bc6c3`; Set 1 `b9a5790f3ef04edfeec1631531a65f56687e166e11fc10141a74c5f893790aee`; Set 2 `dbe2245bb18b2a5df8bff33d24e65ce137fd21e7cc5579921c11c293d8994bf3`; local 40/40 byte 일치 | hash 불일치 0. instance 40개 full hash는 tracked manifest에 기록하고 데이터는 재배포하지 않음 | 실패 없음 | `docs/implementation/sol/evidence/step9-evidence.json` |
+| 2026-07-13 / 9 prerequisite checker remediation | Python 3.12.13, Shapely 2.1.2, Gurobi 13.0.2 restricted local | official archive `utils.py`를 두 위치에 원본 복사; `shasum`/`cmp`; red: `cd baseline && ... -m unittest tests.test_checker_contract tests.test_foundation -v`; 수정 후 official checker 4-suite 39 tests, 지정 영향 18-suite 156 tests, 전체 discovery 156 tests | 두 checker와 official archive 모두 SHA-256 `d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94`. pre-fix red 24 tests 중 failures 3/errors 4: 동시 ENTRY 기대 stage, float `Z2`, safe install parity. post-fix 39/39, 156/156, 156/156 PASS | semantic diff는 Stage 2 co-entry 조건 `a_k <= a_i`→`a_k < a_i`, `Z2=max(range)`→`floor(max(range))`. 내부 objective, constructor delta, assignment exact/guide 및 repair MIP objective를 floor semantics로 정합화; conservative FREE-only simultaneous-entry serializer 유지. 2,000 random four-state 불일치 0, checker rejection rollback green | red를 먼저 재현한 뒤 수정·재검증. checker 원본은 수작업 편집하지 않음 | `baseline/utils.py`, `baseline/solver/`, `baseline/tests/`, `alg_tester/utils.py` |
+| 2026-07-13 / 9 prerequisite exception·import | Python 3.12.13; tracked example; isolated `python -I` clean tree | file-location load with algorithm folder `sys.path[0]`; `cd baseline; import myalgorithm`; repo root `import baseline.myalgorithm`; submission tree copy+official server `utils.py` injection; negative/tiny/large timelimit와 Gurobi import/license/model/timeout failure suites | 세 public import와 clean isolated smoke 모두 Stage 5, `(Z1,Z2,Z3,total)=(121.0,183.0,0.0,323988.0)`; public stdout/stderr empty, public exception 0. debug runner positional path/help/monotonic green | import path는 module location 기준이며 repository parent/개발자 절대 경로 의존 0. optional Gurobi failure는 checker-validated Stage 5 incumbent를 보존; local restricted license는 production entitlement 증거로 사용하지 않음 | 실패 없음 | `/tmp/ogc-step9-clean-smoke-20260713/`(비추적), `baseline/tests/` |
+
+### 8.1 prerequisite remediation exact test commands
+
+```bash
+cd baseline
+/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest \
+  tests.test_checker_contract tests.test_foundation \
+  tests.test_geometry tests.test_four_state_parity -v
+
+/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest \
+  tests.test_checker_contract tests.test_foundation tests.test_geometry \
+  tests.test_four_state_parity tests.test_assignment \
+  tests.test_assignment_integration tests.test_construct \
+  tests.test_construct_integration tests.test_retime \
+  tests.test_retime_integration tests.test_neighborhoods tests.test_alns \
+  tests.test_alns_integration tests.test_repair_mip \
+  tests.test_repair_mip_integration tests.test_interlock \
+  tests.test_interlock_integration -v
+
+/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python \
+  -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+결과는 각각 `39/39 PASS`, `156/156 PASS`, `156/156 PASS`다. 공식 checker 설치 전 red 재현 명령은 첫 명령에서 `tests.test_geometry tests.test_four_state_parity`를 제외한 형태였고 `24 tests, failures=3, errors=4`였다. import smoke는 file-location, baseline CWD, repository package, isolated clean-copy 네 개를 별도 Python process로 실행했으며 모두 종료 코드 0/Stage 5였다.
 
 ## 9. 구현 중 결정 사항
 
@@ -144,16 +173,19 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | D-010 | 2026-07-13 | 6 | acceptance 기본, repair 확장 경계, submission hook | 설계의 열린 SA/RRT 선택 중 기본값이 명시된 time-cooled SA를 구현한다. 32회 improving-only warm-up의 improvement magnitude median으로 `T0=median/ln(2)`를 정하고 sample이 없으면 deterministic non-worse fallback을 유지한다. `RepairResult`와 configured repair-engine tuple은 backend-neutral public 경계로 두어 7단계가 MIP engine을 추가하되 `alns.py`가 이를 import하지 않게 한다. `entry.LNS_ENABLED=False`를 submission 기본으로 고정한다. | `baseline/solver/{construct,neighborhoods,alns,entry,__init__}.py`, 관련 tests | 전용 23/23·전체 118/118, replay/acceptance/invariant/deadline/disabled-hook tests로 확정 |
 | D-011 | 2026-07-13 | 7 | product 초과 정책, same-exit 제약, engine activation | 후보는 known weighted cost+canonical tuple 순으로 dedup/trim하되 incumbent를 마지막까지 보존하고 16×33 입력을 16×32/product 512로 제한한다. same-exit correctness는 base rank 변수를 늘리는 대신 selected-only exact inspection과 deterministic no-good cycle cut으로 보장한다. 기존 4인자 `RepairEngine`/`RepairResult` 계약은 유지하고 entry의 lazy portfolio `(heuristic,mip)`에서 heuristic을 기본, MIP을 주기적 또는 stall 직후 선택한다. MIP 또는 fallback 결과만 retime→canonical full-check transaction을 강제한다. | `baseline/solver/{repair_mip,neighborhoods,alns,entry}.py`, 관련 tests | 전용 20/20·전체 138/138, actual Gurobi enumeration, pair/cycle cut convergence, failure/transaction matrix로 확정 |
 | D-012 | 2026-07-13 | 8 | interlock generator 위치, pressure/gate와 install 경계 | 712줄인 `neighborhoods.py`의 heuristic/MIP column 책임과 one-way offset search를 분리하기 위해 `interlock.py`를 신설한다. pressure는 bay event window별 `sum(union area×duration)/(bay area×duration)`의 최댓값으로 계산하고 `.45` gate에 사용한다. candidate는 AABB reject-only 뒤 exact `I_OUTER/K_OUTER`만 유지하며, affected relation transaction→기존 retimer→actual nested mode 분류→canonical serialization/full checker/objective parity→strict store 순서만 허용한다. ALNS는 stall 후 최대 1회 hook을 호출하고 entry의 `INTERLOCK_ENABLED=False`가 submission 기본이다. | `baseline/solver/{interlock,alns,entry,__init__}.py`, 관련 tests | 전용 15/15·전체 153/153, synthetic/real witness, gate identity, rollback/cycle/default-off 감사로 확정 |
+| D-013 | 2026-07-13 | 9 prerequisite | 공식 checker, dataset/package/import/Gurobi/artifact 정책 | Problem Statement v1.2/baseline v1.3/Training Set 1·2/FAQ를 권위로 사용한다. checker 두 copy는 official archive 원본으로 고정하고 모든 내부 `Z2`/delta/model은 floored parity를 사용한다. daily-40은 local benchmark 입력만 허용하고 재배포하지 않는다. submission은 root `myalgorithm.py`+sibling relative helpers만 포함하며 `utils.py`, debug runner, data/result/cache/license를 제외한다. public 출력은 disabled, Gurobi는 license 관리 없이 Threads≤4·동시 model 1개·bounded caps/failure fallback을 유지한다. benchmark raw/summary는 gitignored, tracked manifest에는 hash/command/environment/summary만 둔다. | checker/solver/tests, `.gitignore`, `experiments/ogc_sage/benchmark_ogc_sage.py`, evidence manifest, 본 문서 | 사용자 승인 정책과 39/39·156/156·clean import smoke로 확정 |
 
-## 10. 차단 사유와 미해결 사항
+## 10. 운영 결정과 잔여 미해결 사항
 
 | ID | 단계 | 내용 | 필요한 결정/증거 | 상태 |
 |---|---|---|---|---|
-| O-001 | 9 | local daily-40 40개는 gitignored `data/`에 제공됐으나 공식 provenance·기대 hash·redistribution 정책 미확정 | 권위 있는 데이터 출처와 무결성/배포 정책 확정; 현재 위치·번호·파싱 상태는 확인 완료 | 부분 해소 |
-| O-002 | 9 | 제출 패키지 허용 파일·디렉터리와 Gurobi license 제공 조건이 저장소에 없음 | 대회 제출 규칙 및 production entitlement 확인 | 미해결 |
-| O-003 | 1/9 | `baseline`은 `__init__.py` 없는 현재 실행 디렉터리 import 관례를 사용 | tester가 `baseline/`을 `sys.path`에 두는 계약 유지 여부; 상대/절대 import 양쪽 smoke 필요 | 미해결 |
-| O-004 | 9 | `run_myalgorithm.py` 기본 경로가 checkout에 없음 | 추적 예제로 변경할지, CLI 인자 필수화할지 결정 | 미해결 |
-| O-005 | 3 | Gurobi restricted license의 full-size 허용 범위 미확정 | 9단계 rehearsal에서 실제 최대 model 검증 | 미해결 |
+| O-001 | 9 | 공식 Training Set 1/2 archive와 local daily-40이 40/40 byte 일치. URL/archive hash/각 instance hash는 evidence manifest에 기록 | training data는 local benchmark 입력으로만 사용하고 source/submission/release archive에서 재배포하지 않는 보수 정책 | 운영상 해결 |
+| O-002 | 9 | 단일 zip, root `myalgorithm.py`, 15MB 이하, sibling relative helper, Ubuntu 24.04/4 CPU/16GB, no network/parent access. `utils.py`, data/result/cache/license/debug runner 제외; default multiprocessing 없음, Gurobi Threads≤4·동시 model 1개 | public stdout/stderr disabled, logging 없음. clean simulated server injection smoke PASS; 실제 submission archive 생성/rehearsal은 9단계 범위로 미실행 | 운영상 해결 |
+| O-003 | 1/9 | file-location+algorithm folder `sys.path[0]`, `cd baseline; import myalgorithm`, repo-root `import baseline.myalgorithm` 및 isolated clean copy를 모두 지원 | 모든 solver import는 module-relative이며 repository parent/정확한 evaluation CWD/개발자 절대 경로에 의존하지 않음 | 해결 |
+| O-004 | 9 | `baseline/run_myalgorithm.py`는 local-only debug tool, instance positional 필수, tracked example 도움말, `time.monotonic()` 사용 | submission tree에서 제외 | 해결 |
+| O-005 | 3/9 | 공식 server의 Gurobi 13.0.2 license를 사용하며 algorithm은 license 관리 코드를 포함하지 않음. 명시적 size 보장은 없다고 보고 기존 caps 유지 | import/license/size/model/numeric/timeout/SolCount failure는 optional failure로 Stage 5 incumbent 보존. local restricted license 성공은 production entitlement 증거가 아님 | 운영상 해결 |
+| O-007 | 9 | 공식 baseline v1.3 `utils.py`를 두 copy에 byte 설치하고 SHA-256 `d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94` lock. diff는 co-entry Stage 2 strictness와 `Z2` floor | foundation/state, assignment/constructor, retime/LNS/MIP/interlock을 공식 checker로 재감사해 156/156 PASS; checker는 원본 외 수작업 변경 없음 | 해결 |
+| O-008 | 9 | tracked harness `experiments/ogc_sage/benchmark_ogc_sage.py`; raw/summary `artifacts/ogc_sage/step9/<run-id>/{raw.jsonl,summary.json}`; tracked `docs/implementation/sol/evidence/step9-evidence.json` | run directory는 gitignored, placeholder만 tracked. manifest schema는 dataset/config/commit/artifact hash·정확한 command·environment·result summary. 600-run artifact는 생성하지 않음 | 정책 해결·benchmark 미실행 |
 | O-006 | 5 | 설계 §17 real interlock witness | source block index 24/orientation-list index 5 `(102,18)`와 index 46/index 1 `(115,3)`에서 `I_OUTER`, conservative `Z1=7` vs nested `Z1=0`, Stage 5, parity 0 재현 | 해결 |
 | R5-001 | 5 | checker 미검증 constructor snapshot을 retimer가 먼저 소비함 | event order `checker(fallback)→checker(constructor)→retime` 및 validated store snapshot 입력 증명 | 해결 |
 | R5-002 | 5 | unexpected retimer exception이 constructor 개선 전체를 폐기함 | constructor 선설치와 후보별 retimer 예외 격리; import/license/model/numeric/unexpected matrix에서 objective/operations 보존 | 해결 |
@@ -174,7 +206,7 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 | 6 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 6: lns` | `baseline/solver/{__init__,construct,entry,neighborhoods,alns}.py`, `baseline/tests/{test_neighborhoods,test_alns,test_alns_integration}.py`, 본 진행 문서 | 6A~6D, 전용 23/23·전체 118/118, tracked Stage 5 trace/replay/rollback/invariant/deadline/flag-off 증거 |
 | 7 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 7: mip repair` | `baseline/solver/{repair_mip,neighborhoods,alns,entry}.py`, `baseline/tests/{test_repair_mip,test_repair_mip_integration}.py`, 본 진행 문서 | 7A~7C, 전용 20/20·전체 138/138, actual Gurobi enumeration/cut/fallback/transaction/flag-off 증거 |
 | 8 | 완료 커밋(본 행을 포함하는 커밋; 종료 보고에 해시 기록) | `step 8: interlock` | `baseline/solver/{__init__,interlock,alns,entry}.py`, `baseline/tests/{test_interlock,test_interlock_integration}.py`, 본 진행 문서 | 8A~8C, 전용 15/15·전체 153/153, synthetic/real nested witness, rollback/strict install/stall/default-off 증거 |
-| 9 | 미작성 | `chore(solver): harden submission and validation gates` | 실행 후 기록 | - |
+| 9 prerequisite remediation | 완료 커밋(종료 보고에 해시 기록) | `remediate official checker contract for step 9` | official checker 두 copy, `baseline/{myalgorithm,run_myalgorithm}.py`, `baseline/solver/{state,assignment,repair_mip}.py`, 관련 tests, `.gitignore`, benchmark/evidence placeholder, 본 진행 문서 | official-checker 39/39·영향/전체 156/156·import/clean smoke green; 9단계 hardening/benchmark/archive 미실행 |
 
 한 커밋에 서로 다른 최상위 단계를 섞지 않는다. 단계 구현과 그 테스트는 같은 단계 범위로 관리하되, 테스트가 통과하기 전 커밋을 완료 커밋으로 기록하지 않는다.
 
@@ -182,16 +214,16 @@ P0은 1~2단계와 9단계, P1은 1·9단계, P2는 3·9단계, P3는 4·9단계
 
 | Gate | 설계 근거 | 적용 단계 | 합격 기준 | 상태/증거 |
 |---|---|---|---|---|
-| canonical serialization | §5, §11, §14.1 | 1,2,5,9 | 시간 key 오름차순, EXIT-first, exit DAG, simultaneous entry FREE | 1단계 checker contract 8 tests, 2단계 actual geometry provider same-exit topology/simultaneous-entry, 5단계 nested equal-exit blocker-first `[1,0]` Stage 5 PASS; 9단계 계속 추적 |
-| monotonic wall-clock | §12 | 1,3~9 | `time.monotonic()`만 사용, 모든 loop/model 경계 deadline 확인 | 1·3·4단계 증거 유지. 5단계는 component 추출 전에 child budget을 만들고 relation/pair/model-build/primary/secondary 경계를 같은 deadline으로 제한한다. 6단계는 operator/repair/checker/retime 경계를 제한한다. 7단계는 cap/prefilter/cut loop마다 deadline을 확인한다. 8단계는 `min(.08*TL, remaining-reserve)` child와 geometry/retime/checker 직전 경계를 사용; `rg 'time\.time\('` 0건 |
+| canonical serialization | §5, §11, §14.1 | 1,2,5,9 | 시간 key 오름차순, EXIT-first, exit DAG, simultaneous entry FREE | official checker에서 co-entry는 Stage 2 제외 후 Stage 5 순서 검증됨을 직접 재현. serializer는 보수적 FREE-only co-entry와 exit DAG를 유지하고 checker contract/four-state 23 tests PASS |
+| monotonic wall-clock | §12 | 1,3~9 | `time.monotonic()`만 사용, 모든 loop/model 경계 deadline 확인 | 기존 solver 경계 유지. local debug runner도 `time.monotonic()`으로 교체했고 production `time.time()` 0건. negative/tiny/large timelimit Stage 5·public exception 0 |
 | immutable validated best | §1, §5, §9 | 1,4~9 | full checker strict improvement만 atomic install | fallback과 constructor를 각각 full checker strict install한 뒤 validated `store.snapshot`만 retime/LNS에 전달한다. 7단계 MIP/fallback transaction 증거를 유지한다. 8단계 offset은 fresh draft에만 적용하고 affected exact relation→retime→canonical full-check/parity를 통과한 strict total improvement만 store에 설치; gate/failure/equal-worse/cycle은 input identity 보존 |
-| optional optimizer armor | §1, §5, §12, §14.1 | 1,3,5,7,9 | import/license/model/timeout 예외가 public entry 탈출 안 함 | retimer failure matrix 증거를 유지하고 7단계 import/license/model exception 및 TIME_LIMIT no extraction은 같은 destroyed set의 heuristic engine을 정확히 1회 호출해 Stage 5를 보존. feasible TIME_LIMIT selection은 exact inspect/full-check 뒤에만 사용; public 양쪽 objective `1022.6988257889582` |
+| optional optimizer armor | §1, §5, §12, §14.1 | 1,3,5,7,9 | import/license/model/timeout 예외가 public entry 탈출 안 함 | import/license/size/model/numeric/timeout/SolCount failure를 optional failure로 유지하고 checker-validated incumbent를 보존. public 5초 tracked smoke Stage 5 `(0,14,46,1018)`, public stdout/stderr와 exception 0 |
 | Shapely/checker authority | §3, §7, §15 | 2,4,8,9 | approximate filter는 거부 권한 없음; exact survivor check | 2·4단계 증거 유지. 8단계 AABB는 offset reject-only이며 survivor는 checker-parity kernel의 exact `I_OUTER/K_OUTER`, affected-pair exact mode, retimer, canonical serializer와 full checker를 모두 통과해야 함; synthetic/real witness Stage 5, parity 0 |
-| contract edge cases | §14.1 | 1,2,9 | 지정 8개 계약 모두 regression green | 1단계 지정 계약 및 2단계 negative anchor/boundary/four-state/real exit provider 회귀 전체 PASS |
-| four-state parity | §3, §14.1 | 2,5,9 | 4상태와 수천 sample checker 불일치 0 | 2단계 실제 fitting pair-placement/time 2,000건 불일치 0; 5단계 4상태 indicator mode와 pure predicate의 784 exhaustive date cases 불일치 0, SEPARATE/I_OUTER Gurobi 결과 Stage 5; 9단계 계속 추적 |
-| objective/delta parity | §3, §9, §14.1 | 1,3,4,6,7,9 | 상대 오차 `<=1e-6` | 1·3·4·6단계 증거 유지. 7단계 candidate tardiness/preference를 canonical recompute하고 unchanged load 포함 exact `Qmax-Qmin`을 모델링했다. actual tiny `ObjVal=ObjBound=15.25`, gap 0이며 3×3 enumeration과 일치; extracted snapshot과 Stage 5 checker 최대 상대 오차 0 |
+| contract edge cases | §14.1 | 1,2,9 | 지정 8개 계약 모두 regression green | official hash/copy identity, half-open, P=0, boundary, negative AABB, simultaneous ENTRY/EXIT, chronological dict, floored float-workload Z2, canonical serialization, rejection rollback 전체 PASS |
+| four-state parity | §3, §14.1 | 2,5,9 | 4상태와 수천 sample checker 불일치 0 | official checker로 실제 fitting pair-placement/time 2,000건 불일치 0; 784 exhaustive indicator cases와 SEPARATE/I_OUTER/K_OUTER actual solve Stage 5 |
+| objective/delta parity | §3, §9, §14.1 | 1,3,4,6,7,9 | 상대 오차 `<=1e-6` | 모든 내부 `Z2`를 official `floor(max(normalized)-min(normalized))`로 통일. constructor delta는 단계별 floored range 차이로 telescope하며 assignment exact/guide와 candidate-selection MIP은 integer floor 변수를 사용한다. 전수열거/model/extraction/checker 최대 상대 오차 0 |
 | constructor activation | §13, §14.2 | 4,9 | daily-40 60s: 40/40, p90 `<=8s`, max `<=12s`, deadline hit 0 | local data 40개 제공·파싱 확인; 전체 60s gate는 9단계 범위로 미실행 |
-| P5/P6 enable gate | §13 | 6~9 | 위 constructor gate 전 submission default disabled | 8단계 후에도 `entry.LNS_ENABLED=False`, `entry.INTERLOCK_ENABLED=False`; gate-off serialized identity/retime call 0과 양쪽 public smoke 기존 objective 동일. daily-40 constructor/dense-subset gate 및 실제 enable은 9단계까지 미실행 |
+| P5/P6 enable gate | §13 | 6~9 | 위 constructor gate 전 submission default disabled | remediation 후에도 `entry.LNS_ENABLED=False`, `entry.INTERLOCK_ENABLED=False`; daily-40 constructor/dense-subset gate와 실제 enable은 9단계 hardening까지 미실행 |
 | retiming safety | §8, §14.2 | 5,9 | Z1 비증가, bound/gap/time 기록, 실패 rollback | R5-001~R5-005 해결. actual Gurobi FREE/SEPARATE/I_OUTER/K_OUTER, fixed boundary, TIME_LIMIT feasible/no-solution, `w1=0`, same-exit canonical, negative due 모두 green. real `prob_4` `Z1 7→0`, Stage 5, parity 0; backend request마다 `free_ids<=80` |
 | operator usefulness | §14.2 | 6,7,9 | 각 operator가 정당한 family에서 feasible/accepted >0, 아니면 제거 | 6단계 six-selector 활동 증거 유지. 7단계 repair portfolio가 heuristic 기본, MIP periodic/stall 선택을 재현하고 engine attempts/feasible/fallback/time metrics를 기록함을 통합 테스트로 확인. 최종 usefulness/removal은 daily-40 데이터가 필요한 9단계 gate로 유지 |
 | interlock usefulness | §10, §14.2 | 8,9 | predefined dense subset 개선, feasibility regression 0 | 8단계 algorithm correctness 부분 통과: synthetic pressure `.5`와 real `prob_4` shape witness에서 exact `I_OUTER`, actual `K_NESTED`, `Z1/total 7→0`, Stage 5/parity 0; 전체 153/153 regression 0. real witness pressure `.045942...`는 default activation 증거가 아니며 predefined dense subset usefulness/enable 결정은 9단계 미실행 |

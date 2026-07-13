@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 import math
 import unittest
@@ -91,7 +93,7 @@ class FoundationTests(unittest.TestCase):
         clock.advance(1.0)
         self.assertAlmostEqual(2.0, child.remaining())
 
-    def test_objective_float_z2(self):
+    def test_objective_uses_official_floored_z2(self):
         prob = instance(
             [
                 block(workload=1.25, preferences=(10, 2)),
@@ -110,6 +112,7 @@ class FoundationTests(unittest.TestCase):
         objective = compute_objective(parsed, snapshot)
         result = checker(prob, serialize(snapshot))
         self.assertTrue(result["feasible"], result)
+        self.assertEqual(0.0, objective.z2)
         self.assertTrue(math.isclose(objective.z2, result["obj2"], rel_tol=1e-6, abs_tol=1e-9))
         self.assertTrue(math.isclose(objective.total, result["objective"], rel_tol=1e-6, abs_tol=1e-9))
 
@@ -181,6 +184,20 @@ class FoundationTests(unittest.TestCase):
         checked = checker(prob, result)
         self.assertTrue(checked["feasible"], checked)
         self.assertEqual(5, checked["stage"])
+
+    def test_public_algorithm_is_silent_and_handles_timelimit_extremes(self):
+        prob = instance([block()])
+        for timelimit in (-1.0, 1e-9, 1e9):
+            with self.subTest(timelimit=timelimit):
+                stdout = io.StringIO()
+                stderr = io.StringIO()
+                with redirect_stdout(stdout), redirect_stderr(stderr):
+                    result = algorithm(prob, timelimit)
+                self.assertEqual("", stdout.getvalue())
+                self.assertEqual("", stderr.getvalue())
+                checked = checker(prob, result)
+                self.assertTrue(checked["feasible"], checked)
+                self.assertEqual(5, checked["stage"])
 
     def test_optional_import_failure_returns_incumbent(self):
         prob = load_example()
