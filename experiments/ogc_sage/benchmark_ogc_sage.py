@@ -41,6 +41,11 @@ RAW_NAME = "raw.jsonl"
 SUMMARY_NAME = "summary.json"
 EVIDENCE_MANIFEST = REPO_ROOT / "docs/implementation/sol/evidence/step9-evidence.json"
 DEFAULT_DATA_DIRS = (REPO_ROOT / "data/train 2", REPO_ROOT / "data/train")
+FINAL_VARIANT = "heuristic_lns"
+FINAL_BUDGETS = (60.0, 180.0)
+FINAL_SEEDS = (20260710, 20260711, 20260712)
+FINAL_INSTANCE_COUNT = 40
+FINAL_EXPECTED_RUN_COUNT = FINAL_INSTANCE_COUNT * len(FINAL_BUDGETS) * len(FINAL_SEEDS)
 TERMINAL_STATUSES = {"completed", "exception", "outer_timeout", "checker_failure"}
 RAW_REQUIRED_FIELDS = (
     "schema_version",
@@ -106,6 +111,20 @@ FORBIDDEN_ARCHIVE_NAMES = {
 
 class ContractError(RuntimeError):
     pass
+
+
+def validate_final_matrix_contract(
+    *, variant: str, budgets: Iterable[float], seeds: Iterable[int],
+    requested_instances: Iterable[str] | None,
+) -> None:
+    if variant != FINAL_VARIANT:
+        raise ContractError(f"final gate requires variant {FINAL_VARIANT!r}")
+    if tuple(float(value) for value in budgets) != FINAL_BUDGETS:
+        raise ContractError(f"final gate requires exact budgets {FINAL_BUDGETS!r}")
+    if tuple(int(value) for value in seeds) != FINAL_SEEDS:
+        raise ContractError(f"final gate requires exact seeds {FINAL_SEEDS!r}")
+    if requested_instances is not None:
+        raise ContractError("final gate requires the full official daily-40 dataset")
 
 
 def canonical_json(value: Any) -> str:
@@ -580,7 +599,7 @@ def summarize(
     if gate == "constructor":
         gate_pass = gate_pass and percentile(constructor_times, 0.90) <= 8.0 and max(constructor_times, default=0.0) <= 12.0 and not any(record["constructor_deadline_hit"] for record in records)
     if gate == "final":
-        gate_pass = gate_pass and regressions == 0 and len(planned_keys) == 600
+        gate_pass = gate_pass and regressions == 0 and len(planned_keys) == FINAL_EXPECTED_RUN_COUNT
     return {
         "schema_version": SCHEMA_VERSION,
         "run_id": run_id,
@@ -782,6 +801,15 @@ def command_compare(args: argparse.Namespace) -> int:
 
 def command_run(args: argparse.Namespace) -> int:
     instances, dataset_hash = validate_dataset()
+    if args.gate == "final":
+        validate_final_matrix_contract(
+            variant=args.variant, budgets=args.budgets, seeds=args.seeds,
+            requested_instances=args.instances,
+        )
+        if len(instances) != FINAL_INSTANCE_COUNT:
+            raise ContractError(
+                f"final gate requires {FINAL_INSTANCE_COUNT} official instances, got {len(instances)}"
+            )
     if args.instances:
         requested = args.instances
         unknown = sorted(set(requested) - set(instances))

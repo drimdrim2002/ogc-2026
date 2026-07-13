@@ -14,11 +14,17 @@ if str(ROOT) not in sys.path:
 from experiments.ogc_sage.benchmark_ogc_sage import (  # noqa: E402
     ContractError,
     EVIDENCE_MANIFEST,
+    FINAL_BUDGETS,
+    FINAL_EXPECTED_RUN_COUNT,
+    FINAL_INSTANCE_COUNT,
+    FINAL_SEEDS,
+    FINAL_VARIANT,
     SCHEMA_VERSION,
     config_hash,
     load_raw,
     make_run_key,
     validate_dataset,
+    validate_final_matrix_contract,
     validate_raw_record,
     validate_summary,
 )
@@ -76,6 +82,36 @@ class StressContractTests(unittest.TestCase):
         self.assertEqual(make_run_key(**kwargs), make_run_key(**kwargs))
         changed = dict(kwargs, seed=20260711)
         self.assertNotEqual(make_run_key(**kwargs), make_run_key(**changed))
+
+    def test_final_matrix_contract_is_exact_daily_40_by_2_budgets_by_3_seeds(self):
+        self.assertEqual(240, FINAL_EXPECTED_RUN_COUNT)
+        self.assertEqual(
+            FINAL_EXPECTED_RUN_COUNT,
+            FINAL_INSTANCE_COUNT * len(FINAL_BUDGETS) * len(FINAL_SEEDS),
+        )
+        validate_final_matrix_contract(
+            variant=FINAL_VARIANT,
+            budgets=FINAL_BUDGETS,
+            seeds=FINAL_SEEDS,
+            requested_instances=None,
+        )
+        invalid = (
+            {"variant": "constructor_retime"},
+            {"budgets": (10.0, 60.0, 300.0)},
+            {"budgets": tuple(reversed(FINAL_BUDGETS))},
+            {"seeds": (*FINAL_SEEDS, 20260713, 20260714)},
+            {"seeds": tuple(reversed(FINAL_SEEDS))},
+            {"requested_instances": ("prob_39.json",)},
+        )
+        defaults = {
+            "variant": FINAL_VARIANT,
+            "budgets": FINAL_BUDGETS,
+            "seeds": FINAL_SEEDS,
+            "requested_instances": None,
+        }
+        for change in invalid:
+            with self.subTest(change=change), self.assertRaises(ContractError):
+                validate_final_matrix_contract(**(defaults | change))
 
     def test_summary_missing_field_is_rejected(self):
         with self.assertRaisesRegex(ContractError, "summary missing"):
