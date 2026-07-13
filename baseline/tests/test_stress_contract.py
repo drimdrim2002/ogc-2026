@@ -53,7 +53,7 @@ class StressContractTests(unittest.TestCase):
 
     def test_resume_accepts_only_schema_valid_terminal_records(self):
         record = {field: None for field in (
-            "schema_version run_key status instance instance_hash dataset_hash variant config_hash source_commit budget_seconds seed start_utc end_utc elapsed_seconds feasible stage violations obj1 obj2 obj3 objective internal_checker_objective_error phase_timings checker_timings model_stats constructor_deadline_hit validated_best_trace validated_best_events operator_stats exception outer_timeout environment"
+            "schema_version run_key status instance instance_hash dataset_hash variant config_hash source_commit budget_seconds seed start_utc end_utc elapsed_seconds feasible stage violations obj1 obj2 obj3 objective internal_checker_objective_error phase_timings checker_timings model_stats construction_stats constructor_deadline_hit validated_best_trace validated_best_events operator_stats exception outer_timeout environment"
         ).split()}
         record.update(schema_version=SCHEMA_VERSION, run_key="a" * 64, status="completed")
         validate_raw_record(record)

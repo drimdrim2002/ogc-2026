@@ -4,6 +4,7 @@ import math
 import unittest
 
 from solver.budget import Budget
+from solver.construct import _Counters, _stop_for_safe_tail
 from solver.runtime import constructor_profile_limit, phase_name
 
 
@@ -45,6 +46,19 @@ class DeadlineContractTests(unittest.TestCase):
         self.assertTrue(budget.can_start(0.5, margin=0.1))
         clock.value += 0.02
         self.assertFalse(budget.can_start(0.5, margin=0.1))
+
+    def test_planned_constructor_timebox_is_distinct_from_actual_deadline(self):
+        clock = FakeClock()
+        budget = Budget.start(1.0, clock=clock)
+        counters = _Counters()
+        clock.value = 0.95
+        self.assertTrue(_stop_for_safe_tail(budget, counters, 0.1))
+        self.assertTrue(counters.timebox_exhausted)
+        self.assertFalse(counters.deadline_hit)
+        clock.value = 1.0
+        expired = _Counters()
+        self.assertTrue(_stop_for_safe_tail(budget, expired, 0.1))
+        self.assertTrue(expired.deadline_hit)
 
     def test_negative_tiny_large_and_nonfinite_limits(self):
         for limit in (-1.0, 1e-12, 1e9):

@@ -91,6 +91,7 @@ class ConstructionMetrics:
     escalations: int
     fallback_count: int
     placements_committed: int
+    timebox_exhausted: bool
     deadline_hit: bool
     construction_time: float
 
@@ -112,7 +113,25 @@ class _Counters:
     escalations: int = 0
     fallback_count: int = 0
     committed: int = 0
+    timebox_exhausted: bool = False
     deadline_hit: bool = False
+
+    @property
+    def stop_requested(self) -> bool:
+        return self.timebox_exhausted or self.deadline_hit
+
+
+def _reserve_safe_tail(instance: Instance) -> float:
+    """Reserve a small deterministic serial-tail window before child expiry."""
+    return min(0.25, max(0.02, 0.0005 * len(instance.blocks)))
+
+
+def _stop_for_safe_tail(budget: Budget, counters: _Counters, reserve: float) -> bool:
+    if budget.can_start(0.0, margin=reserve):
+        return False
+    counters.timebox_exhausted = True
+    counters.deadline_hit = budget.remaining() <= 0.0
+    return True
 
 
 def _overlaps(left: Placement, right: Placement) -> bool:
@@ -447,6 +466,7 @@ def _candidate_options(
     current_placement: Placement | None = None,
 ) -> tuple[CandidateScore, ...]:
     block = instance.block(block_id)
+    tail_reserve = _reserve_safe_tail(instance)
     guide_bay, guide_start = _guides(seed, block_id)
     if current_placement is not None:
         guide_bay = current_placement.bay_id
@@ -465,14 +485,12 @@ def _candidate_options(
         found: list[CandidateScore] = []
         for bay_id, orient_idx, reference_range in fitting:
             found_before_option = len(found)
-            if not budget.can_start(0.0, margin=0.0001):
-                counters.deadline_hit = True
+            if _stop_for_safe_tail(budget, counters, tail_reserve):
                 break
             bay = instance.bay(bay_id)
             orient = block.orientations[orient_idx]
             for entry in times:
-                if not budget.can_start(0.0, margin=0.0001):
-                    counters.deadline_hit = True
+                if _stop_for_safe_tail(budget, counters, tail_reserve):
                     break
                 interval = (entry, entry + block.dwell)
                 if lattice_only:
@@ -494,10 +512,9 @@ def _candidate_options(
                         current_position=current_position,
                     )
                 for position_index, (x, y) in enumerate(positions):
-                    if position_index % 16 == 0 and not budget.can_start(
-                        0.0, margin=0.0001
+                    if position_index % 16 == 0 and _stop_for_safe_tail(
+                        budget, counters, tail_reserve
                     ):
-                        counters.deadline_hit = True
                         break
                     counters.attempted += 1
                     placement = Placement(
@@ -529,17 +546,17 @@ def _candidate_options(
                     )
                 if len(found) - found_before_option >= 3:
                     break
-                if counters.deadline_hit:
+                if counters.stop_requested:
                     break
             if current_placement is None and len(found) >= 3:
                 break
-            if counters.deadline_hit:
+            if counters.stop_requested:
                 break
         return found
 
     first_times = generate_time_candidates(block, state, guide_start)
     found = search(first_times)
-    if not found and not counters.deadline_hit:
+    if not found and not counters.stop_requested:
         counters.escalations += 1
         expanded = _time_candidates(block, state, guide_start, config.escalated_time_cap)
         found = search(expanded, lattice_only=True)
@@ -722,8 +739,9 @@ def construct_complete(
     unplaced = set(order)
     try:
         while unplaced:
-            if not budget.can_start(0.0, margin=0.0001):
-                counters.deadline_hit = True
+            if _stop_for_safe_tail(
+                budget, counters, _reserve_safe_tail(instance)
+            ):
                 break
             choices: list[tuple[Any, int, CandidateScore]] = []
             for block_id in sorted(unplaced, key=lambda item: rank[item]):
@@ -738,9 +756,9 @@ def construct_complete(
                     else math.inf
                 )
                 choices.append(((-regret, rank[block_id], options[0].canonical_tie), block_id, options[0]))
-                if counters.deadline_hit:
+                if counters.stop_requested:
                     break
-            if counters.deadline_hit:
+            if counters.stop_requested:
                 break
             if not choices:
                 block_id = min(unplaced, key=lambda item: rank[item])
@@ -758,7 +776,7 @@ def construct_complete(
     except Exception:
         # Geometry failures are candidate-local.  A deterministic serial tail
         # is still safe because every new interval is empty in its bay.
-        counters.deadline_hit = counters.deadline_hit or not budget.can_start(0.0)
+        counters.deadline_hit = counters.deadline_hit or budget.remaining() <= 0.0
 
     for block_id in sorted(unplaced, key=lambda item: rank[item]):
         _fallback_insert(instance, kernel, state, block_id, seed)
@@ -786,6 +804,7 @@ def construct_complete(
         escalations=counters.escalations,
         fallback_count=counters.fallback_count,
         placements_committed=counters.committed,
+        timebox_exhausted=counters.timebox_exhausted,
         deadline_hit=counters.deadline_hit,
         construction_time=time.monotonic() - started,
     )

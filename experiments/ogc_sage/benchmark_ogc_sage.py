@@ -70,7 +70,6 @@ RAW_REQUIRED_FIELDS = (
     "model_stats",
     "constructor_deadline_hit",
     "validated_best_trace",
-    "validated_best_events",
     "operator_stats",
     "exception",
     "outer_timeout",
@@ -346,6 +345,7 @@ def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
         "phase_timings": {},
         "checker_timings": [],
         "model_stats": {},
+        "construction_stats": [],
         "constructor_deadline_hit": False,
         "validated_best_trace": [],
         "validated_best_events": [],
@@ -399,6 +399,7 @@ def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
             phase_timings=trace_dict["phase_times"],
             checker_timings=trace_dict["checker_durations"],
             model_stats={"assignment": trace_dict["assignment"], **trace_dict["model_stats"]},
+            construction_stats=trace_dict["construction"],
             constructor_deadline_hit=any(
                 bool(item.get("metrics", {}).get("deadline_hit"))
                 for item in trace_dict["construction"]
@@ -437,6 +438,7 @@ def _empty_timeout_record(request: Mapping[str, Any], elapsed: float) -> dict[st
         objective=None, internal_objective=None,
         internal_checker_objective_error=None, component_relative_errors={},
         phase_timings={}, checker_timings=[], model_stats={},
+        construction_stats=[],
         constructor_deadline_hit=False, validated_best_trace=[],
         validated_best_events=[],
         trace_non_increasing=True, operator_stats={}, retime_z1_worsen_count=0,
@@ -602,6 +604,13 @@ def summarize(
         "constructor_p90_seconds": percentile(constructor_times, 0.90),
         "constructor_max_seconds": max(constructor_times, default=0.0),
         "constructor_deadline_hit_count": sum(record["constructor_deadline_hit"] for record in records),
+        "constructor_timebox_exhausted_count": sum(
+            any(
+                bool(item.get("metrics", {}).get("timebox_exhausted"))
+                for item in record.get("construction_stats", [])
+            )
+            for record in records
+        ),
         "gate_pass": gate_pass,
         "raw_sha256": raw_hash,
         "calibration": dict(calibration_values),
