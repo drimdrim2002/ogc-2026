@@ -227,8 +227,8 @@ class InterlockIntegrationTests(unittest.TestCase):
         self.assertEqual(1, result.metrics.densify_triggers)
         self.assertEqual("FEATURE_DISABLED", result.metrics.densify_reason)
 
-    def test_submission_activation_defaults_remain_off(self):
-        self.assertFalse(entry.LNS_ENABLED)
+    def test_submission_activation_defaults_match_feature_gate(self):
+        self.assertTrue(entry.LNS_ENABLED)
         self.assertFalse(entry.INTERLOCK_ENABLED)
 
     def test_real_prob4_witness_when_data_available(self):

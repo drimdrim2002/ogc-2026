@@ -30,7 +30,7 @@ class SubmissionConfig:
     assignment_enabled: bool = True
     constructor_enabled: bool = True
     retime_enabled: bool = True
-    lns_enabled: bool = False
+    lns_enabled: bool = True
     mip_enabled: bool = False
     interlock_enabled: bool = False
 

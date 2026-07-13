@@ -406,21 +406,21 @@ class AlnsIntegrationTests(unittest.TestCase):
                 self.assertEqual(1, metric.feasible)
                 self.assertEqual(1, metric.accepted)
 
-    def test_submission_path_keeps_lns_hook_disabled_by_default(self):
+    def test_submission_path_enables_heuristic_lns_after_feature_gate(self):
         raw = instance([block()])
         parsed = parse_instance(raw)
         kernel = GeometryKernel.from_instance(parsed)
         snapshot = build_safe_candidate(parsed, Budget.start(1))
         with (
-            patch("solver.entry.LNS_ENABLED", False),
+            patch("solver.entry.LNS_ENABLED", True),
             patch("solver.assignment.try_assignment_portfolio", return_value=None),
             patch("solver.construct.construct_portfolio", return_value=()),
             patch("solver.geometry.GeometryKernel.from_instance", return_value=kernel),
         ):
             phase = entry.load_optional_phase()
-            result = phase(parsed, snapshot, Budget.start(1))
-        self.assertFalse(entry.LNS_ENABLED)
-        self.assertIsNone(result.lns_runner)
+            result = phase(parsed, snapshot, Budget.start(12))
+        self.assertTrue(entry.LNS_ENABLED)
+        self.assertIsNotNone(result.lns_runner)
 
 
 if __name__ == "__main__":

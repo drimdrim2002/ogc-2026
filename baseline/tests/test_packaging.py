@@ -34,10 +34,10 @@ class PackagingContractTests(unittest.TestCase):
         finally:
             os.environ.pop("OGC_LNS_ENABLED", None)
         self.assertEqual(before, after)
-        self.assertFalse(after.lns_enabled)
+        self.assertTrue(after.lns_enabled)
         self.assertFalse(after.interlock_enabled)
         with self.assertRaises(FrozenInstanceError):
-            after.lns_enabled = True
+            after.lns_enabled = False
 
     def test_benchmark_variants_are_explicit_and_dependency_safe(self):
         self.assertFalse(SubmissionConfig.for_benchmark("constructor_retime", seed=1).lns_enabled)

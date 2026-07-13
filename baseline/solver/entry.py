@@ -26,7 +26,7 @@ from .runtime import (
 )
 
 
-LNS_ENABLED = False
+LNS_ENABLED = True
 INTERLOCK_ENABLED = False
 
 

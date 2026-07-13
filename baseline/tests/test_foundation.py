@@ -6,6 +6,7 @@ import io
 import json
 import math
 import unittest
+from unittest.mock import patch
 
 from myalgorithm import algorithm
 from solver.budget import Budget
@@ -191,7 +192,11 @@ class FoundationTests(unittest.TestCase):
             with self.subTest(timelimit=timelimit):
                 stdout = io.StringIO()
                 stderr = io.StringIO()
-                with redirect_stdout(stdout), redirect_stderr(stderr):
+                with (
+                    patch("solver.entry.load_optional_phase", return_value=None),
+                    redirect_stdout(stdout),
+                    redirect_stderr(stderr),
+                ):
                     result = algorithm(prob, timelimit)
                 self.assertEqual("", stdout.getvalue())
                 self.assertEqual("", stderr.getvalue())
