@@ -102,7 +102,6 @@ SUMMARY_REQUIRED_FIELDS = (
     "raw_sha256",
 )
 FORBIDDEN_ARCHIVE_NAMES = {
-    "utils.py",
     "baseline_greedy.py",
     "run_myalgorithm.py",
     "run_baseline_greedy.py",
@@ -881,7 +880,10 @@ def command_run(args: argparse.Namespace) -> int:
 
 
 def submission_members() -> dict[str, Path]:
-    members = {"myalgorithm.py": REPO_ROOT / "baseline/myalgorithm.py"}
+    members = {
+        "myalgorithm.py": REPO_ROOT / "baseline/myalgorithm.py",
+        "utils.py": REPO_ROOT / "baseline/utils.py",
+    }
     for path in sorted((REPO_ROOT / "baseline/solver").glob("*.py")):
         members[f"solver/{path.name}"] = path
     return members
@@ -891,6 +893,8 @@ def validate_archive_members(names: Iterable[str]) -> None:
     names = tuple(names)
     if "myalgorithm.py" not in names:
         raise ContractError("archive root myalgorithm.py is missing")
+    if "utils.py" not in names:
+        raise ContractError("archive root utils.py is missing")
     if len(names) != len(set(names)):
         raise ContractError("archive contains duplicate paths")
     for name in names:

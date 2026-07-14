@@ -24,3 +24,19 @@ Quick start
             conda activate ogc2026
             cd alg_tester
             python alg_tester_app.py
+
+Create the submission ZIP
+-------------------------
+  From the repository root, run:
+
+      python scripts/build_submission_zip.py
+
+  This creates dist/ogc2026_submission.zip.  It contains only the required
+  top-level myalgorithm.py, the unmodified top-level utils.py, and the
+  baseline/solver Python package; it excludes docs, tests, training data,
+  experiments, and artifacts.  The script verifies utils.py against the
+  organizer-provided checksum, then validates the ZIP layout, integrity, and
+  the 15 MB submission-size limit before printing its SHA-256 checksum.  To
+  choose another destination:
+
+      python scripts/build_submission_zip.py --output /path/to/submission.zip

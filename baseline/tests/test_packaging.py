@@ -66,7 +66,10 @@ class PackagingContractTests(unittest.TestCase):
                 validate_archive_members(names)
                 archive.extractall(root / "clean")
             clean = root / "clean"
-            (clean / "utils.py").write_bytes((ROOT / "baseline/utils.py").read_bytes())
+            self.assertEqual(
+                (ROOT / "baseline/utils.py").read_bytes(),
+                (clean / "utils.py").read_bytes(),
+            )
             (clean / "instance.json").write_text(json.dumps(load_example()), encoding="utf-8")
             script = (
                 "import builtins, importlib.util, json, pathlib, sys\n"
@@ -93,9 +96,13 @@ class PackagingContractTests(unittest.TestCase):
             self.assertEqual("", completed.stderr)
 
     def test_forbidden_archive_member_is_rejected(self):
-        for name in ("utils.py", "solver/test_x.py", "../myalgorithm.py", "data/prob_1.json"):
+        for name in ("solver/test_x.py", "../myalgorithm.py", "data/prob_1.json"):
             with self.subTest(name=name), self.assertRaises(Exception):
-                validate_archive_members(("myalgorithm.py", name))
+                validate_archive_members(("myalgorithm.py", "utils.py", name))
+
+    def test_archive_requires_root_utils_py(self):
+        with self.assertRaises(Exception):
+            validate_archive_members(("myalgorithm.py", "solver/entry.py"))
 
 
 if __name__ == "__main__":
