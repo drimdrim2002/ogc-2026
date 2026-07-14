@@ -53,15 +53,765 @@
       }
     }
   },
-  "config": null,
-  "commit": null,
-  "artifacts": {
-    "raw": "artifacts/ogc_sage/step9/<run-id>/raw.jsonl",
-    "raw_sha256": null,
-    "summary": "artifacts/ogc_sage/step9/<run-id>/summary.json",
-    "summary_sha256": null
+  "config": {
+    "variant": "heuristic_lns",
+    "budgets_seconds": [
+      60,
+      180
+    ],
+    "seeds": [
+      20260710,
+      20260711,
+      20260712
+    ],
+    "official_instance_count": 40,
+    "expected_run_count": 240,
+    "config_sha256": "6657431f9374f3ced2ee90176b73ec36ac994f9a7bed0857cbea5561a87cab57",
+    "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f"
   },
-  "command": null,
-  "environment": null,
-  "result_summary": "NOT_RUN_PREREQUISITE_REMEDIATION_ONLY"
+  "commit": "22b08264977ad83980027adfb92843ece8b8f7ff",
+  "artifacts": {
+    "active_final_240": {
+      "run_id": "step9-final-20260713T235202Z-22b08264977a-6657431f9374",
+      "directory": "artifacts/ogc_sage/step9/step9-final-20260713T235202Z-22b08264977a-6657431f9374",
+      "raw": "artifacts/ogc_sage/step9/step9-final-20260713T235202Z-22b08264977a-6657431f9374/raw.jsonl",
+      "raw_sha256": "72d62d3843533bc1fbbdbb01ec664a85bdb7c53f2a287301b9c6571c917b821e",
+      "summary": "artifacts/ogc_sage/step9/step9-final-20260713T235202Z-22b08264977a-6657431f9374/summary.json",
+      "summary_sha256": "3e0197b88a5f2f0dcb5e4d1bc0135aa3581fb20d45b6726b270f0600a5cf00c7",
+      "sha256sums": "artifacts/ogc_sage/step9/step9-final-20260713T235202Z-22b08264977a-6657431f9374/SHA256SUMS",
+      "sha256sums_sha256": "5f207686beb65fedaa0ea937ceffc38ef672c2e535c1347eb45c699a52e639df",
+      "sha256sums_verified": true,
+      "external_benchmark_overlap_count": 0
+    },
+    "exploitation_1800": {
+      "run_id": "step9-exploitation-20260714T080026Z-22b08264977a-6657431f9374",
+      "directory": "artifacts/ogc_sage/step9/step9-exploitation-20260714T080026Z-22b08264977a-6657431f9374",
+      "command": [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/benchmark_ogc_sage.py",
+        "run",
+        "--gate",
+        "exploitation",
+        "--variant",
+        "heuristic_lns",
+        "--budgets",
+        "1800",
+        "--seeds",
+        "20260710",
+        "--instances",
+        "prob_39.json",
+        "--run-id",
+        "step9-exploitation-20260714T080026Z-22b08264977a-6657431f9374"
+      ],
+      "identity": {
+        "source_commit": "22b08264977ad83980027adfb92843ece8b8f7ff",
+        "config_sha256": "6657431f9374f3ced2ee90176b73ec36ac994f9a7bed0857cbea5561a87cab57",
+        "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f",
+        "instance_sha256": "baac66c946de74ae63de5672a9c53ca2150a1724602f552f8588bdabb6153965"
+      },
+      "instance": "prob_39.json",
+      "seed": 20260710,
+      "budget_seconds": 1800,
+      "status": "completed",
+      "elapsed_seconds": 1740.3399755420105,
+      "feasible": true,
+      "stage": 5,
+      "objective": {
+        "obj1": 27313,
+        "obj2": 1494,
+        "obj3": 5652,
+        "total": 365018005
+      },
+      "validated_best_event_count": 65,
+      "validated_best_trace": [
+        1962525591,
+        1356306027,
+        1328050808,
+        1327317227,
+        1270669642,
+        1240652305,
+        1240372312,
+        1222163172,
+        1192556764,
+        1162139548,
+        1138508675,
+        1115339334,
+        1098083367,
+        1078831954,
+        1069059699,
+        1026800605,
+        997984831,
+        997983991,
+        997943992,
+        941433611,
+        918511214,
+        918497881,
+        877353692,
+        851219875,
+        851215623,
+        829241819,
+        817577024,
+        817523692,
+        800183356,
+        744826318,
+        703075173,
+        702701805,
+        702534704,
+        662527867,
+        647521610,
+        640669631,
+        619570589,
+        619077554,
+        600640440,
+        600613774,
+        599985398,
+        588372355,
+        588119028,
+        563671799,
+        554440794,
+        554236603,
+        544614676,
+        521581493,
+        499118073,
+        499112087,
+        485117203,
+        475749921,
+        461435517,
+        451104550,
+        450984553,
+        433005974,
+        432965975,
+        404872581,
+        394388603,
+        387682104,
+        382015579,
+        376332056,
+        368267866,
+        367667881,
+        365018005
+      ],
+      "validated_best_events": [
+        {
+          "elapsed_seconds": 0.146074749995023,
+          "objective": 1962525591
+        },
+        {
+          "elapsed_seconds": 7.0065483750076964,
+          "objective": 1356306027
+        },
+        {
+          "elapsed_seconds": 23.452571582995006,
+          "objective": 1328050808
+        },
+        {
+          "elapsed_seconds": 23.45257229100389,
+          "objective": 1327317227
+        },
+        {
+          "elapsed_seconds": 23.452572708003572,
+          "objective": 1270669642
+        },
+        {
+          "elapsed_seconds": 23.452573083006428,
+          "objective": 1240652305
+        },
+        {
+          "elapsed_seconds": 23.45257333299378,
+          "objective": 1240372312
+        },
+        {
+          "elapsed_seconds": 23.452573582995683,
+          "objective": 1222163172
+        },
+        {
+          "elapsed_seconds": 23.45257391600171,
+          "objective": 1192556764
+        },
+        {
+          "elapsed_seconds": 23.45257424999727,
+          "objective": 1162139548
+        },
+        {
+          "elapsed_seconds": 23.452574499999173,
+          "objective": 1138508675
+        },
+        {
+          "elapsed_seconds": 23.4525748330052,
+          "objective": 1115339334
+        },
+        {
+          "elapsed_seconds": 23.452575083007105,
+          "objective": 1098083367
+        },
+        {
+          "elapsed_seconds": 23.452575375005836,
+          "objective": 1078831954
+        },
+        {
+          "elapsed_seconds": 23.452575624993187,
+          "objective": 1069059699
+        },
+        {
+          "elapsed_seconds": 23.45257587499509,
+          "objective": 1026800605
+        },
+        {
+          "elapsed_seconds": 23.452576124996995,
+          "objective": 997984831
+        },
+        {
+          "elapsed_seconds": 1740.121323875006,
+          "objective": 997983991
+        },
+        {
+          "elapsed_seconds": 1740.1213246249972,
+          "objective": 997943992
+        },
+        {
+          "elapsed_seconds": 1740.1213249160064,
+          "objective": 941433611
+        },
+        {
+          "elapsed_seconds": 1740.1213252080051,
+          "objective": 918511214
+        },
+        {
+          "elapsed_seconds": 1740.121325458007,
+          "objective": 918497881
+        },
+        {
+          "elapsed_seconds": 1740.1213257500058,
+          "objective": 877353692
+        },
+        {
+          "elapsed_seconds": 1740.1213260829973,
+          "objective": 851219875
+        },
+        {
+          "elapsed_seconds": 1740.121326374996,
+          "objective": 851215623
+        },
+        {
+          "elapsed_seconds": 1740.1213267499988,
+          "objective": 829241819
+        },
+        {
+          "elapsed_seconds": 1740.1213270830049,
+          "objective": 817577024
+        },
+        {
+          "elapsed_seconds": 1740.1213273750036,
+          "objective": 817523692
+        },
+        {
+          "elapsed_seconds": 1740.121327707995,
+          "objective": 800183356
+        },
+        {
+          "elapsed_seconds": 1740.121328041001,
+          "objective": 744826318
+        },
+        {
+          "elapsed_seconds": 1740.1213283749967,
+          "objective": 703075173
+        },
+        {
+          "elapsed_seconds": 1740.1213286660059,
+          "objective": 702701805
+        },
+        {
+          "elapsed_seconds": 1740.1213289580046,
+          "objective": 702534704
+        },
+        {
+          "elapsed_seconds": 1740.1213292500033,
+          "objective": 662527867
+        },
+        {
+          "elapsed_seconds": 1740.121329540998,
+          "objective": 647521610
+        },
+        {
+          "elapsed_seconds": 1740.1213298329967,
+          "objective": 640669631
+        },
+        {
+          "elapsed_seconds": 1740.1213300829986,
+          "objective": 619570589
+        },
+        {
+          "elapsed_seconds": 1740.1213303330005,
+          "objective": 619077554
+        },
+        {
+          "elapsed_seconds": 1740.1213305830024,
+          "objective": 600640440
+        },
+        {
+          "elapsed_seconds": 1740.1213308330043,
+          "objective": 600613774
+        },
+        {
+          "elapsed_seconds": 1740.1213311659958,
+          "objective": 599985398
+        },
+        {
+          "elapsed_seconds": 1740.121331500006,
+          "objective": 588372355
+        },
+        {
+          "elapsed_seconds": 1740.1213317910006,
+          "objective": 588119028
+        },
+        {
+          "elapsed_seconds": 1740.1213320410025,
+          "objective": 563671799
+        },
+        {
+          "elapsed_seconds": 1740.1213322910044,
+          "objective": 554440794
+        },
+        {
+          "elapsed_seconds": 1740.1213325410063,
+          "objective": 554236603
+        },
+        {
+          "elapsed_seconds": 1740.121332833005,
+          "objective": 544614676
+        },
+        {
+          "elapsed_seconds": 1740.121333083007,
+          "objective": 521581493
+        },
+        {
+          "elapsed_seconds": 1740.1213333329943,
+          "objective": 499118073
+        },
+        {
+          "elapsed_seconds": 1740.1213335829962,
+          "objective": 499112087
+        },
+        {
+          "elapsed_seconds": 1740.121333874995,
+          "objective": 485117203
+        },
+        {
+          "elapsed_seconds": 1740.121334166004,
+          "objective": 475749921
+        },
+        {
+          "elapsed_seconds": 1740.1213344580028,
+          "objective": 461435517
+        },
+        {
+          "elapsed_seconds": 1740.1213349159952,
+          "objective": 451104550
+        },
+        {
+          "elapsed_seconds": 1740.1213351659972,
+          "objective": 450984553
+        },
+        {
+          "elapsed_seconds": 1740.121335415999,
+          "objective": 433005974
+        },
+        {
+          "elapsed_seconds": 1740.1213357499946,
+          "objective": 432965975
+        },
+        {
+          "elapsed_seconds": 1740.1213360410038,
+          "objective": 404872581
+        },
+        {
+          "elapsed_seconds": 1740.1213363749994,
+          "objective": 394388603
+        },
+        {
+          "elapsed_seconds": 1740.1213366250013,
+          "objective": 387682104
+        },
+        {
+          "elapsed_seconds": 1740.121336915996,
+          "objective": 382015579
+        },
+        {
+          "elapsed_seconds": 1740.1213371659978,
+          "objective": 376332056
+        },
+        {
+          "elapsed_seconds": 1740.1213374159997,
+          "objective": 368267866
+        },
+        {
+          "elapsed_seconds": 1740.1213376660016,
+          "objective": 367667881
+        },
+        {
+          "elapsed_seconds": 1740.1213379999972,
+          "objective": 365018005
+        }
+      ],
+      "first_strict_improvement": {
+        "definition": "first ordered event in events[1:] whose objective is strictly less than events[0].objective",
+        "elapsed_seconds": 7.0065483750076964,
+        "objective": 1356306027
+      },
+      "final_validated_best_event": {
+        "elapsed_seconds": 1740.1213379999972,
+        "objective": 365018005
+      },
+      "result_summary": {
+        "run_count": 1,
+        "unique_key_count": 1,
+        "expected_run_count": 1,
+        "missing_count": 0,
+        "duplicate_count": 0,
+        "stage5_count": 1,
+        "exception_count": 0,
+        "outer_timeout_count": 0,
+        "checker_failure_count": 0,
+        "objective_parity_max_relative_error": 0,
+        "trace_regression_count": 0,
+        "retime_z1_worsen_count": 0,
+        "longer_budget_regression_count": 0,
+        "gate_pass": true
+      },
+      "raw": "artifacts/ogc_sage/step9/step9-exploitation-20260714T080026Z-22b08264977a-6657431f9374/raw.jsonl",
+      "raw_sha256": "24dfbf2774bd2d7cdda05a85fccd9bf72acc3011b60f1ebea5cd6f25ddf1fd06",
+      "summary": "artifacts/ogc_sage/step9/step9-exploitation-20260714T080026Z-22b08264977a-6657431f9374/summary.json",
+      "summary_sha256": "cebbcdc5f385c2a25e50f037895aa9a4fd2180fe6aaaae3ee05d93baa31921eb",
+      "sha256sums": "artifacts/ogc_sage/step9/step9-exploitation-20260714T080026Z-22b08264977a-6657431f9374/SHA256SUMS",
+      "sha256sums_sha256": "98b36f6f3a56b4f57f671caf60743ae0079254ad9049f0a22d5e5502184eb4c0",
+      "sha256sums_verified": true
+    },
+    "submission_archive": {
+      "run_id": "step9-archive-20260714T083017Z-22b08264977a",
+      "directory": "artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a",
+      "archive": "artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a/submission.zip",
+      "archive_command": [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "experiments/ogc_sage/benchmark_ogc_sage.py",
+        "archive",
+        "--output",
+        "artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a/submission.zip"
+      ],
+      "sha256": "dd7893a4e69fb8e30d8fabd99151bccf2a08b9fd81677e3fc0e0cb1175b2275d",
+      "size_bytes": 65746,
+      "size_limit_bytes": 15728640,
+      "members": [
+        "myalgorithm.py",
+        "solver/__init__.py",
+        "solver/alns.py",
+        "solver/assignment.py",
+        "solver/budget.py",
+        "solver/construct.py",
+        "solver/entry.py",
+        "solver/fallback.py",
+        "solver/geometry.py",
+        "solver/instance.py",
+        "solver/interlock.py",
+        "solver/neighborhoods.py",
+        "solver/repair_mip.py",
+        "solver/retime.py",
+        "solver/runtime.py",
+        "solver/serialize.py",
+        "solver/state.py"
+      ],
+      "contract": {
+        "single_zip": true,
+        "root_myalgorithm_present": true,
+        "helpers_only_under_solver": true,
+        "duplicate_path_count": 0,
+        "absolute_or_parent_path_count": 0,
+        "forbidden_member_count": 0,
+        "official_checker_redistributed": false,
+        "training_data_redistributed": false,
+        "pass": true
+      },
+      "independent_verification": {
+        "sha256_command": [
+          "shasum",
+          "-a",
+          "256",
+          "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a/submission.zip"
+        ],
+        "listing_commands": [
+          [
+            "unzip",
+            "-l",
+            "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a/submission.zip"
+          ],
+          [
+            "zipinfo",
+            "-1",
+            "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a/submission.zip"
+          ]
+        ],
+        "sha256_matches": true,
+        "listing_matches": true
+      },
+      "clean_extraction_smoke": {
+        "temporary_directory_command": [
+          "mktemp",
+          "-d",
+          "/tmp/ogc-sage-step9-archive-smoke.XXXXXX"
+        ],
+        "directory": "/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean",
+        "resolved_directory": "/private/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean",
+        "archive_extraction_command": [
+          "unzip",
+          "-q",
+          "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/step9-archive-20260714T083017Z-22b08264977a/submission.zip",
+          "-d",
+          "/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean"
+        ],
+        "server_checker_injection_command": [
+          "cp",
+          "/Users/brown/workspace/ogc/sol-native-implementation/baseline/utils.py",
+          "/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean/utils.py"
+        ],
+        "tracked_example_injection_command": [
+          "cp",
+          "/Users/brown/workspace/ogc/sol-native-implementation/alg_tester/example/example_B2_b10.json",
+          "/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean/instance.json"
+        ],
+        "normal": {
+          "argv": [
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+            "-I",
+            "-c",
+            "import importlib.util, json, pathlib, sys\nroot=pathlib.Path.cwd()\nsys.path.insert(0,str(root))\nspec=importlib.util.spec_from_file_location(\"submission\",root/\"myalgorithm.py\")\nmod=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\nraw=json.loads((root/\"instance.json\").read_text())\nout=mod.algorithm(raw,2.0)\nfrom utils import check_feasibility\nchecked=check_feasibility(raw,out)\nassert checked[\"feasible\"] and checked[\"stage\"]==5, checked\n(root/\"normal-result.json\").write_text(json.dumps({\"import_success\":True,\"checker\":checked,\"sys_path\":sys.path},sort_keys=True),encoding=\"utf-8\")\n"
+          ],
+          "working_directory": "/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean",
+          "exit_code": 0,
+          "import_success": true,
+          "public_stdout": "",
+          "public_stderr": "",
+          "checker": {
+            "feasible": true,
+            "obj1": 0,
+            "obj2": 14,
+            "obj3": 46,
+            "objective": 1018,
+            "stage": 5,
+            "violations": []
+          },
+          "sys_path": [
+            "/private/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python312.zip",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python3.12",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python3.12/lib-dynload",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python3.12/site-packages"
+          ],
+          "repository_parent_on_sys_path": false
+        },
+        "gurobipy_absent_fallback": {
+          "argv": [
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+            "-I",
+            "-c",
+            "import builtins, importlib.util, json, pathlib, sys\nroot=pathlib.Path.cwd()\nsys.path.insert(0,str(root))\nreal=builtins.__import__\ndef blocked(name,*a,**k):\n  if name==\"gurobipy\":\n    raise ImportError(\"absent\")\n  return real(name,*a,**k)\nbuiltins.__import__=blocked\nspec=importlib.util.spec_from_file_location(\"submission\",root/\"myalgorithm.py\")\nmod=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(mod)\nraw=json.loads((root/\"instance.json\").read_text())\nout=mod.algorithm(raw,2.0)\nfrom utils import check_feasibility\nchecked=check_feasibility(raw,out)\nassert checked[\"feasible\"] and checked[\"stage\"]==5, checked\n(root/\"fallback-result.json\").write_text(json.dumps({\"gurobipy_blocked\":True,\"import_success\":True,\"checker\":checked,\"sys_path\":sys.path},sort_keys=True),encoding=\"utf-8\")\n"
+          ],
+          "working_directory": "/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean",
+          "exit_code": 0,
+          "gurobipy_import_blocked": true,
+          "import_success": true,
+          "public_stdout": "",
+          "public_stderr": "",
+          "checker": {
+            "feasible": true,
+            "obj1": 0,
+            "obj2": 183,
+            "obj3": 0,
+            "objective": 1281,
+            "stage": 5,
+            "violations": []
+          },
+          "sys_path": [
+            "/private/tmp/ogc-sage-step9-archive-smoke.Zk4n1z/clean",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python312.zip",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python3.12",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python3.12/lib-dynload",
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/lib/python3.12/site-packages"
+          ],
+          "repository_parent_on_sys_path": false
+        },
+        "pass": true
+      },
+      "tests": {
+        "packaging": {
+          "command": [
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+            "-m",
+            "unittest",
+            "tests.test_packaging",
+            "-v"
+          ],
+          "working_directory": "baseline",
+          "run_count": 5,
+          "pass_count": 5,
+          "status": "PASS"
+        },
+        "baseline_full": {
+          "command": [
+            "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py"
+          ],
+          "working_directory": "baseline",
+          "run_count": 180,
+          "pass_count": 180,
+          "status": "PASS"
+        }
+      }
+    },
+    "target_probes": [
+      {
+        "run_id": "step9-anchor-probe-a1-20260713T232942Z-22b08264977a",
+        "directory": "artifacts/ogc_sage/step9/step9-anchor-probe-a1-20260713T232942Z-22b08264977a",
+        "run_count": 4,
+        "raw_sha256": "2154d5b469709f8152727929e73012b7d0268308c07f6a405dc4d2a399b9e5ad",
+        "summary_sha256": "4b063a7999a74f656310074758e1789d74807aa9b55f72b3e8901a4ee020f325",
+        "sha256sums_sha256": "e43cbd6d46c93cb79a1d9d87b7867585abe3b33d1b1a590a1698a086844f7272",
+        "sha256sums_verified": true,
+        "objectives_60_to_180": {
+          "prob_25.json/20260712": [12453685.0, 3544344.0],
+          "prob_35.json/20260712": [596961781.0, 118322127.0]
+        }
+      },
+      {
+        "run_id": "step9-anchor-probe-b1-20260713T233650Z-22b08264977a",
+        "directory": "artifacts/ogc_sage/step9/step9-anchor-probe-b1-20260713T233650Z-22b08264977a",
+        "run_count": 2,
+        "raw_sha256": "07aafc2bde161725eabfa1448e667bd9b72081d47354f790d10b73d67d103546",
+        "summary_sha256": "50671c2ab2d1978c30c9a9722fb00828a217aff855b1828a72e4692b062d9335",
+        "sha256sums_sha256": "ad150b4d88150a4e8814de0e743a0ec3f0f7dee7558f5fa4f9ddb753424f6aae",
+        "sha256sums_verified": true,
+        "objectives_60_to_180": {
+          "prob_36.json/20260710": [36699285.0, 16964610.0]
+        }
+      },
+      {
+        "run_id": "step9-anchor-probe-a2-20260713T234049Z-22b08264977a",
+        "directory": "artifacts/ogc_sage/step9/step9-anchor-probe-a2-20260713T234049Z-22b08264977a",
+        "run_count": 4,
+        "raw_sha256": "825b0f4327e966623f37c8def4490a854725bcaf187aa75662ad0af43db89322",
+        "summary_sha256": "7f34e6595b69024981c68071071fa5db959558808be15efd8aa973cd3660d5b2",
+        "sha256sums_sha256": "349b1cde03d6f14d642a6999df1083206bb9ab7fea005cd5ec976f0321f86e46",
+        "sha256sums_verified": true,
+        "objectives_60_to_180": {
+          "prob_25.json/20260712": [12469446.0, 3869894.0],
+          "prob_35.json/20260712": [596961781.0, 164658647.0]
+        }
+      },
+      {
+        "run_id": "step9-anchor-probe-b2-20260713T234753Z-22b08264977a",
+        "directory": "artifacts/ogc_sage/step9/step9-anchor-probe-b2-20260713T234753Z-22b08264977a",
+        "run_count": 2,
+        "raw_sha256": "58a6a3962fe1b6cc854ed9a20442fa8078294eebbbc274e65c67f82de2d0338a",
+        "summary_sha256": "db13cb6eae16b55c0d53fc26bd3450a206ca8f48776e16e3d19fdd2f223148bc",
+        "sha256sums_sha256": "ff61ee776ac66e7eee063b23e11a4c6f90d2b1671d490df0a3d698c0b6a70a4f",
+        "sha256sums_verified": true,
+        "objectives_60_to_180": {
+          "prob_36.json/20260710": [36699285.0, 17015302.0]
+        }
+      }
+    ],
+    "historical_final_240_failed": {
+      "run_id": "step9-final-20260713T131023Z-ab63dad35805-6657431f9374",
+      "directory": "artifacts/ogc_sage/step9/step9-final-20260713T131023Z-ab63dad35805-6657431f9374",
+      "raw_sha256": "fbf498dd5eed725de2122eeee4493799c14459eef611ba647f1d6dc8a2341a63",
+      "summary_sha256": "08b699074fe917be9a160119bfc20e62db1ec02eda4d376b68874b0f3b2c329f",
+      "sha256sums_sha256": "246565be0760609b87ba4947d838ee8f59acba682652f50a8a6e701b00761c21",
+      "sha256sums_verified": true,
+      "longer_budget_regression_count": 3,
+      "immutable": true,
+      "release_eligible": false
+    },
+    "historical_final_600": {
+      "run_id": "step9-final-20260713T033946Z-e49d8d52c369-6657431f9374",
+      "directory": "artifacts/ogc_sage/step9/step9-final-20260713T033946Z-e49d8d52c369-6657431f9374",
+      "raw": "artifacts/ogc_sage/step9/step9-final-20260713T033946Z-e49d8d52c369-6657431f9374/raw.jsonl",
+      "raw_sha256": "42f92cafad25d166f737a2aaeb57c806cdfc739dff063a35ef5028f9ddb03bcc",
+      "terminal_record_count": 162,
+      "unique_record_count": 162,
+      "summary_present": false,
+      "sha256sums_present": false,
+      "external_benchmark_overlap_count": 41,
+      "external_benchmark_overlap_record_numbers": "9-41,56-59,97,146,149,161",
+      "immutable": true,
+      "release_eligible": false
+    }
+  },
+  "command": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "experiments/ogc_sage/benchmark_ogc_sage.py",
+    "run",
+    "--gate",
+    "final",
+    "--variant",
+    "heuristic_lns",
+    "--budgets",
+    "60",
+    "180",
+    "--seeds",
+    "20260710",
+    "20260711",
+    "20260712",
+    "--run-id",
+    "step9-final-20260713T235202Z-22b08264977a-6657431f9374"
+  ],
+  "environment": {
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "python": "3.12.13",
+    "shapely": "2.1.2",
+    "gurobipy": "13.0.2"
+  },
+  "result_summary": {
+    "run_count": 240,
+    "unique_key_count": 240,
+    "expected_run_count": 240,
+    "missing_count": 0,
+    "duplicate_count": 0,
+    "stage5_count": 240,
+    "exception_count": 0,
+    "outer_timeout_count": 0,
+    "checker_failure_count": 0,
+    "objective_parity_max_relative_error": 0.0,
+    "trace_regression_count": 0,
+    "retime_z1_worsen_count": 0,
+    "longer_budget_regression_count": 0,
+    "longer_budget_regressions": [],
+    "gate_pass": true
+  },
+  "post_run": {
+    "long_budget_anchor_tests": "5/5 PASS",
+    "packaging_tests": "5/5 PASS",
+    "baseline_tests": "180/180 PASS",
+    "exploitation": "PASS",
+    "archive": "PASS",
+    "actual_archive_clean_extraction": "PASS",
+    "isolated_import": "PASS",
+    "official_checker_stage5": "PASS",
+    "gurobipy_absent_fallback_stage5": "PASS",
+    "public_stdout_stderr_empty": true,
+    "step9_complete": true,
+    "release_ready": true,
+    "evidence_docs_commit_allowed": true,
+    "document_stashes": {
+      "pre_release_evidence_oid": "41d462a2a410d245d8797e4265517c346e868788",
+      "pre_release_evidence_applied": true,
+      "pre_release_evidence_preserved": true,
+      "historical_pre_fix_docs_oid": "feab208adfb77289a6c85fa7c4b7d9082c7501bc",
+      "historical_pre_fix_docs_applied": false,
+      "historical_pre_fix_docs_preserved": true
+    },
+    "push_allowed": false
+  }
 }
