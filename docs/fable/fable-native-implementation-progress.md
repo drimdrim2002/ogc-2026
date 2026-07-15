@@ -152,7 +152,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | retained in stable baseline |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; backend `auto`; timebox `5s` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | retained in stable baseline |
 | S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
-| S4 | `IN_PROGRESS` | `S4-04-RECOVERY-09` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; assignment-v2 and guarded cross-bay remain proof-only | S4-03 commit `942b60730873501975285361fa8b7f5aeb86d542`; qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e`; optional track | `benchmarks/evidence/s4/benchmark/20260715T104503Z-2e0952d0/` | `942b60730873501975285361fa8b7f5aeb86d542` | RECOVERY-08 insufficient/sufficient timing contracts are being separated on a fresh clean identity | execute only S4-04 safety and frozen promotion decision; keep both flags false until the gate passes |
+| S4 | `COMPLETE` | `S4-04-RECOVERY-09` | `PASS` | gate-selected `assignment_refinement=true`; `assignment_v2=true`; `cross_bay=true`; Gurobi → CP-SAT → greedy | implementation `6e7e3e1171e458ceb0b1335b832a3fe1fde8ec90`; qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e` | `benchmarks/evidence/s4/report/20260715T152825Z-82aed615/` | `6e7e3e1171e458ceb0b1335b832a3fe1fde8ec90` | safety and promotion passed on one clean immutable identity; no production change after Q | stop after docs-only closeout, push, equality, and cleanliness; do not start S5 |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
 | S6 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | S6-05 commit `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | `benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/` | `824b24b0215855a9a233eb53be0b1253a1a2f922` | — | no next mandatory stage; hardened checker-verified submission candidate is selected |
 
@@ -5949,4 +5949,40 @@ Audit commands used read-only checks with `rg`, `wc`, `cmp`, `git status --short
   feature_default_decision: assignment_refinement=false; assignment_v2=false; cross_bay=false pending the frozen gate
   run_identity: dirty_full_discovery_attempt02=117_behavioral_passes_of_118; checker_deadline_cleanup=10/10; stale_target_worker_or_solver_processes=0; protected_utils_sha256=d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75; protected_baseline_greedy_sha256=8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b
   next_action: complete the production/harness diff audit, freeze the allowlist and diff hashes, create the planned implementation commit, then rerun exact full discovery on the clean commit
+```
+
+```yaml
+- timestamp: 2026-07-16T00:29:00+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-09
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  slice_decision: COMPLETE
+  branch: codex/fable-s4-recovery
+  commit: implementation=6e7e3e1171e458ceb0b1335b832a3fe1fde8ec90; docs_closeout=pending
+  dirty: true only for this docs-only post-Q closeout; production tree remains frozen at 7c6b9782967b24f9d3b53ef761572db87d47351f
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances training --timelimits 60 --seed 20260710 --feature assignment_refinement --a false --b true
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances smoke-3 --timelimits 60 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s4 --latest-complete --commit HEAD
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s4 --latest-complete
+  red_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-insufficient.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-sufficient.json
+  green_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/green-timing-contracts.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/targeted-green.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/affected-regression.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/full-discovery-clean.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/checker-deadline-cleanup-sentinels.json
+  checker_result: PASS; clean full discovery 118/118, dedicated checker/deadline/invalid-output/process-cleanup sentinels 10/10, parity 100/100 with zero Z2/Z3 error, and all 329 integrated A/B/stress records feasible Stage 5 with no unverified return
+  benchmark_or_stress_evidence: parity=benchmarks/evidence/s4/parity/20260715T114219Z-e6b471cb/; high_w23_ab=benchmarks/evidence/s4/ab/20260715T114339Z-f8a50381/; training_ab=benchmarks/evidence/s4/ab/20260715T140800Z-23140c65/; backend_fault_stress=benchmarks/evidence/s4/stress/20260715T152041Z-11cbbbb8/; gate=benchmarks/evidence/s4/gate/20260715T152809Z-7c04f0f4/; report=benchmarks/evidence/s4/report/20260715T152825Z-82aed615/
+  gate_decision: PASS; outcome=COMPLETE; safety_pass=true; promotion_pass=true; failures=[]
+  failure_or_fallback_reason: null
+  feature_default_decision: gate selected assignment_refinement=true, assignment_v2=true, cross_bay=true, preferred backend Gurobi, fallback CP-SAT then greedy; selection was recorded only after promotion PASS and production code was not changed after frozen qualification
+  timing_contract: minimum_useful_worker_seconds=4.25; publish_process_kill_margin_seconds=2.5; parent_return_tail_seconds=0.5; launch_floor_seconds=7.25; no percentage cap
+  qualification_identity: S4-04-RECOVERY-09-Q1; manifest=benchmarks/evidence/s4/s4-04/20260715T114037Z-s4-04-recovery09-q1/qualification-manifest.json; manifest_sha256=53d5c1e5ffa6ecdab215a6c90e40a92effb6d0e52750314850f3247bdd4b96eb; commit=6e7e3e1171e458ceb0b1335b832a3fe1fde8ec90; dirty_diff_hash=clean
+  q_exact_once: parity=1; high_w23_ab=1; training_ab=1; backend_fault_stress=1; gate=1; report=1; reruns=0; resumes=0
+  run_identity: parity=100/100,mismatches=0,max_z2_error=0,max_z3_error=0; high_w23=160/160,comparisons=10,improved=8,real_s4_improved=8,regressions=0,z2_regressions=0,s3_floor_mismatches=0,budget_violations=0,cross_bay_accepted=2,median_a=58985609.12823115,median_b=58465444.80596553; training=160/160,comparisons=40,improved=21,regressions=0,z2_regressions=0,s3_floor_mismatches=0,budget_violations=0; stress=9/9,fault_misses=0,regressions=0,z2_regressions=0,timeouts=0,crashes=0,leaks=0,unverified=0
+  evidence_hashes: parity_summary=f173cdb877919c9de4fddd9252173f82eb1fcdc0afb6c8a9ef6abdf5902cb1a0; high_w23_summary=08708f1f66f0d453e1c4e703c597f7543e54ec284b22e1b0ffe774e143fc3dda; training_summary=e20defb58ad928c727d986593898a94db2be3334d416d90ed6f2bf15dc3c08d3; stress_summary=652a816dfaa7e16832c92845d4bcacb162aad00255196f45f62720218ff1bd63; gate_json=95f1af74421f0016bf959db893da005ae02cf64625c09b075858a512d8e639a9; report_md=e2699a44a5c650e5654d5e2d1669d916e1be5c2d0e3333aed9f817584075392e
+  implementation_diff: pre_stage_sha256=7728f64bb9cbd92552f9849c2e351accaa1889c52847780ce86b865798bcc87f; staged_sha256=7728f64bb9cbd92552f9849c2e351accaa1889c52847780ce86b865798bcc87f; allowlist_paths=13
+  protected_files: baseline/utils.py=d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75=HEAD; baseline/baseline_greedy.py=8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b=HEAD
+  cleanup: no target harness, worker, Gurobi, or CP-SAT process; no fable-s4-worker temporary directory; generated evidence and reports remain ignored and untracked
+  next_action: create only this docs closeout commit, push, verify local/upstream equality and a clean worktree, then stop without starting S5
 ```
