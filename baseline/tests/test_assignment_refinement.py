@@ -3,15 +3,32 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 import unittest
 
 from harness import cli as harness_cli
 from harness import runner as harness_runner
-from solver.assign import AssignmentV1, assignment_from_solution, assignment_request, assignment_v2
+from solver.assign import (
+    AssignmentVerification,
+    AssignmentV1,
+    assignment_from_solution,
+    assignment_request,
+    assignment_v2,
+    choose_assignment_candidate,
+)
 from solver.checker_adapter import official_check
 from solver.config import SolverConfig
 from solver.construct import construct_profile
-from solver.exact import AssignmentRequest, SOLUTION_STATUSES
+from solver.cpsat_backend import (
+    ASSIGNMENT_SCALE,
+    assign_cpsat,
+    build_cpsat_assignment_spec,
+)
+from solver.exact import (
+    AssignmentRequest,
+    AssignmentResult as ExactAssignmentResult,
+    SOLUTION_STATUSES,
+)
 from solver.gurobi_backend import build_gurobi_assignment_spec
 from solver.instance import ProblemInstance
 from solver.serialize import serialize_non_interlock
@@ -199,6 +216,242 @@ class AssignmentV2Tests(unittest.TestCase):
         self.assertIsNone(summary["max_v2_float_z2_relative_error"])
         self.assertEqual(harness_cli.EXIT_CHECKER_FAILURE, exit_code)
 
+
+class AssignmentFallbackTests(unittest.TestCase):
+    def test_scaled_candidate_rechecked_as_float(self):
+        prob_info = instance(
+            [
+                block(workload=1.0000004, preferences=(1, 1)),
+                block(workload=1.0000004, preferences=(1, 1)),
+            ],
+            bays=((8, 8), (8, 8)),
+            weights={"w1": 1.0, "w2": 100.0, "w3": 1.0},
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        incumbent = assignment_from_solution(
+            parsed,
+            ((0, 0), (1, 1)),
+            order=(0, 1),
+        )
+
+        def failed_gurobi(request, timebox):
+            del request, timebox
+            return ExactAssignmentResult(
+                backend="gurobi", status="error", solution=None,
+                objective=None, bound=None, z2=None, z3=None, overload=None,
+                build_s=0.0, solve_s=0.0, first_solution_s=None,
+                reason="injected Gurobi fault",
+            )
+
+        def scaled_cpsat(request, timebox):
+            del request, timebox
+            return ExactAssignmentResult(
+                backend="cpsat", status="optimal", solution=((0, 0), (1, 0)),
+                objective=-1.0, bound=-1.0, z2=0.0, z3=0.0, overload=0.0,
+                build_s=0.0, solve_s=0.0, first_solution_s=0.0, reason=None,
+            )
+
+        selected = choose_assignment_candidate(
+            parsed,
+            incumbent,
+            config=SolverConfig(
+                assignment_timebox_seconds=2.0,
+                assignment_threads=1,
+            ),
+            backend_calls={"gurobi": failed_gurobi, "cpsat": scaled_cpsat},
+        )
+
+        self.assertEqual("greedy", selected.backend)
+        self.assertEqual(incumbent, selected.assignment)
+        self.assertEqual(0.0, selected.evaluation.z2)
+        self.assertIn("gurobi:error", selected.fallback_reason)
+        self.assertIn("cpsat:float_z2_regression", selected.fallback_reason)
+
+
+    def test_gurobi_fault_uses_cpsat_and_both_faults_keep_greedy(self):
+        prob_info = instance(
+            [
+                block(workload=1.0, preferences=(1, 1)),
+                block(workload=1.0, preferences=(1, 1)),
+            ],
+            bays=((8, 8), (8, 8)),
+            weights={"w1": 1.0, "w2": 100.0, "w3": 1.0},
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        incumbent = assignment_from_solution(
+            parsed,
+            ((0, 0), (1, 0)),
+            order=(0, 1),
+        )
+
+        def verify(candidate):
+            constructed = harness_runner.construct_fixed_assignment(parsed, candidate)
+            checked = official_check(
+                prob_info,
+                serialize_non_interlock(constructed.placements.values()),
+            )
+            return AssignmentVerification(
+                feasible=checked.feasible and checked.stage == 5,
+                objective=checked.objective,
+                reason=None if checked.feasible else "; ".join(checked.violations),
+            )
+
+        def fault(backend, reason):
+            def call(request, timebox):
+                del request, timebox
+                return ExactAssignmentResult(
+                    backend=backend,
+                    status="error",
+                    solution=None,
+                    objective=None,
+                    bound=None,
+                    z2=None,
+                    z3=None,
+                    overload=None,
+                    build_s=0.0,
+                    solve_s=0.0,
+                    first_solution_s=None,
+                    reason=reason,
+                )
+
+            return call
+
+        def improving_cpsat(request, timebox):
+            del request, timebox
+            return ExactAssignmentResult(
+                backend="cpsat",
+                status="optimal",
+                solution=((0, 0), (1, 1)),
+                objective=0.0,
+                bound=0.0,
+                z2=0.0,
+                z3=0.0,
+                overload=0.0,
+                build_s=0.0,
+                solve_s=0.0,
+                first_solution_s=0.0,
+                reason=None,
+            )
+
+        cpsat_selected = choose_assignment_candidate(
+            parsed,
+            incumbent,
+            config=SolverConfig(assignment_threads=1),
+            backend_calls={
+                "gurobi": fault("gurobi", "injected Gurobi fault"),
+                "cpsat": improving_cpsat,
+            },
+            verify=verify,
+        )
+        self.assertEqual("cpsat", cpsat_selected.backend)
+        self.assertTrue(cpsat_selected.verified)
+        self.assertEqual(0.0, cpsat_selected.evaluation.z2)
+        self.assertIn("gurobi:error", cpsat_selected.fallback_reason)
+
+        greedy_selected = choose_assignment_candidate(
+            parsed,
+            incumbent,
+            config=SolverConfig(assignment_threads=1),
+            backend_calls={
+                "gurobi": fault("gurobi", "injected Gurobi fault"),
+                "cpsat": fault("cpsat", "injected CP-SAT fault"),
+            },
+            verify=verify,
+        )
+        self.assertEqual("greedy", greedy_selected.backend)
+        self.assertEqual(incumbent, greedy_selected.assignment)
+        self.assertTrue(greedy_selected.verified)
+        self.assertIn("gurobi:error", greedy_selected.fallback_reason)
+        self.assertIn("cpsat:error", greedy_selected.fallback_reason)
+
+    def test_cpsat_assignment_model_and_unsafe_scaling_fallback(self):
+        prob_info = instance(
+            [
+                block(workload=1.0, preferences=(1, 1)),
+                block(workload=1.0, preferences=(1, 1)),
+            ],
+            bays=((8, 8), (8, 8)),
+            weights={"w1": 1.0, "w2": 100.0, "w3": 1.0},
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        incumbent = assignment_from_solution(
+            parsed,
+            ((0, 0), (1, 0)),
+            order=(0, 1),
+        )
+        request = assignment_request(
+            parsed,
+            incumbent,
+            config=SolverConfig(assignment_threads=1),
+        )
+        spec = build_cpsat_assignment_spec(request, timebox=2.0)
+        self.assertEqual(ASSIGNMENT_SCALE, spec.scale)
+        self.assertLess(spec.objective_upper_bound, 1 << 62)
+        self.assertTrue(
+            all(
+                pair.start == int(dict(request.current_assignment)[pair.block_id] == pair.bay_id)
+                for pair in spec.pairs
+            )
+        )
+
+        solved = assign_cpsat(request, 2.0)
+        self.assertIn(solved.status, SOLUTION_STATUSES)
+        self.assertIsNotNone(solved.solution)
+        self.assertEqual({0, 1}, {bay_id for _block_id, bay_id in solved.solution})
+
+        unsafe_prob = instance(
+            [block(workload=1.0, preferences=(1, 1))],
+            bays=((8, 8), (8, 8)),
+            weights={"w1": 1.0, "w2": 1e20, "w3": 1.0},
+        )
+        unsafe_parsed = ProblemInstance.parse(unsafe_prob)
+        unsafe_incumbent = assignment_from_solution(
+            unsafe_parsed,
+            ((0, 0),),
+            order=(0,),
+        )
+
+        def failed_gurobi(request, timebox):
+            del request, timebox
+            return ExactAssignmentResult(
+                backend="gurobi",
+                status="error",
+                solution=None,
+                objective=None,
+                bound=None,
+                z2=None,
+                z3=None,
+                overload=None,
+                build_s=0.0,
+                solve_s=0.0,
+                first_solution_s=None,
+                reason="injected Gurobi fault",
+            )
+
+        unsafe_selected = choose_assignment_candidate(
+            unsafe_parsed,
+            unsafe_incumbent,
+            config=SolverConfig(assignment_threads=1),
+            backend_calls={"gurobi": failed_gurobi, "cpsat": assign_cpsat},
+        )
+        self.assertEqual("greedy", unsafe_selected.backend)
+        self.assertEqual(unsafe_incumbent, unsafe_selected.assignment)
+        self.assertIn("cpsat:unavailable", unsafe_selected.fallback_reason)
+
+        unsafe_demand_request = replace(
+            request,
+            congestion_demands=tuple(
+                (block_id, bay_id, 3e12)
+                for block_id, bay_id in request.fit_pairs
+            ),
+            congestion_capacities=tuple(
+                (bay_id, 4e12) for bay_id in request.bay_ids
+            ),
+            congestion_weight=0.0,
+        )
+        unsafe_demand = assign_cpsat(unsafe_demand_request, 2.0)
+        self.assertEqual("unavailable", unsafe_demand.status)
+        self.assertIn("unsafe CP-SAT assignment scaling", unsafe_demand.reason)
 
 if __name__ == "__main__":
     unittest.main()
