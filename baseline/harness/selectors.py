@@ -63,6 +63,33 @@ def select_instances(selector: str, *, fixture_dir: Path | None = None) -> tuple
     raise SelectorError(f"unsupported selector: {selector}")
 
 
+def select_s6_stress_instances(*, fixture_dir: Path) -> tuple[InstanceRef, ...]:
+    """Materialize the preregistered S6-05 structural stress corpus."""
+
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    refs = [
+        _write_generated_ref(instance_id, prob_info, fixture_dir)
+        for instance_id, prob_info in _s6_stress_recipes()
+    ]
+    training = _training_refs()
+    maximum = min(
+        training.values(),
+        key=lambda ref: (-len(ref.prob_info["blocks"]), int(ref.instance_id.split("_")[1])),
+    )
+    maximum_path = fixture_dir / "s6-max-training-n.json"
+    encoded = maximum.path.read_bytes()
+    maximum_path.write_bytes(encoded)
+    refs.append(
+        InstanceRef(
+            instance_id="s6-max-training-n",
+            path=maximum_path,
+            sha256=hashlib.sha256(encoded).hexdigest(),
+            prob_info=json.loads(encoded),
+        )
+    )
+    return tuple(refs)
+
+
 def _training_refs() -> dict[str, InstanceRef]:
     expected = _expected_training_hashes()
     refs: dict[str, InstanceRef] = {}
@@ -120,11 +147,17 @@ def _block(index: int, bay_count: int, *, size: int = 1) -> dict[str, Any]:
     }
 
 
-def _fixture(name: str, block_count: int, bay_count: int = 2) -> dict[str, Any]:
+def _fixture(
+    name: str,
+    block_count: int,
+    bay_count: int = 2,
+    *,
+    size: int = 1,
+) -> dict[str, Any]:
     return {
         "name": name,
         "bays": [{"width": 12 + bay, "height": 12 + bay} for bay in range(bay_count)],
-        "blocks": [_block(index, bay_count) for index in range(block_count)],
+        "blocks": [_block(index, bay_count, size=size) for index in range(block_count)],
         "weights": {"w1": 1.0, "w2": 1.0, "w3": 1.0},
     }
 
@@ -137,4 +170,100 @@ def _stress_recipes() -> tuple[tuple[str, dict[str, Any]], ...]:
     return tuple(
         (f"stress-{blocks}", _fixture(f"stress-{blocks}", blocks))
         for blocks in (1, 4, 8)
+    )
+
+
+def _write_generated_ref(
+    instance_id: str,
+    prob_info: dict[str, Any],
+    fixture_dir: Path,
+) -> InstanceRef:
+    path = fixture_dir / f"{instance_id}.json"
+    encoded = (json.dumps(prob_info, indent=2, sort_keys=True) + "\n").encode()
+    path.write_bytes(encoded)
+    return InstanceRef(
+        instance_id=instance_id,
+        path=path,
+        sha256=hashlib.sha256(encoded).hexdigest(),
+        prob_info=prob_info,
+    )
+
+
+def _s6_stress_recipes() -> tuple[tuple[str, dict[str, Any]], ...]:
+    one_bay = _fixture("s6-one-bay", 6, bay_count=1)
+    one_layer = _fixture("s6-one-layer", 8, bay_count=2)
+
+    p_zero = _fixture("s6-p-zero", 8, bay_count=2)
+    for block in p_zero["blocks"]:
+        block["processing_time"] = 0
+
+    contact = {
+        "name": "s6-contact",
+        "bays": [{"width": 4, "height": 2}],
+        "blocks": [
+            {
+                "release_time": 0,
+                "due_date": 2,
+                "processing_time": 2,
+                "workload": 1,
+                "bay_preferences": [1],
+                "shape": [{
+                    "orientation": 0,
+                    "layers": [[[0, 0], [2, 0], [2, 2], [0, 2]]],
+                }],
+            }
+            for _ in range(2)
+        ],
+        "weights": {"w1": 1.0, "w2": 1.0, "w3": 1.0},
+    }
+
+    preference_fallback = {
+        "name": "s6-preference-fallback",
+        "bays": [{"width": 2, "height": 2}, {"width": 8, "height": 8}],
+        "blocks": [{
+            "release_time": 0,
+            "due_date": 3,
+            "processing_time": 2,
+            "workload": 3,
+            "bay_preferences": [100, 1],
+            "shape": [{
+                "orientation": 0,
+                "layers": [[[0, 0], [4, 0], [4, 4], [0, 4]]],
+            }],
+        }],
+        "weights": {"w1": 1.0, "w2": 1.0, "w3": 1.0},
+    }
+
+    dense = _fixture("s6-dense", 24, bay_count=1, size=3)
+    dense["bays"] = [{"width": 12, "height": 12}]
+    for index, block in enumerate(dense["blocks"]):
+        block.update(
+            release_time=0,
+            due_date=5 + index // 8,
+            processing_time=4,
+            bay_preferences=[1],
+        )
+
+    cache_pressure = _fixture("s6-cache-pressure", 48, bay_count=2, size=2)
+    for index, block in enumerate(cache_pressure["blocks"]):
+        side = 1 + index % 3
+        block["shape"] = [
+            {
+                "orientation": orientation,
+                "layers": [
+                    [[0, 0], [side, 0], [side, side], [0, side]],
+                    [[0, 0], [1, 0], [1, 1], [0, 1]],
+                ],
+            }
+            for orientation in (0, 90, 180, 270)
+        ]
+
+    return (
+        ("s6-one-bay", one_bay),
+        ("s6-one-layer", one_layer),
+        ("s6-p-zero", p_zero),
+        ("s6-contact", contact),
+        ("s6-preference-fallback", preference_fallback),
+        ("s6-dense", dense),
+        ("s6-cache-pressure", cache_pressure),
     )

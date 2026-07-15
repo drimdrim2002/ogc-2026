@@ -26,6 +26,8 @@ class HarnessProcessTests(unittest.TestCase):
         self.assertIn("proof-of-run", result.stdout)
         self.assertGreaterEqual(result.wall_seconds, 0.0)
         self.assertIsNone(result.signal)
+        self.assertFalse(result.group_leak_detected)
+        self.assertFalse(result.group_alive_after_cleanup)
 
     @unittest.skipUnless(hasattr(os, "killpg"), "requires POSIX process groups")
     def test_timeout_kills_the_whole_process_group(self):
@@ -46,6 +48,7 @@ class HarnessProcessTests(unittest.TestCase):
             self.assertTrue(result.timed_out)
             self.assertTrue(result.term_sent)
             self.assertIsNotNone(result.signal)
+            self.assertFalse(result.group_alive_after_cleanup)
             child_pid = int(pid_path.read_text())
             deadline = time.monotonic() + 2.0
             while time.monotonic() < deadline and _process_exists(child_pid):

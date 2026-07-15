@@ -11,6 +11,7 @@ import json
 import math
 from pathlib import Path
 import random
+import resource
 import subprocess
 import sys
 import time
@@ -19,6 +20,7 @@ from typing import Any, Mapping
 from numpy.random import Generator, PCG64
 
 from .checker import checker_payload
+from .process import run_process
 from .schema import record_identity
 from .selectors import InstanceRef, REPO_ROOT
 
@@ -57,6 +59,7 @@ try:
         retime_gurobi,
     )
     from baseline.solver.incumbent import VerifiedIncumbent
+    from baseline.solver.geometry import GeomKernel, ShapeInfo
     from baseline.solver.entry import solve
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.retime import retime_bay, retime_sweep
@@ -90,6 +93,7 @@ except ModuleNotFoundError:
     )
     from solver.cpsat_backend import retime_cpsat
     from solver.gurobi_backend import build_gurobi_model_spec, retime_gurobi
+    from solver.geometry import GeomKernel, ShapeInfo
     from solver.incumbent import VerifiedIncumbent
     from solver.entry import solve
     from solver.instance import ProblemInstance
@@ -423,6 +427,266 @@ def run_t0_case(
         "unverified_return_count": 0,
         "fallback_tier": "t0",
         "fallback_reason": fallback_reason,
+    }
+
+
+def run_s6_subprocess_case(
+    ref: InstanceRef,
+    *,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    fault: str = "none",
+) -> dict[str, Any]:
+    """Run one selected-default solver case in a bounded process group."""
+
+    provenance = repository_provenance()
+    run_features = {**features, "expanded_fault": fault}
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-s6-stress",
+        timelimit=timelimit,
+        seed=seed,
+        features=run_features,
+    )
+    result = run_process(
+        [
+            sys.executable,
+            "-m",
+            "baseline.harness.s6_worker",
+            "--instance",
+            str(ref.path),
+            "--timelimit",
+            f"{timelimit:g}",
+            "--seed",
+            str(seed),
+            "--fault",
+            fault,
+        ],
+        timeout=timelimit + 2.0,
+        terminate_grace=2.0,
+        cwd=str(REPO_ROOT),
+    )
+    payload = _last_json_object(result.stdout)
+    solution = payload.get("solution")
+    checked = (
+        official_check(ref.prob_info, deepcopy(solution))
+        if isinstance(solution, dict)
+        else None
+    )
+    telemetry = payload.get("telemetry", {})
+    if not isinstance(telemetry, dict):
+        telemetry = {}
+    selected_config = payload.get("selected_config", {})
+    if not isinstance(selected_config, dict):
+        selected_config = {}
+    config_matches = (
+        selected_config.get("alns") is True
+        and selected_config.get("alns_acceptor") == "sa"
+        and selected_config.get("alns_adaptive") is False
+        and selected_config.get("alns_dirty_minimum") == 3
+        and math.isclose(
+            float(selected_config.get("alns_dirty_fraction", -1.0)),
+            0.03,
+            rel_tol=0.0,
+            abs_tol=1e-12,
+        )
+    )
+    if fault == "none":
+        fault_applied = True
+    elif fault == "alns_full_check":
+        fault_applied = telemetry.get("alns_fault_applied") == "full_check"
+    else:
+        fault_applied = (
+            f"injected entry fault at {fault}"
+            in str(telemetry.get("fallback_reason", ""))
+        )
+    case_assertions = _s6_case_assertions(ref, solution)
+    cache = _s6_cache_pressure(ref) if ref.instance_id == "s6-cache-pressure" else {
+        "hits": 0,
+        "misses": 0,
+        "evictions": 0,
+        "exact_predicates": 0,
+    }
+    tolerance_seconds = 1.5
+    within_timelimit = result.wall_seconds <= timelimit + tolerance_seconds
+    passed = (
+        result.exit_code == 0
+        and result.signal is None
+        and not result.timed_out
+        and not result.group_leak_detected
+        and not result.group_alive_after_cleanup
+        and checked is not None
+        and checked.feasible
+        and checked.stage == 5
+        and config_matches
+        and fault_applied
+        and all(case_assertions.values())
+        and within_timelimit
+        and (
+            ref.instance_id != "s6-cache-pressure"
+            or int(cache["evictions"]) > 0
+        )
+    )
+    peak_rss = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    if sys.platform != "darwin":
+        peak_rss *= 1024
+    fallback_reason = telemetry.get("fallback_reason")
+    return {
+        "record_id": _case_record_id(ref.instance_id, timelimit, seed, fault),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(REPO_ROOT),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": "stress",
+        "solver": "native-s6-stress",
+        "timelimit": timelimit,
+        "budget_tolerance_seconds": tolerance_seconds,
+        "within_timelimit": within_timelimit,
+        "seed": seed,
+        "features": dict(sorted(run_features.items())),
+        "expanded_fault": fault,
+        "fault_applied": fault_applied,
+        "wall_seconds": result.wall_seconds,
+        "subprocess_pid": result.pid,
+        "subprocess_exit": result.exit_code,
+        "signal": result.signal,
+        "term_sent": result.term_sent,
+        "kill_sent": result.kill_sent,
+        "timeout": result.timed_out,
+        "group_leak_detected": result.group_leak_detected,
+        "group_alive_after_cleanup": result.group_alive_after_cleanup,
+        "checker": None if checked is None else checker_payload(checked),
+        "worker_checker": payload.get("checker"),
+        "solution_sha256": payload.get("solution_sha256"),
+        "selected_config": selected_config,
+        "selected_config_matches": config_matches,
+        "case_assertions": case_assertions,
+        "block_count": len(ref.prob_info.get("blocks", ())),
+        "bay_count": len(ref.prob_info.get("bays", ())),
+        "stage_timing": {
+            "t0_and_verify_seconds": telemetry.get("t0_and_verify_seconds"),
+            "constructor_seconds": telemetry.get("constructor_seconds"),
+            "retime_seconds": telemetry.get("retime_seconds"),
+            "alns_seconds": telemetry.get("alns_seconds"),
+        },
+        "backend": {
+            "name": telemetry.get("retime_backend"),
+            "status": "fallback" if telemetry.get("retime_fallback") else "completed",
+            "attempts": telemetry.get("retime_attempts", ()),
+        },
+        "iterations": telemetry.get("alns_metrics", {}).get("iterations", 0),
+        "proposals": telemetry.get("alns_metrics", {}).get("proposals", 0),
+        "accepted_improving": telemetry.get("alns_metrics", {}).get("improving", 0),
+        "accepted_worsening": telemetry.get("alns_metrics", {}).get("accepted_worsening", 0),
+        "rejected": telemetry.get("alns_metrics", {}).get("rejected", 0),
+        "cache": cache,
+        "peak_rss_bytes": peak_rss,
+        "crash": result.exit_code not in {0, None},
+        "exception": payload.get("exception") or fallback_reason,
+        "incumbent_verification_count": telemetry.get("incumbent_verification_count", 0),
+        "unverified_return_count": 0,
+        "fallback_tier": "verified_incumbent" if fallback_reason else None,
+        "fallback_reason": fallback_reason,
+    }
+
+
+def _last_json_object(stdout: str) -> dict[str, Any]:
+    for line in reversed(stdout.splitlines()):
+        if not line.lstrip().startswith("{"):
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return {}
+
+
+def _s6_case_assertions(
+    ref: InstanceRef,
+    solution: Any,
+) -> dict[str, bool]:
+    if not isinstance(solution, dict):
+        return {"solution_mapping": False}
+    operations = solution.get("operations", {})
+    entries = [
+        operation
+        for daily in operations.values()
+        for operation in daily
+        if operation.get("type") == "ENTRY"
+    ]
+    assertions = {
+        "solution_mapping": True,
+        "one_entry_per_block": len(entries) == len(ref.prob_info["blocks"]),
+    }
+    if ref.instance_id == "s6-one-bay":
+        assertions["only_bay_zero"] = all(item.get("bay_id") == 0 for item in entries)
+    elif ref.instance_id == "s6-one-layer":
+        assertions["only_one_layer"] = all(
+            len(orientation["layers"]) == 1
+            for block in ref.prob_info["blocks"]
+            for orientation in block["shape"]
+        )
+    elif ref.instance_id == "s6-p-zero":
+        assertions["all_processing_zero"] = all(
+            block["processing_time"] == 0 for block in ref.prob_info["blocks"]
+        )
+    elif ref.instance_id == "s6-contact":
+        manual = {
+            "operations": {
+                "0": [
+                    {"type": "ENTRY", "block_id": 0, "bay_id": 0, "x": 0, "y": 0, "orient_idx": 0},
+                    {"type": "ENTRY", "block_id": 1, "bay_id": 0, "x": 2, "y": 0, "orient_idx": 0},
+                ],
+                "2": [
+                    {"type": "EXIT", "block_id": 0, "bay_id": 0},
+                    {"type": "EXIT", "block_id": 1, "bay_id": 0},
+                ],
+            }
+        }
+        contact_checked = official_check(ref.prob_info, manual)
+        assertions["boundary_contact_stage5"] = (
+            contact_checked.feasible and contact_checked.stage == 5
+        )
+    elif ref.instance_id == "s6-preference-fallback":
+        assertions["nonpreferred_fit_selected"] = (
+            len(entries) == 1 and entries[0].get("bay_id") == 1
+        )
+    elif ref.instance_id == "s6-dense":
+        assertions["dense_block_count"] = len(ref.prob_info["blocks"]) == 24
+    elif ref.instance_id == "s6-max-training-n":
+        assertions["max_training_block_count"] = len(ref.prob_info["blocks"]) == 300
+    return assertions
+
+
+def _s6_cache_pressure(ref: InstanceRef) -> dict[str, int]:
+    parsed = ProblemInstance.parse(ref.prob_info)
+    shapes_by_key = {
+        shape.shape_key: shape
+        for block in parsed.blocks
+        for orientation in block.orientations
+        for shape in (ShapeInfo.from_orientation(orientation),)
+    }
+    shapes = tuple(shapes_by_key.values())
+    kernel = GeomKernel(cache_cap=32)
+    for left, right in itertools.product(shapes, repeat=2):
+        kernel.union_disjoint(left, right, 0, 0)
+    return {
+        "hits": kernel.stats.cache_hits,
+        "misses": kernel.stats.cache_misses,
+        "evictions": kernel.stats.cache_evictions,
+        "exact_predicates": kernel.stats.exact_predicates,
     }
 
 

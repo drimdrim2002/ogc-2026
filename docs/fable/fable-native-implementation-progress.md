@@ -8,7 +8,7 @@ Preservation-only legacy branch/worktree: `fable-native-implementation` at `/Use
 
 Stabilization target: `codex/fable-s3-stabilization` in `/Users/brown/workspace/ogc/fable-native-s3-stabilization`
 
-Planning status: `PLAN-RESET-01 IN_PROGRESS`; implementation status: S3 clean stabilization `COMPLETE`, S4 optional track `BLOCKED`, mandatory S6-05 eligible
+Planning status: `PLAN-RESET-01 IN_PROGRESS`; implementation status: S3 clean stabilization `COMPLETE`, S4 optional track `BLOCKED`, mandatory S6-05 `COMPLETE`, S6-06 eligible
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -154,7 +154,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
 | S4 | `BLOCKED` | `S4-04-RECOVERY-08` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; dirty candidate is unselected | clean S3 baseline; optional track | `benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/` | none for current recovery; legacy HEAD `388db7b27eda189e69140520548fc00362fba3f3` | focused 8/8; affected regression 66/67; 25% cap skipped work and omitted `assignment_seed_attempts` | preserve experiment; do not resume before stable baseline; mandatory path continues |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
-| S6 | `NOT_STARTED` | `S6-05 eligible after reset execution` | `NOT_RUN` | `interlock=false`; portfolio false unless promoted | clean qualified S3 or promoted lower tier | — | — | optional interlock failure keeps mandatory package | after S3 stabilization, execute S6-05 then S6-06 |
+| S6 | `IN_PROGRESS` | `S6-05 COMPLETE; S6-06 eligible` | `NOT_RUN` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | clean qualified S3 | `benchmarks/evidence/s6/stress/20260715T052600Z-s6-05-stress02/` | pending S6-05 atomic commit | S6-05 package/stress PASS; final rehearsal intentionally not run | commit/push S6-05 and stop; execute S6-06 only in a new session |
 
 Allowed implementation statuses are exactly `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `GATE_FAILED_DISABLED`, and `COMPLETE`. Transition rules are deterministic:
 
@@ -5235,6 +5235,130 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   run_identity: qualification_id=20260715T033128Z-s3-stabilization01-qualification01; candidate_commit=2a9da5757b451b2a0c2ed4a884145fdcb255d111; candidate_production_tree=9b0d005d4e8c019c1efca87d7183c0055820da97; post_qualification_baseline_diff=empty
   safety_summary: prefix_regression=0; longer_regression=0; checker_mismatch=0; assignment_mismatch=0; rollback_failure=0; fault_miss=0; leak=0; unverified_return=0; selected_acceptor=sa; selected_adaptive=false; selected_dirty=[3,0.03]
   next_action: create the docs(progress): record clean s3 qualification closeout commit from exactly the master progress and S3 stage documents, push codex/fable-s3-stabilization, verify upstream equality, and stop
+```
+
+```yaml
+- timestamp: 2026-07-15T14:05:56+09:00
+  stage: S6
+  slice: S6-05
+  old_status: NOT_STARTED
+  new_status: IN_PROGRESS
+  branch: codex/fable-s6-hardening
+  commit: 19bbdc428bc36d1498b1edee2f67701fe52d4c49
+  dirty: false
+  commands:
+    - preflight verify exact qualified worktree, base branch/HEAD/upstream equality, clean state, interpreter, protected-file hashes, S3 clean qualification, and dedicated branch creation from the exact base
+    - Tier D RED/GREEN cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging.PackagingTests.test_audited_isolated_package -v
+    - Tier D affected regression cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging tests.test_harness_schema tests.test_harness_process -v
+    - Tier S full regression cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - Tier S /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature alns=true --feature acceptor=sa --feature adaptive=false --feature assignment_refinement=false --feature parallel_portfolio=false --feature interlock=false --feature fault=backend,after_incumbent
+  red_evidence: planned benchmarks/evidence/s6/s6-05/development/<run_id>/red.txt
+  green_evidence: planned benchmarks/evidence/s6/s6-05/development/<run_id>/green-targeted.txt and affected-regression.txt
+  checker_result: NOT_RUN
+  benchmark_or_stress_evidence: planned benchmarks/evidence/s6/stress/<run_id>/
+  gate_decision: NOT_RUN; S6-05 does not run the final mandatory S6 gate
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); assignment_refinement=false; parallel_portfolio=false; interlock=false
+  run_identity: exact_base=19bbdc428bc36d1498b1edee2f67701fe52d4c49; base_upstream=19bbdc428bc36d1498b1edee2f67701fe52d4c49; command_tiers=D targeted/affected, S full/package/checker/stress, Q none
+  next_action: add only the permanent audited-package behavioral test, demonstrate intended RED because the builder is absent, then implement the minimum S6-05 package and stress harness
+```
+
+```yaml
+- timestamp: 2026-07-15T14:08:47+09:00
+  stage: S6
+  slice: S6-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s6-hardening
+  commit: 19bbdc428bc36d1498b1edee2f67701fe52d4c49
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging.PackagingTests.test_audited_isolated_package -v
+  red_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/red.txt
+  green_evidence: null
+  checker_result: NOT_RUN; targeted test stopped at the absent development-only builder before package creation or checker execution
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: valid intended RED; AttributeError reports that harness.package has no build_submission_package attribute
+  feature_default_decision: unchanged selected product state; no optional feature was enabled or implemented
+  run_identity: red_exit_code=1; tests_run=1; source_head=19bbdc428bc36d1498b1edee2f67701fe52d4c49; evidence_attempt=20260715T050800Z-s6-05-development01
+  next_action: implement the minimum audited deterministic package builder, then run the same targeted test to GREEN
+```
+
+```yaml
+- timestamp: 2026-07-15T14:17:30+09:00
+  stage: S6
+  slice: S6-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s6-hardening
+  commit: 19bbdc428bc36d1498b1edee2f67701fe52d4c49
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging.PackagingTests.test_audited_isolated_package -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging tests.test_harness_schema tests.test_harness_process -v
+  red_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/red.txt
+  green_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/green-targeted.txt; benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/packaging-module-pass-02.txt; benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/affected-regression.txt
+  checker_result: PASS; isolated extracted package smoke used the unmodified official checker and reached Stage 5; subprocess fault worker also returned Stage 5 with no process-group leak
+  benchmark_or_stress_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: first broader module attempt failed 1/2 because the new dense recipe passed an unsupported fixture size keyword; retained in packaging-module-failure-01.txt; the default-preserving helper fix passed 2/2 and affected regression passed 8/8
+  feature_default_decision: selected product state unchanged; package contains only root myalgorithm.py and solver Python modules; S4, S5, portfolio, and interlock remain absent/false
+  run_identity: targeted_green_exit_code=0; targeted_green_tests=1; packaging_module_attempt_01_exit_code=1; packaging_module_attempt_02_exit_code=0; affected_regression_exit_code=0; affected_regression_tests=8
+  next_action: run Tier-S full discovery, resolve any regression with a new development identity, then run the exact S6-05 stress matrix and retain structured evidence
+```
+
+```yaml
+- timestamp: 2026-07-15T14:20:32+09:00
+  stage: S6
+  slice: S6-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s6-hardening
+  commit: 19bbdc428bc36d1498b1edee2f67701fe52d4c49
+  dirty: true
+  commands:
+    - Tier S cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - Tier S /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature alns=true --feature acceptor=sa --feature adaptive=false --feature assignment_refinement=false --feature parallel_portfolio=false --feature interlock=false --feature fault=backend,after_incumbent --run-id 20260715T051807Z-s6-05-stress01
+  red_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/red.txt
+  green_evidence: Tier-S full discovery PASS 82/82 at benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/full-discovery.txt
+  checker_result: stress attempt FAIL; worker-side official checks were Stage 5 feasible for all 20 failed records, but the parent recheck saw Stage 1 because the worker checked and then emitted the checker-mutated solution object
+  benchmark_or_stress_evidence: benchmarks/evidence/s6/stress/20260715T051807Z-s6-05-stress01/
+  gate_decision: NOT_RUN; Tier-S attempt exited 6 and no Tier-Q command is authorized in S6-05
+  failure_or_fallback_reason: harness evidence-transport bug, not a solver incumbent failure; 20/62 solver records failed only for dense/cache-pressure/max-n cases with multiple same-day operations; package audit passed, package was removed, timeout=0, crash=0, leak=0, unverified_return=0, and worker checker was feasible in every failed record
+  feature_default_decision: unchanged; optional features remain false and no optional fault was exercised
+  run_identity: stress_attempt=20260715T051807Z-s6-05-stress01; exit_code=6; records=62; feasible_parent=42; failed_parent=20; worker_feasible_failed_records=20; timeout=0; crash=0; leak=0; unverified_return=0; package_sha256=5cc1ae7054cc91d9f11b8bb5b0c47dd30c1b2c70f8ac2113914631965b769e8e
+  next_action: add a focused regression proving the worker emits an unmutated solution, demonstrate RED on a same-day dense case, deep-copy checker inputs at the worker and parent boundaries, rerun development/full safety checks, then create a new Tier-S stress identity
+```
+
+```yaml
+- timestamp: 2026-07-15T14:28:55+09:00
+  stage: S6
+  slice: S6-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  slice_decision: COMPLETE
+  branch: codex/fable-s6-hardening
+  commit: pending atomic S6-05 commit from base 19bbdc428bc36d1498b1edee2f67701fe52d4c49
+  dirty: true
+  commands:
+    - Tier D focused checker-transport RED/GREEN and cache-pressure RED/GREEN under tests.test_packaging
+    - Tier D cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_packaging tests.test_harness_schema tests.test_harness_process -v
+    - Tier S cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - Tier S /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature alns=true --feature acceptor=sa --feature adaptive=false --feature assignment_refinement=false --feature parallel_portfolio=false --feature interlock=false --feature fault=backend,after_incumbent --run-id 20260715T052600Z-s6-05-stress02
+  red_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/red.txt; worker-copy-red.txt; cache-pressure-red.txt
+  green_evidence: benchmarks/evidence/s6/s6-05/development/20260715T050800Z-s6-05-development01/green-targeted.txt; worker-transport-green.txt; cache-pressure-green.txt; pre-stress02-checks.txt
+  checker_result: PASS; final full discovery 84/84; stress02 62/62 solver records official-checker Stage 5 feasible plus one audited package record PASS
+  benchmark_or_stress_evidence: benchmarks/evidence/s6/stress/20260715T052600Z-s6-05-stress02/
+  gate_decision: S6-05 PASS; final mandatory S6 gate NOT_RUN by slice boundary
+  failure_or_fallback_reason: stress01 retained as failed harness evidence after lexicographic JSON operation-date reordering caused 20 parent recheck failures despite 20/20 feasible worker checks; focused regression and insertion-order transport fix produced stress02 PASS
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); assignment_refinement=false; parallel_portfolio=false; interlock=false
+  run_identity: stress02_exit_code=0; package_records=1; solver_records=62; checker_stage5=62; structural_cases=48; boundary_fault_cases=10; backend_fault_cases=4; cache_evictions_max=112; max_blocks=300; timeout=0; crash=0; leak=0; unverified_return=0; max_wall_seconds=34.50314029099536; max_peak_rss_bytes=261767168; COMPLETE=true
+  package: sha256=5cc1ae7054cc91d9f11b8bb5b0c47dd30c1b2c70f8ac2113914631965b769e8e; size_bytes=57694; entries=20; root_myalgorithm=true; isolated_import=true; checker_stage=5; prohibited_members=0; prohibited_text_hits=0; package_output_removed=true
+  protected_files: baseline/utils.py=a1dd3a0241a82500b2c107c13e9202ed95e823c1=HEAD; baseline/baseline_greedy.py=867d63e433a8174ad14a2581ed32ff13b711a056=HEAD
+  cleanup: package output removed; extraction temp paths removed; process groups reaped; generated evidence remains ignored and untracked
+  next_action: stage only the exact S6-05 allowlist, commit build(s6): harden and audit submission package, push codex/fable-s6-hardening, verify local/upstream equality and clean status, then stop; S6-06 is next eligible only in a separate session
 ```
 
 ## 11. Planning quality audit

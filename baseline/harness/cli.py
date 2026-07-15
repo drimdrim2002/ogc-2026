@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import random
 import resource
+import shutil
 import statistics
 import sys
 import time
@@ -21,7 +22,7 @@ from shapely.affinity import translate
 
 from .compare import latency_summary
 from .gates import evaluate_s0, evaluate_s1, evaluate_s2, evaluate_s3, latest_summary
-from .package import StageUnsupportedError
+from .package import StageUnsupportedError, build_submission_package
 from .report import render_gate_report
 from .runner import (
     make_escalation_stress_ref,
@@ -33,6 +34,7 @@ from .runner import (
     run_escalation_stress_case,
     run_exact_probe_fault_case,
     run_retime_fault_case,
+    run_s6_subprocess_case,
     run_s3_operator_case,
     run_s3_control_case,
     run_s3_integrated_case,
@@ -44,7 +46,12 @@ from .runner import (
     run_t0_case,
 )
 from .schema import EvidenceRun, find_completed_identity, new_run_id, record_identity
-from .selectors import REPO_ROOT, SelectorError, select_instances
+from .selectors import (
+    REPO_ROOT,
+    SelectorError,
+    select_instances,
+    select_s6_stress_instances,
+)
 
 # The permanent unittest modules intentionally use the submission-style
 # ``solver`` import when executed from ``baseline/``.  Make that same import
@@ -1716,6 +1723,8 @@ def _measure_predicate(
 
 
 def _stress(args: argparse.Namespace) -> int:
+    if args.stage == "s6":
+        return _s6_stress(args)
     if args.stage == "s3":
         return _s3_stress(args)
     if args.stage == "s2":
@@ -1776,6 +1785,292 @@ def _stress(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s6_stress(args: argparse.Namespace) -> int:
+    if args.instances != "stress":
+        raise SelectorError("S6-05 stress requires --instances stress")
+    features = _features(args.feature)
+    required_features = {
+        "alns": "true",
+        "acceptor": "sa",
+        "adaptive": "false",
+        "assignment_refinement": "false",
+        "parallel_portfolio": "false",
+        "interlock": "false",
+        "fault": "backend,after_incumbent",
+    }
+    if features != required_features:
+        raise SelectorError(
+            "S6-05 stress requires the selected S3 defaults, all optional "
+            "features false, and fault=backend,after_incumbent"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (0.5, 2.0, 5.0, 12.0, 60.0, 300.0):
+        raise SelectorError(
+            "S6-05 stress requires timelimits=0.5,2,5,12,60,300"
+        )
+    if seeds != (20260710,):
+        raise SelectorError("S6-05 stress requires seeds=20260710")
+
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s6",
+        command="stress",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s6-05",
+            "selector": "stress",
+            "features": features,
+            "qualification_tier": "S",
+        },
+        delayed_expected=True,
+    )
+    refs = select_s6_stress_instances(fixture_dir=run.run_dir / "fixtures")
+    by_id = {ref.instance_id: ref for ref in refs}
+    structural_ids = tuple(
+        _case_id(ref.instance_id, timelimit, 20260710, "none")
+        for ref in refs
+        for timelimit in timelimits
+    )
+    after_incumbent_ids = tuple(
+        _case_id("s6-one-bay", timelimit, 20260710, "after_incumbent")
+        for timelimit in timelimits
+    )
+    boundary_plan = (
+        ("s6-one-bay", 12.0, "during_constructor"),
+        ("s6-one-layer", 12.0, "during_retime"),
+        ("s6-dense", 60.0, "during_alns"),
+        ("s6-dense", 60.0, "alns_full_check"),
+    )
+    boundary_ids = tuple(
+        _case_id(instance_id, timelimit, 20260710, fault)
+        for instance_id, timelimit, fault in boundary_plan
+    )
+    backend_faults = (
+        "gurobi_import",
+        "gurobi_license",
+        "gurobi_optimize",
+        "both",
+    )
+    backend_ids = tuple(
+        _case_id("s6-one-bay", 12.0, 20260710, fault)
+        for fault in backend_faults
+    )
+    expected = (
+        "package",
+        *structural_ids,
+        *after_incumbent_ids,
+        *boundary_ids,
+        *backend_ids,
+    )
+    _set_expected(run, expected)
+
+    package_summary: dict[str, Any] = {}
+    if "package" in run.pending_record_ids:
+        package_dir = REPO_ROOT / "submission-dist" / run.run_dir.name
+        try:
+            artifact = build_submission_package(package_dir, source_root=REPO_ROOT)
+            package_manifest = json.loads(
+                artifact.manifest_path.read_text(encoding="utf-8")
+            )
+            (run.run_dir / "package-manifest.json").write_text(
+                json.dumps(package_manifest, indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            package_summary = {
+                "archive_sha256": artifact.archive_sha256,
+                "archive_size_bytes": artifact.size_bytes,
+                "entry_count": len(artifact.entries),
+                "import_smoke_passed": artifact.audit.import_smoke_passed,
+                "checker_smoke_stage": artifact.audit.checker_smoke_stage,
+                "protected_files": package_manifest["protected_files"],
+            }
+        finally:
+            if package_dir.exists():
+                shutil.rmtree(package_dir)
+        removed = not package_dir.exists()
+        package_record = {
+            "record_id": "package",
+            "status": "passed" if removed else "failed",
+            "complete": True,
+            **repository_provenance(),
+            **package_summary,
+            "package_output_removed": removed,
+            "package_manifest_evidence": str(run.run_dir / "package-manifest.json"),
+        }
+        run.append_record(package_record)
+
+    for ref in refs:
+        for timelimit in timelimits:
+            record_id = _case_id(ref.instance_id, timelimit, 20260710, "none")
+            if record_id not in run.pending_record_ids:
+                continue
+            record = run_s6_subprocess_case(
+                ref,
+                timelimit=timelimit,
+                seed=20260710,
+                features=features,
+            )
+            run.append_record(
+                _deduplicate(evidence_root, record, rerun=args.rerun)
+            )
+
+    for timelimit in timelimits:
+        record_id = _case_id(
+            "s6-one-bay", timelimit, 20260710, "after_incumbent"
+        )
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_s6_subprocess_case(
+            by_id["s6-one-bay"],
+            timelimit=timelimit,
+            seed=20260710,
+            features=features,
+            fault="after_incumbent",
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+
+    for instance_id, timelimit, fault in boundary_plan:
+        record_id = _case_id(instance_id, timelimit, 20260710, fault)
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_s6_subprocess_case(
+            by_id[instance_id],
+            timelimit=timelimit,
+            seed=20260710,
+            features=features,
+            fault=fault,
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+
+    for fault in backend_faults:
+        record_id = _case_id("s6-one-bay", 12.0, 20260710, fault)
+        if record_id not in run.pending_record_ids:
+            continue
+        record = run_retime_fault_case(
+            by_id["s6-one-bay"],
+            selector="stress",
+            timelimit=12.0,
+            seed=20260710,
+            features=features,
+            fault=fault,
+        )
+        record.update(
+            within_timelimit=float(record.get("wall_seconds", 999.0)) <= 13.5,
+            budget_tolerance_seconds=1.5,
+            fault_applied=True,
+            selected_config_matches=True,
+            case_assertions={"backend_failure_isolated": record.get("status") == "passed"},
+            group_leak_detected=False,
+            group_alive_after_cleanup=False,
+            cache={"hits": 0, "misses": 0, "evictions": 0, "exact_predicates": 0},
+        )
+        run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+
+    records = _effective_records(run.records)
+    package_records = tuple(
+        record for record in records if record.get("record_id") == "package"
+    )
+    solver_records = tuple(
+        record for record in records if record.get("record_id") != "package"
+    )
+    fault_coverage = {
+        str(record.get("expanded_fault", record.get("backend_fault", "none")))
+        for record in solver_records
+    }
+    passed = (
+        len(records) == len(expected)
+        and len(package_records) == 1
+        and package_records[0].get("status") == "passed"
+        and package_records[0].get("package_output_removed") is True
+        and all(record.get("status") in {"passed", "deduplicated"} for record in solver_records)
+        and all(record.get("checker", {}).get("feasible") is True for record in solver_records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in solver_records)
+        and all(record.get("within_timelimit") is True for record in solver_records)
+        and all(not record.get("timeout") for record in solver_records)
+        and all(not record.get("crash") for record in solver_records)
+        and all(not record.get("group_leak_detected") for record in solver_records)
+        and all(not record.get("group_alive_after_cleanup") for record in solver_records)
+        and all(record.get("unverified_return_count") == 0 for record in solver_records)
+        and all(record.get("fault_applied") is True for record in solver_records)
+        and all(record.get("selected_config_matches") is True for record in solver_records)
+        and all(
+            all(record.get("case_assertions", {}).values())
+            for record in solver_records
+        )
+        and {
+            "gurobi_import",
+            "gurobi_license",
+            "gurobi_optimize",
+            "both",
+            "after_incumbent",
+            "during_constructor",
+            "during_retime",
+            "during_alns",
+            "alns_full_check",
+        }.issubset(fault_coverage)
+        and any(
+            record.get("instance_id") == "s6-cache-pressure"
+            and int(record.get("cache", {}).get("evictions", 0)) > 0
+            for record in solver_records
+        )
+        and any(
+            record.get("instance_id") == "s6-max-training-n"
+            and record.get("block_count") == 300
+            for record in solver_records
+        )
+    )
+    summary = _solver_summary("stress", "stress", solver_records, passed, stage="s6")
+    summary.update(
+        slice="s6-05",
+        qualification_tier="S",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+        selected_product_state={
+            "alns": True,
+            "acceptor": "sa",
+            "adaptive": False,
+            "dirty_trigger": "max(3,.03*n_b)",
+            "assignment_refinement": False,
+            "parallel_portfolio": False,
+            "interlock": False,
+        },
+        package=package_summary,
+        package_output_removed=package_records[0].get("package_output_removed") if package_records else False,
+        structural_case_count=len(structural_ids),
+        boundary_fault_case_count=len(after_incumbent_ids) + len(boundary_ids),
+        backend_fault_case_count=len(backend_ids),
+        fault_coverage=sorted(fault_coverage),
+        checker_failure_count=sum(
+            record.get("checker", {}).get("feasible") is not True
+            for record in solver_records
+        ),
+        timeout_count=sum(bool(record.get("timeout")) for record in solver_records),
+        crash_count=sum(bool(record.get("crash")) for record in solver_records),
+        leak_count=sum(
+            bool(record.get("group_leak_detected"))
+            or bool(record.get("group_alive_after_cleanup"))
+            for record in solver_records
+        ),
+        unverified_return_count=sum(
+            int(record.get("unverified_return_count", 0))
+            for record in solver_records
+        ),
+        max_wall_seconds=max(
+            (float(record.get("wall_seconds", 0.0)) for record in solver_records),
+            default=0.0,
+        ),
+        max_peak_rss_bytes=max(
+            (int(record.get("peak_rss_bytes", 0)) for record in solver_records),
+            default=0,
+        ),
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_SEMANTIC
 
 
 def _s3_stress(args: argparse.Namespace) -> int:

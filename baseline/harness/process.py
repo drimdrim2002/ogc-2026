@@ -12,6 +12,7 @@ from typing import Mapping, Sequence
 
 @dataclass(frozen=True, slots=True)
 class ProcessResult:
+    pid: int
     argv: tuple[str, ...]
     exit_code: int | None
     signal: int | None
@@ -21,6 +22,8 @@ class ProcessResult:
     timed_out: bool
     term_sent: bool
     kill_sent: bool
+    group_leak_detected: bool
+    group_alive_after_cleanup: bool
 
 
 def run_process(
@@ -57,8 +60,20 @@ def run_process(
             kill_sent = True
             _signal_group(process.pid, signal.SIGKILL)
             stdout, stderr = process.communicate()
+    group_leak_detected = _group_exists(process.pid)
+    if group_leak_detected:
+        term_sent = True
+        _signal_group(process.pid, signal.SIGTERM)
+        deadline = time.monotonic() + max(0.0, terminate_grace)
+        while _group_exists(process.pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if _group_exists(process.pid):
+            kill_sent = True
+            _signal_group(process.pid, signal.SIGKILL)
+    group_alive_after_cleanup = _group_exists(process.pid)
     return_code = process.returncode
     return ProcessResult(
+        pid=process.pid,
         argv=tuple(str(item) for item in argv),
         exit_code=return_code if return_code is not None and return_code >= 0 else None,
         signal=-return_code if return_code is not None and return_code < 0 else None,
@@ -68,6 +83,8 @@ def run_process(
         timed_out=timed_out,
         term_sent=term_sent,
         kill_sent=kill_sent,
+        group_leak_detected=group_leak_detected,
+        group_alive_after_cleanup=group_alive_after_cleanup,
     )
 
 
@@ -76,3 +93,13 @@ def _signal_group(pid: int, signum: signal.Signals) -> None:
         os.killpg(pid, signum)
     except ProcessLookupError:
         pass
+
+
+def _group_exists(pid: int) -> bool:
+    try:
+        os.killpg(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
