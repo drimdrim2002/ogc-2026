@@ -17,8 +17,10 @@ from typing import Any, Mapping
 VARIANTS = (
     "safe_fallback",
     "constructor_only",
+    "candidate_constructor_only",
     "constructor_retime",
     "heuristic_lns",
+    "candidate_constructor",
     "candidate_mip",
     "interlock",
 )
@@ -37,6 +39,9 @@ class SubmissionConfig:
     lns_enabled: bool = True
     mip_enabled: bool = False
     interlock_enabled: bool = False
+    retime_exact_z1_skip: bool = False
+    constructor_selection_policy: str = "eager_regret"
+    neighborhood_policy: str = "legacy"
 
     def __post_init__(self) -> None:
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
@@ -48,6 +53,7 @@ class SubmissionConfig:
             self.lns_enabled,
             self.mip_enabled,
             self.interlock_enabled,
+            self.retime_exact_z1_skip,
         )
         if any(not isinstance(value, bool) for value in flags):
             raise TypeError("submission feature flags must be booleans")
@@ -55,6 +61,13 @@ class SubmissionConfig:
             raise ValueError("candidate MIP requires LNS")
         if self.interlock_enabled and not self.lns_enabled:
             raise ValueError("interlock requires LNS")
+        if self.constructor_selection_policy not in {
+            "eager_regret",
+            "profile_priority",
+        }:
+            raise ValueError("unknown constructor selection policy")
+        if self.neighborhood_policy not in {"legacy", "portfolio"}:
+            raise ValueError("unknown neighborhood policy")
 
     @classmethod
     def from_defaults(cls, *, seed: int = 20260710) -> "SubmissionConfig":
@@ -68,10 +81,15 @@ class SubmissionConfig:
         levels = {
             "safe_fallback": (False, False, False, False, False, False),
             "constructor_only": (True, True, False, False, False, False),
+            "candidate_constructor_only": (True, True, False, False, False, False),
             "constructor_retime": (True, True, True, False, False, False),
             "heuristic_lns": (True, True, True, True, False, False),
+            "candidate_constructor": (True, True, True, True, False, False),
             "candidate_mip": (True, True, True, True, True, False),
-            "interlock": (True, True, True, True, True, True),
+            # Stage 7 compares interlock against the approved cumulative
+            # heuristic baseline.  MIP remains independently gated because
+            # its Stage 2 activation decision was DEFAULT OFF.
+            "interlock": (True, True, True, True, False, True),
         }
         assignment, constructor, retime, lns, mip, interlock = levels[variant]
         return cls(
@@ -82,6 +100,11 @@ class SubmissionConfig:
             lns_enabled=lns,
             mip_enabled=mip,
             interlock_enabled=interlock,
+            constructor_selection_policy=(
+                "profile_priority"
+                if variant in {"candidate_constructor_only", "candidate_constructor"}
+                else "eager_regret"
+            ),
         )
 
     def as_dict(self) -> dict[str, Any]:
@@ -236,6 +259,18 @@ class RunTrace:
             _json_value(dict(event))
             for event in getattr(metrics, "mip_events", ())
         ]
+        retime_events = [
+            _json_value(dict(event))
+            for event in getattr(metrics, "retime_events", ())
+        ]
+        destroy_sizes = [
+            _json_value(item)
+            for item in getattr(metrics, "per_destroy_size", ())
+        ]
+        destroy_growth_events = [
+            _json_value(dict(event))
+            for event in getattr(metrics, "destroy_growth_events", ())
+        ]
         record = {
             "kind": kind,
             "start_seconds": max(0.0, float(started) - self._started),
@@ -254,6 +289,12 @@ class RunTrace:
             "operator_stats": operators,
             "best_trace": best_trace,
             "mip_events": mip_events,
+            "retime_triggers": int(
+                getattr(metrics, "retime_triggers", 0) or 0
+            ),
+            "retime_events": retime_events,
+            "destroy_sizes": destroy_sizes,
+            "destroy_growth_events": destroy_growth_events,
             "total_iterations": int(
                 getattr(metrics, "total_iterations", 0) or 0
             ),

@@ -27,6 +27,11 @@ This index lists the active documentation set. Superseded duplicates and study c
 - [strategy/m1-submission-safety-plan-kr.md](strategy/m1-submission-safety-plan-kr.md): Korean version of the M1 safety contract and implementation checklist.
 - [strategy/m2-m4-execution-plan.md](strategy/m2-m4-execution-plan.md): superseded 2026-07-09 by the solver design; retained for its measured diagnosis (§1) and evaluator-semantics contract (§2).
 
+## Active Solver Performance Work
+
+- [implementation/sol/10_PERFORMANCE_ACCELERATION_PLAN.md](implementation/sol/10_PERFORMANCE_ACCELERATION_PLAN.md): long-form Python/Numba/native performance strategy and profiling policy.
+- [implementation/sol/performance/README.md](implementation/sol/performance/README.md): prioritized hard-10 execution playbook, shared promotion gates, and links to the stage-specific prompts.
+
 ## Fable Strategy And Plans
 
 - [fable/2026-07-02-ogc2026-strategy-design.md](fable/2026-07-02-ogc2026-strategy-design.md): strategy design document.

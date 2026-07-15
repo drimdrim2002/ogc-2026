@@ -47,6 +47,7 @@ class AlnsConfig:
     checker_margin: float = 0.01
     max_invariant_errors: int = 3
     mip_period: int = 10
+    neighborhood_policy: str = "legacy"
 
     def __post_init__(self) -> None:
         integer_values = (
@@ -83,6 +84,8 @@ class AlnsConfig:
             raise ValueError("weight floor must be positive and stall fraction nonnegative")
         if len(self.rewards) != 3 or any(value < 0.0 for value in self.rewards):
             raise ValueError("rewards must contain three nonnegative values")
+        if self.neighborhood_policy not in {"legacy", "portfolio"}:
+            raise ValueError("unknown neighborhood policy")
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +119,43 @@ class OperatorMetrics:
     delta_sum: float
     exceptions: int
     time_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class DestroySizeMetrics:
+    level: str
+    size: int
+    attempts: int
+    feasible: int
+    accepted: int
+    new_best: int
+    failures: int
+    repair_seconds: float
+    iteration_seconds: float
+
+
+@dataclass(slots=True)
+class _MutableDestroySizeMetrics:
+    attempts: int = 0
+    feasible: int = 0
+    accepted: int = 0
+    new_best: int = 0
+    failures: int = 0
+    repair_seconds: float = 0.0
+    iteration_seconds: float = 0.0
+
+    def freeze(self, level: str, size: int) -> DestroySizeMetrics:
+        return DestroySizeMetrics(
+            level,
+            size,
+            self.attempts,
+            self.feasible,
+            self.accepted,
+            self.new_best,
+            self.failures,
+            self.repair_seconds,
+            self.iteration_seconds,
+        )
 
 
 @dataclass(slots=True)
@@ -153,6 +193,7 @@ class AlnsMetrics:
     destroy_size: int
     retime_triggers: int
     exit_reason: str
+    retime_events: tuple[tuple[tuple[str, Any], ...], ...] = ()
     total_iterations: int = 0
     warmup_completed: bool = False
     weight_updates: int = 0
@@ -166,6 +207,8 @@ class AlnsMetrics:
     densify_improvements: int = 0
     interlock_improvements: int = 0
     densify_reason: str | None = None
+    per_destroy_size: tuple[DestroySizeMetrics, ...] = ()
+    destroy_growth_events: tuple[tuple[tuple[str, Any], ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,6 +235,7 @@ class AlnsSearchState:
     stalled_engine_pending: bool
     densify_attempted: bool
     total_iterations: int
+    repair_seconds_per_block: tuple[float, ...] = field(compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +259,54 @@ def grow_destroy_size(current: int, n: int) -> int:
     if cap == 0:
         return 0
     return min(cap, max(current + 1, math.ceil(current * 1.5)))
+
+
+def destroy_size_targets(n: int) -> tuple[int, int, int]:
+    """Return deterministic small/medium/large targets within the legacy cap."""
+    small = initial_destroy_size(n)
+    cap = min(max(0, n), max(small, math.ceil(0.15 * n)))
+    medium = min(cap, max(small, small + 2, math.ceil(0.05 * n)))
+    large = min(cap, max(medium, medium + 2, math.ceil(0.10 * n)))
+    return small, medium, large
+
+
+def portfolio_destroy_size(total_iterations: int, n: int) -> tuple[str, int]:
+    """Schedule sparse medium/large probes while retaining mostly-small search."""
+    small, medium, large = destroy_size_targets(n)
+    slot = total_iterations % 12
+    if slot == 10:
+        return "large", large
+    if slot == 4:
+        return "medium", medium
+    return "small", small
+
+
+def budget_aware_destroy_size(
+    target: int,
+    floor: int,
+    *,
+    remaining_seconds: float,
+    checker_reserve: float,
+    repair_seconds_per_block: tuple[float, ...],
+) -> int:
+    """Cap a probe to roughly 35% of usable time using observed repair cost."""
+    target = max(0, int(target))
+    floor = min(target, max(0, int(floor)))
+    samples = tuple(value for value in repair_seconds_per_block if value > 0.0)
+    if target <= floor or not samples:
+        return target
+    usable = max(0.0, remaining_seconds - max(0.0, checker_reserve))
+    affordable = math.floor(0.35 * usable / statistics.median(samples))
+    return min(target, max(floor, affordable))
+
+
+def destroy_size_level(size: int, n: int) -> str:
+    small, _, large = destroy_size_targets(n)
+    if size <= small:
+        return "small"
+    if size >= large:
+        return "large"
+    return "medium"
 
 
 def accept_candidate(
@@ -342,12 +434,18 @@ def run_lns(
     phase_time = {"destroy": 0.0, "repair": 0.0, "retime": 0.0, "checker": 0.0}
     engine_stats: dict[str, list[float]] = {}
     mip_events: list[dict[str, Any]] = []
+    retime_events: list[dict[str, Any]] = []
     cache_before = context.kernel.cache_info()
     started = context.clock()
     iterations = 0
     total_iterations = state.total_iterations if state is not None else 0
     weight_updates = 0
     stall_events = 0
+    size_counters: dict[int, _MutableDestroySizeMetrics] = {}
+    growth_events: list[dict[str, Any]] = []
+    repair_seconds_per_block = list(
+        state.repair_seconds_per_block if state is not None else ()
+    )
     exit_reason = "DEADLINE"
 
     def engine_name(engine: RepairEngine) -> str:
@@ -455,7 +553,10 @@ def run_lns(
             return
         phase_started = context.clock()
         retime_triggers += 1
+        event: dict[str, Any] | None = None
         try:
+            input_z1 = current.objective.z1
+            affected_count = len(pending_retime)
             retimed = retime_hook(
                 current,
                 context.instance,
@@ -463,6 +564,17 @@ def run_lns(
                 budget,
                 affected_ids=frozenset(pending_retime),
             )
+            telemetry = getattr(retimed, "telemetry", None)
+            event = {
+                "trigger": "forced" if force else "threshold",
+                "affected_ids": affected_count,
+                "input_z1": input_z1,
+                "output_z1": input_z1,
+                "status": str(getattr(retimed, "status", "UNKNOWN")),
+                "strict_install": False,
+                "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
+            }
+            retime_events.append(event)
             retimed_snapshot = getattr(retimed, "snapshot", current)
             if (
                 not isinstance(retimed_snapshot, SolutionSnapshot)
@@ -471,16 +583,31 @@ def run_lns(
             ):
                 return
             retimed_snapshot = _objective(retimed_snapshot, context.instance)
+            event["output_z1"] = retimed_snapshot.objective.z1
             if retimed_snapshot.objective.total > current.objective.total:
                 return
             current = retimed_snapshot
             accepted_trace.append(current.objective.total)
-            if try_install(current, retimed):
+            installed = try_install(current, retimed)
+            event["strict_install"] = installed
+            if installed:
                 metric.new_best += 1
                 segment_scores[operator_index] += config.rewards[0]
                 best_trace.append(best.objective.total)
                 iterations_since_best = 0
         except Exception:
+            if event is None:
+                retime_events.append(
+                    {
+                        "trigger": "forced" if force else "threshold",
+                        "affected_ids": len(pending_retime),
+                        "input_z1": current.objective.z1,
+                        "output_z1": current.objective.z1,
+                        "status": "ERROR",
+                        "strict_install": False,
+                        "telemetry": {},
+                    }
+                )
             metric.exceptions += 1
         finally:
             pending_retime.clear()
@@ -493,15 +620,48 @@ def run_lns(
         operator_index = _weighted_index(weights, rng)
         operator = operators[operator_index]
         metric = counters[operator_index]
+        metric_before = (
+            metric.attempts,
+            metric.feasible,
+            metric.accepted,
+            metric.new_best,
+        )
         metric.attempts += 1
         segment_uses[operator_index] += 1
         iteration_started = context.clock()
+        iteration_repair_seconds = 0.0
+        requested_destroy_size = destroy_size
+        if config.neighborhood_policy == "portfolio":
+            target_level, target = portfolio_destroy_size(
+                total_iterations, len(current.placements)
+            )
+            requested_destroy_size = budget_aware_destroy_size(
+                max(destroy_size, target),
+                destroy_size,
+                remaining_seconds=budget.remaining(),
+                checker_reserve=budget.checker_p95 + config.checker_margin,
+                repair_seconds_per_block=tuple(repair_seconds_per_block),
+            )
+            if target > destroy_size:
+                growth_events.append(
+                    {
+                        "reason": f"portfolio_{target_level}",
+                        "elapsed_seconds": max(0.0, context.clock() - started),
+                        "from_size": destroy_size,
+                        "target_size": target,
+                        "to_size": requested_destroy_size,
+                        "budget_capped": requested_destroy_size < target,
+                        "total_iterations": total_iterations,
+                    }
+                )
+        actual_destroy_size = requested_destroy_size
         mip_event: dict[str, Any] | None = None
         try:
             phase_started = context.clock()
             destroyed = operator.select(
-                current, destroy_size, rng, context.neighborhood
+                current, requested_destroy_size, rng, context.neighborhood
             )
+            actual_destroy_size = len(destroyed)
             phase_time["destroy"] += max(0.0, context.clock() - phase_started)
             if not destroyed:
                 raise ValueError("destroy operator returned an empty neighborhood")
@@ -524,8 +684,15 @@ def run_lns(
                 current, destroyed, context.neighborhood, budget
             )
             repair_duration = max(0.0, context.clock() - phase_started)
+            iteration_repair_seconds = repair_duration
             phase_time["repair"] += repair_duration
             engine_stats[selected_engine_name][3] += repair_duration
+            if actual_destroy_size > 0 and repair_duration > 0.0:
+                repair_seconds_per_block.append(
+                    repair_duration / actual_destroy_size
+                )
+                if len(repair_seconds_per_block) > 32:
+                    del repair_seconds_per_block[:-32]
             if "mip" in selected_engine_name.lower() or repaired.engine.startswith("mip"):
                 mip_event = dict(repaired.telemetry)
                 mip_event.setdefault("dispatch", 1)
@@ -565,12 +732,39 @@ def run_lns(
                             phase_started = context.clock()
                             retime_triggers += 1
                             try:
+                                input_z1 = candidate.objective.z1
                                 retimed = retime_hook(
                                     candidate,
                                     context.instance,
                                     context.kernel,
                                     budget,
                                     affected_ids=repaired.changed_ids,
+                                )
+                                retime_telemetry = getattr(retimed, "telemetry", None)
+                                retime_events.append(
+                                    {
+                                        "trigger": "mip_transaction",
+                                        "affected_ids": len(repaired.changed_ids),
+                                        "input_z1": input_z1,
+                                        "output_z1": getattr(
+                                            getattr(
+                                                getattr(retimed, "snapshot", None),
+                                                "objective",
+                                                None,
+                                            ),
+                                            "z1",
+                                            input_z1,
+                                        ),
+                                        "status": str(
+                                            getattr(retimed, "status", "UNKNOWN")
+                                        ),
+                                        "strict_install": False,
+                                        "telemetry": (
+                                            dict(retime_telemetry)
+                                            if isinstance(retime_telemetry, Mapping)
+                                            else {}
+                                        ),
+                                    }
                                 )
                             finally:
                                 phase_time["retime"] += max(
@@ -685,7 +879,18 @@ def run_lns(
             metric.exceptions += 1
             iterations_since_best += 1
         finally:
-            metric.time_s += max(0.0, context.clock() - iteration_started)
+            iteration_seconds = max(0.0, context.clock() - iteration_started)
+            metric.time_s += iteration_seconds
+            size_metric = size_counters.setdefault(
+                actual_destroy_size, _MutableDestroySizeMetrics()
+            )
+            size_metric.attempts += metric.attempts - metric_before[0]
+            size_metric.feasible += metric.feasible - metric_before[1]
+            size_metric.accepted += metric.accepted - metric_before[2]
+            size_metric.new_best += metric.new_best - metric_before[3]
+            size_metric.failures += int(metric.feasible == metric_before[1])
+            size_metric.repair_seconds += iteration_repair_seconds
+            size_metric.iteration_seconds += iteration_seconds
             if mip_event is not None:
                 mip_event["iteration_seconds"] = max(
                     0.0, context.clock() - iteration_started
@@ -715,7 +920,17 @@ def run_lns(
         )
         if stalled:
             stall_events += 1
+            previous_destroy_size = destroy_size
             destroy_size = grow_destroy_size(destroy_size, len(current.placements))
+            growth_events.append(
+                {
+                    "reason": "stall",
+                    "elapsed_seconds": max(0.0, context.clock() - started),
+                    "from_size": previous_destroy_size,
+                    "to_size": destroy_size,
+                    "total_iterations": total_iterations,
+                }
+            )
             if len(context.repair_engines) > 1:
                 stalled_engine_pending = True
             if temperature is not None and improving_samples:
@@ -787,6 +1002,7 @@ def run_lns(
         temperature=temperature,
         destroy_size=destroy_size,
         retime_triggers=retime_triggers,
+        retime_events=tuple(tuple(event.items()) for event in retime_events),
         total_iterations=total_iterations,
         warmup_completed=total_iterations >= config.warmup_iterations,
         weight_updates=weight_updates,
@@ -810,6 +1026,15 @@ def run_lns(
         densify_improvements=densify_improvements,
         interlock_improvements=interlock_improvements,
         densify_reason=densify_reason,
+        per_destroy_size=tuple(
+            size_counters[size].freeze(
+                destroy_size_level(size, len(current.placements)), size
+            )
+            for size in sorted(size_counters)
+        ),
+        destroy_growth_events=tuple(
+            tuple(event.items()) for event in growth_events
+        ),
     )
     return AlnsResult(
         snapshot=best_store.snapshot,
@@ -831,6 +1056,7 @@ def run_lns(
             stalled_engine_pending=stalled_engine_pending,
             densify_attempted=densify_attempted,
             total_iterations=total_iterations,
+            repair_seconds_per_block=tuple(repair_seconds_per_block),
         ),
     )
 
@@ -841,11 +1067,16 @@ __all__ = [
     "AlnsMetrics",
     "AlnsResult",
     "AlnsSearchState",
+    "DestroySizeMetrics",
     "OperatorMetrics",
     "RepairEngine",
     "accept_candidate",
+    "budget_aware_destroy_size",
+    "destroy_size_level",
+    "destroy_size_targets",
     "grow_destroy_size",
     "initial_destroy_size",
+    "portfolio_destroy_size",
     "run_lns",
     "update_weights",
 ]

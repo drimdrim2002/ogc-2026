@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from shapely.ops import unary_union
 
@@ -106,6 +107,19 @@ class GeometryPreprocessingTests(unittest.TestCase):
         )
         self.assertTrue(result["feasible"], result)
         self.assertEqual(result["stage"], 5)
+
+    def test_candidate_precomputed_fits_reuses_parsed_integer_bounds(self):
+        raw = instance([block()], bays=((12, 12),))
+        parsed = parse_instance(raw)
+        kernel = GeometryKernel.from_instance(parsed)
+
+        with patch.object(
+            type(parsed.block(0).orientations[0]),
+            "integer_range",
+            side_effect=AssertionError("fits recomputed immutable bounds"),
+        ):
+            self.assertTrue(kernel.fits_precomputed(_placement(0, x=0, y=0)))
+            self.assertFalse(kernel.fits_precomputed(_placement(0, x=100, y=0)))
 
 
 class FourStateTests(unittest.TestCase):

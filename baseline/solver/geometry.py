@@ -18,6 +18,7 @@ from .state import Placement, SolutionSnapshot
 
 
 AABB = tuple[float, float, float, float]
+FitBounds = tuple[int, int, int, int]
 CacheInfo = namedtuple("CacheInfo", "hits misses maxsize currsize")
 
 
@@ -184,10 +185,36 @@ class GeometryKernel:
             tuple(_shape_info(orientation) for orientation in block.orientations)
             for block in instance.blocks
         )
+        self._fit_bounds: (
+            tuple[tuple[tuple[FitBounds | None, ...], ...], ...] | None
+        ) = None
         self._cache_size = cache_size
         self._cache: OrderedDict[tuple[int, int, int, int, int, int], PairRelation] = OrderedDict()
         self._hits = 0
         self._misses = 0
+
+    def _precompute_fit_bounds(
+        self,
+    ) -> tuple[tuple[tuple[FitBounds | None, ...], ...], ...]:
+        if self._fit_bounds is not None:
+            return self._fit_bounds
+        fit_bounds: list[tuple[tuple[FitBounds | None, ...], ...]] = []
+        for block in self.instance.blocks:
+            by_orientation: list[list[FitBounds | None]] = [
+                [None for _ in self.instance.bays] for _ in block.orientations
+            ]
+            for bay_id, orient_idx, reference_range in block.fitting_options:
+                by_orientation[orient_idx][bay_id] = (
+                    reference_range.x.lower,
+                    reference_range.x.upper,
+                    reference_range.y.lower,
+                    reference_range.y.upper,
+                )
+            fit_bounds.append(
+                tuple(tuple(by_bay) for by_bay in by_orientation)
+            )
+        self._fit_bounds = tuple(fit_bounds)
+        return self._fit_bounds
 
     @classmethod
     def from_instance(cls, instance: Instance, cache_size: int = 2**18) -> "GeometryKernel":
@@ -211,6 +238,24 @@ class GeometryKernel:
             reference_range is not None
             and reference_range.x.lower <= placement.x <= reference_range.x.upper
             and reference_range.y.lower <= placement.y <= reference_range.y.upper
+        )
+
+    def fits_precomputed(self, placement: Placement) -> bool:
+        """Candidate-only fit lookup retained for the rejected phase-4 ablation."""
+        if not 0 <= placement.block_id < len(self.instance.blocks):
+            return False
+        if not 0 <= placement.bay_id < len(self.instance.bays):
+            return False
+        orientations = self._precompute_fit_bounds()[placement.block_id]
+        if not 0 <= placement.orient_idx < len(orientations):
+            return False
+        bounds = orientations[placement.orient_idx][placement.bay_id]
+        if bounds is None:
+            return False
+        x_lower, x_upper, y_lower, y_upper = bounds
+        return bool(
+            x_lower <= placement.x <= x_upper
+            and y_lower <= placement.y <= y_upper
         )
 
     def _obstructs_relative(

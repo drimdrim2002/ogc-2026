@@ -83,6 +83,18 @@ class StressContractTests(unittest.TestCase):
         self.assertEqual(make_run_key(**kwargs), make_run_key(**kwargs))
         changed = dict(kwargs, seed=20260711)
         self.assertNotEqual(make_run_key(**kwargs), make_run_key(**changed))
+        self.assertNotEqual(
+            config_hash("heuristic_lns", geometry_fit_mode="legacy"),
+            config_hash("heuristic_lns", geometry_fit_mode="precomputed"),
+        )
+        self.assertNotEqual(
+            config_hash("heuristic_lns", retime_exact_skip_mode="legacy"),
+            config_hash("heuristic_lns", retime_exact_skip_mode="exact"),
+        )
+        self.assertNotEqual(
+            config_hash("heuristic_lns", neighborhood_mode="legacy"),
+            config_hash("heuristic_lns", neighborhood_mode="portfolio"),
+        )
 
     def test_final_matrix_contract_is_exact_daily_40_by_2_budgets_by_3_seeds(self):
         self.assertEqual(240, FINAL_EXPECTED_RUN_COUNT)

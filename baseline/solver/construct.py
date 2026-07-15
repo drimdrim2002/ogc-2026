@@ -39,6 +39,7 @@ class ConstructorConfig:
     lattice_cap: int = 512
     max_profiles: int = 6
     max_candidate_attempts: int | None = None
+    selection_policy: str = "eager_regret"
 
     def __post_init__(self) -> None:
         values = (
@@ -60,6 +61,8 @@ class ConstructorConfig:
             or self.max_candidate_attempts <= 0
         ):
             raise ValueError("candidate attempt cap must be a positive integer or None")
+        if self.selection_policy not in {"eager_regret", "profile_priority"}:
+            raise ValueError("unknown constructor selection policy")
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,20 +91,33 @@ class CandidateScore:
 class ConstructionMetrics:
     profile: str
     random_seed: int
+    selection_policy: str
     time_cap: int
     anchor_cap: int
     lattice_cap: int
     candidates_attempted: int
+    prefilter_passed: int
+    exact_passed: int
+    exact_relation_calls: int
+    exact_cache_misses: int
     rejected_fit: int
     rejected_aabb: int
     rejected_relation: int
     escalations: int
     fallback_count: int
+    fallback_reasons: tuple[tuple[str, int], ...]
+    nonfallback_committed: int
+    commit_failures: int
+    generation_exceptions: int
     placements_committed: int
     candidate_cap: int | None
     candidate_cap_exhausted: bool
     timebox_exhausted: bool
     deadline_hit: bool
+    constructor_z1: float | None
+    constructor_z2: float | None
+    constructor_z3: float | None
+    constructor_objective: float | None
     construction_time: float
 
 
@@ -119,8 +135,14 @@ class _Counters:
     rejected_fit: int = 0
     rejected_aabb: int = 0
     rejected_relation: int = 0
+    prefilter_passed: int = 0
+    exact_passed: int = 0
     escalations: int = 0
     fallback_count: int = 0
+    fallback_reasons: dict[str, int] = field(default_factory=dict)
+    nonfallback_committed: int = 0
+    commit_failures: int = 0
+    generation_exceptions: int = 0
     committed: int = 0
     candidate_cap_exhausted: bool = False
     timebox_exhausted: bool = False
@@ -129,6 +151,10 @@ class _Counters:
     @property
     def stop_requested(self) -> bool:
         return self.candidate_cap_exhausted or self.timebox_exhausted or self.deadline_hit
+
+    def add_fallback(self, reason: str) -> None:
+        self.fallback_count += 1
+        self.fallback_reasons[reason] = self.fallback_reasons.get(reason, 0) + 1
 
 
 def _stop_for_candidate_cap(config: ConstructorConfig, counters: _Counters) -> bool:
@@ -368,6 +394,8 @@ def evaluate_insert(
     draft: IndexedSolutionState,
     placement: Placement,
     kernel: GeometryKernel,
+    *,
+    counters: _Counters | None = None,
 ) -> CandidateScore | None:
     """Evaluate an insertion without mutating the draft."""
     if placement.block_id in draft.block_ids or not kernel.fits(placement):
@@ -380,6 +408,8 @@ def evaluate_insert(
                 return None
     except GeometryError:
         return None
+    if counters is not None:
+        counters.exact_passed += 1
     block = draft.instance.block(placement.block_id)
     tardiness = float(max(0, placement.exit - block.due_date))
     assignment = draft.assignment_delta(placement.block_id, placement.bay_id)
@@ -544,7 +574,10 @@ def _candidate_options(
                     if not kernel.fits(placement):
                         counters.rejected_fit += 1
                         continue
-                    score = evaluate_insert(state, placement, kernel)
+                    counters.prefilter_passed += 1
+                    score = evaluate_insert(
+                        state, placement, kernel, counters=counters
+                    )
                     if score is None:
                         counters.rejected_relation += 1
                         continue
@@ -603,8 +636,11 @@ def _commit_score(
     state: IndexedSolutionState,
     score: CandidateScore,
     kernel: GeometryKernel,
+    counters: _Counters | None = None,
 ) -> bool:
-    refreshed = evaluate_insert(state, score.placement, kernel)
+    refreshed = evaluate_insert(
+        state, score.placement, kernel, counters=counters
+    )
     if refreshed is None:
         return False
     return state.transactional_insert(
@@ -747,6 +783,7 @@ def construct_complete(
     """Build one complete candidate; no checker-validity claim is made here."""
     config = config or ConstructorConfig()
     started = time.monotonic()
+    cache_before = kernel.cache_info()
     counters = _Counters()
     state = IndexedSolutionState(
         instance,
@@ -758,6 +795,7 @@ def construct_complete(
     order = _profile_order(instance, kernel, seed)
     rank = {block_id: index for index, block_id in enumerate(order)}
     unplaced = set(order)
+    generation_failed = False
     try:
         while unplaced:
             if _stop_for_candidate_cap(config, counters) or _stop_for_safe_tail(
@@ -765,7 +803,14 @@ def construct_complete(
             ):
                 break
             choices: list[tuple[Any, int, CandidateScore]] = []
-            for block_id in sorted(unplaced, key=lambda item: rank[item]):
+            ordered_unplaced = sorted(unplaced, key=lambda item: rank[item])
+            if config.selection_policy == "profile_priority":
+                # Refresh only the next profile-priority block for this state
+                # version.  The former eager regret pass refreshed every
+                # unplaced block before committing one, exhausting the global
+                # candidate quota while discarding almost all computed options.
+                ordered_unplaced = ordered_unplaced[:1]
+            for block_id in ordered_unplaced:
                 options = _candidate_options(
                     instance, kernel, state, block_id, seed, config, budget, counters
                 )
@@ -784,24 +829,40 @@ def construct_complete(
             if not choices:
                 block_id = min(unplaced, key=lambda item: rank[item])
                 _fallback_insert(instance, kernel, state, block_id, seed)
-                counters.fallback_count += 1
+                counters.add_fallback("NO_CANDIDATE")
                 counters.committed += 1
                 unplaced.remove(block_id)
                 continue
             _, block_id, score = min(choices, key=lambda item: item[0])
-            if not _commit_score(state, score, kernel):
+            if not _commit_score(state, score, kernel, counters):
                 _fallback_insert(instance, kernel, state, block_id, seed)
-                counters.fallback_count += 1
+                counters.commit_failures += 1
+                counters.add_fallback("COMMIT_FAILURE")
+            else:
+                counters.nonfallback_committed += 1
             counters.committed += 1
             unplaced.remove(block_id)
     except Exception:
         # Geometry failures are candidate-local.  A deterministic serial tail
         # is still safe because every new interval is empty in its bay.
         counters.deadline_hit = counters.deadline_hit or budget.remaining() <= 0.0
+        counters.generation_exceptions += 1
+        generation_failed = True
+
+    if counters.candidate_cap_exhausted:
+        tail_reason = "CANDIDATE_CAP_SAFE_TAIL"
+    elif counters.deadline_hit:
+        tail_reason = "DEADLINE_SAFE_TAIL"
+    elif counters.timebox_exhausted:
+        tail_reason = "TIMEBOX_SAFE_TAIL"
+    elif generation_failed:
+        tail_reason = "GENERATION_EXCEPTION_SAFE_TAIL"
+    else:
+        tail_reason = "SAFE_TAIL"
 
     for block_id in sorted(unplaced, key=lambda item: rank[item]):
         _fallback_insert(instance, kernel, state, block_id, seed)
-        counters.fallback_count += 1
+        counters.add_fallback(tail_reason)
         counters.committed += 1
 
     snapshot = state.freeze()
@@ -812,23 +873,39 @@ def construct_complete(
     )
     if complete:
         snapshot = snapshot.with_objective(compute_objective(instance, snapshot))
+    objective = snapshot.objective
+    cache_after = kernel.cache_info()
     metrics = ConstructionMetrics(
         profile=seed.profile,
         random_seed=seed.random_seed,
+        selection_policy=config.selection_policy,
         time_cap=config.time_cap,
         anchor_cap=config.anchor_cap,
         lattice_cap=config.lattice_cap,
         candidates_attempted=counters.attempted,
+        prefilter_passed=counters.prefilter_passed,
+        exact_passed=counters.exact_passed,
+        exact_relation_calls=(cache_after.hits + cache_after.misses)
+        - (cache_before.hits + cache_before.misses),
+        exact_cache_misses=cache_after.misses - cache_before.misses,
         rejected_fit=counters.rejected_fit,
         rejected_aabb=counters.rejected_aabb,
         rejected_relation=counters.rejected_relation,
         escalations=counters.escalations,
         fallback_count=counters.fallback_count,
+        fallback_reasons=tuple(sorted(counters.fallback_reasons.items())),
+        nonfallback_committed=counters.nonfallback_committed,
+        commit_failures=counters.commit_failures,
+        generation_exceptions=counters.generation_exceptions,
         placements_committed=counters.committed,
         candidate_cap=config.max_candidate_attempts,
         candidate_cap_exhausted=counters.candidate_cap_exhausted,
         timebox_exhausted=counters.timebox_exhausted,
         deadline_hit=counters.deadline_hit,
+        constructor_z1=None if objective is None else objective.z1,
+        constructor_z2=None if objective is None else objective.z2,
+        constructor_z3=None if objective is None else objective.z3,
+        constructor_objective=None if objective is None else objective.total,
         construction_time=time.monotonic() - started,
     )
     status = "COMPLETE" if complete and not counters.fallback_count else "FALLBACK_COMPLETE"

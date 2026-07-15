@@ -36,15 +36,33 @@ class PackagingContractTests(unittest.TestCase):
         self.assertEqual(before, after)
         self.assertTrue(after.lns_enabled)
         self.assertFalse(after.interlock_enabled)
+        self.assertEqual("eager_regret", after.constructor_selection_policy)
+        self.assertEqual("legacy", after.neighborhood_policy)
         with self.assertRaises(FrozenInstanceError):
             after.lns_enabled = False
 
     def test_benchmark_variants_are_explicit_and_dependency_safe(self):
         self.assertFalse(SubmissionConfig.for_benchmark("constructor_retime", seed=1).lns_enabled)
+        self.assertEqual(
+            "eager_regret",
+            SubmissionConfig.for_benchmark(
+                "heuristic_lns", seed=1
+            ).constructor_selection_policy,
+        )
+        self.assertEqual(
+            "profile_priority",
+            SubmissionConfig.for_benchmark(
+                "candidate_constructor", seed=1
+            ).constructor_selection_policy,
+        )
         self.assertTrue(SubmissionConfig.for_benchmark("candidate_mip", seed=1).mip_enabled)
-        self.assertTrue(SubmissionConfig.for_benchmark("interlock", seed=1).interlock_enabled)
+        interlock = SubmissionConfig.for_benchmark("interlock", seed=1)
+        self.assertTrue(interlock.interlock_enabled)
+        self.assertFalse(interlock.mip_enabled)
         with self.assertRaises(ValueError):
             SubmissionConfig(lns_enabled=False, mip_enabled=True)
+        with self.assertRaises(ValueError):
+            SubmissionConfig(neighborhood_policy="unknown")
 
     def test_public_algorithm_stdout_and_stderr_are_empty(self):
         stdout, stderr = io.StringIO(), io.StringIO()

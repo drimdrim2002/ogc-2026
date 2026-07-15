@@ -60,6 +60,17 @@ class ConstructorIntegrationTests(unittest.TestCase):
         checked = _assert_complete_stage_five(self, raw, result, kernel)
         self.assertEqual(10, result.metrics.placements_committed)
         self.assertGreaterEqual(result.metrics.candidates_attempted, 1)
+        self.assertEqual(
+            result.metrics.candidates_attempted,
+            result.metrics.prefilter_passed + result.metrics.rejected_fit,
+        )
+        self.assertEqual(
+            result.metrics.placements_committed,
+            result.metrics.nonfallback_committed + result.metrics.fallback_count,
+        )
+        self.assertEqual(
+            checked["objective"], result.metrics.constructor_objective
+        )
         self.assertTrue(math.isfinite(checked["objective"]))
 
     def test_construct_from_each_profile_and_random_profile_reproducible(self):
@@ -130,6 +141,10 @@ class ConstructorIntegrationTests(unittest.TestCase):
 
         _assert_complete_stage_five(self, raw, result, kernel)
         self.assertEqual(len(parsed.blocks), result.metrics.fallback_count)
+        self.assertEqual(
+            (("NO_CANDIDATE", len(parsed.blocks)),),
+            result.metrics.fallback_reasons,
+        )
         self.assertEqual("FALLBACK_COMPLETE", result.status)
 
     def test_constructor_does_not_install_checker_rejected_candidate(self):

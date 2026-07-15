@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import zipfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -29,6 +30,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from baseline.solver.entry import solve  # noqa: E402
+from baseline.solver.geometry import GeometryKernel  # noqa: E402
 from baseline.solver.instance import parse_instance  # noqa: E402
 from baseline.solver.runtime import RunTrace, SubmissionConfig, VARIANTS  # noqa: E402
 from baseline.solver.state import Placement, SolutionSnapshot, compute_objective  # noqa: E402
@@ -206,19 +208,53 @@ def validate_dataset(
     return ordered, dataset_hash
 
 
-def variant_config_payload(variant: str) -> dict[str, Any]:
+def variant_config_payload(
+    variant: str,
+    *,
+    geometry_fit_mode: str = "legacy",
+    retime_exact_skip_mode: str = "legacy",
+    neighborhood_mode: str = "legacy",
+) -> dict[str, Any]:
+    if geometry_fit_mode not in {"legacy", "precomputed"}:
+        raise ContractError(f"unknown geometry fit mode {geometry_fit_mode!r}")
+    if retime_exact_skip_mode not in {"legacy", "exact"}:
+        raise ContractError(
+            f"unknown retime exact skip mode {retime_exact_skip_mode!r}"
+        )
+    if neighborhood_mode not in {"legacy", "portfolio"}:
+        raise ContractError(f"unknown neighborhood mode {neighborhood_mode!r}")
     payload = SubmissionConfig.for_benchmark(variant, seed=0).as_dict()
     payload.pop("seed")
+    payload["retime_exact_z1_skip"] = retime_exact_skip_mode == "exact"
+    payload["neighborhood_policy"] = neighborhood_mode
     return {
         "schema_version": SCHEMA_VERSION,
         "variant": variant,
+        "geometry_fit_mode": geometry_fit_mode,
+        "retime_exact_skip_mode": retime_exact_skip_mode,
+        "neighborhood_mode": neighborhood_mode,
         "submission_config": payload,
         "phase_ladder": {"safe": "<2", "short": "[2,12)", "medium": "[12,60)", "long": ">=60"},
     }
 
 
-def config_hash(variant: str) -> str:
-    return sha256_bytes(canonical_json(variant_config_payload(variant)).encode("utf-8"))
+def config_hash(
+    variant: str,
+    *,
+    geometry_fit_mode: str = "legacy",
+    retime_exact_skip_mode: str = "legacy",
+    neighborhood_mode: str = "legacy",
+) -> str:
+    return sha256_bytes(
+        canonical_json(
+            variant_config_payload(
+                variant,
+                geometry_fit_mode=geometry_fit_mode,
+                retime_exact_skip_mode=retime_exact_skip_mode,
+                neighborhood_mode=neighborhood_mode,
+            )
+        ).encode("utf-8")
+    )
 
 
 def _historical_raw_records(path: Path) -> list[dict[str, Any]]:
@@ -584,6 +620,21 @@ def _retime_z1_worsen(trace: Mapping[str, Any]) -> int:
     return count
 
 
+@contextlib.contextmanager
+def _geometry_fit_mode(mode: str):
+    if mode == "legacy":
+        yield
+        return
+    if mode != "precomputed":
+        raise ContractError(f"unknown geometry fit mode {mode!r}")
+    original = GeometryKernel.fits
+    GeometryKernel.fits = GeometryKernel.fits_precomputed
+    try:
+        yield
+    finally:
+        GeometryKernel.fits = original
+
+
 def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
     started_wall = time.monotonic()
     started_utc = datetime.now(timezone.utc).isoformat()
@@ -595,6 +646,11 @@ def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
         "instance_hash": request["instance_hash"],
         "dataset_hash": request["dataset_hash"],
         "variant": request["variant"],
+        "geometry_fit_mode": request.get("geometry_fit_mode", "legacy"),
+        "retime_exact_skip_mode": request.get(
+            "retime_exact_skip_mode", "legacy"
+        ),
+        "neighborhood_mode": request.get("neighborhood_mode", "legacy"),
         "config_hash": request["config_hash"],
         "source_commit": request["source_commit"],
         "budget_seconds": float(request["budget_seconds"]),
@@ -640,7 +696,18 @@ def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
         chosen = SubmissionConfig.for_benchmark(
             request["variant"], seed=int(request["seed"])
         )
-        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+        chosen = replace(
+            chosen,
+            retime_exact_z1_skip=(
+                request.get("retime_exact_skip_mode", "legacy") == "exact"
+            ),
+            neighborhood_policy=request.get("neighborhood_mode", "legacy"),
+        )
+        with (
+            contextlib.redirect_stdout(stdout),
+            contextlib.redirect_stderr(stderr),
+            _geometry_fit_mode(request.get("geometry_fit_mode", "legacy")),
+        ):
             operations = solve(
                 raw,
                 float(request["budget_seconds"]),
@@ -1077,7 +1144,12 @@ def command_run(args: argparse.Namespace) -> int:
     source_commit = args.source_commit or git_value("rev-parse", "HEAD")
     if not args.allow_dirty and git_value("status", "--porcelain"):
         raise ContractError("benchmark source tree is dirty; commit or pass --allow-dirty for non-final probes")
-    digest = config_hash(args.variant)
+    digest = config_hash(
+        args.variant,
+        geometry_fit_mode=args.geometry_fit_mode,
+        retime_exact_skip_mode=args.retime_exact_skip_mode,
+        neighborhood_mode=args.neighborhood_mode,
+    )
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = args.run_id or f"step9-{args.gate}-{timestamp}-{source_commit[:12]}-{digest[:12]}"
     artifact_root = (
@@ -1104,6 +1176,9 @@ def command_run(args: argparse.Namespace) -> int:
                     "run_key": key, "instance": name, "instance_path": str(path),
                     "instance_hash": instance_digest, "dataset_hash": dataset_hash,
                     "variant": args.variant, "config_hash": digest,
+                    "geometry_fit_mode": args.geometry_fit_mode,
+                    "retime_exact_skip_mode": args.retime_exact_skip_mode,
+                    "neighborhood_mode": args.neighborhood_mode,
                     "source_commit": source_commit, "budget_seconds": float(budget),
                     "seed": int(seed),
                 })
@@ -1226,6 +1301,24 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--run-id")
     run.add_argument("--source-commit")
     run.add_argument("--allow-dirty", action="store_true")
+    run.add_argument(
+        "--geometry-fit-mode",
+        choices=("legacy", "precomputed"),
+        default="legacy",
+        help="benchmark-only ablation for GeometryKernel.fits",
+    )
+    run.add_argument(
+        "--retime-exact-skip-mode",
+        choices=("legacy", "exact"),
+        default="legacy",
+        help="benchmark-only ablation for exact Z1 lower-bound component skipping",
+    )
+    run.add_argument(
+        "--neighborhood-mode",
+        choices=("legacy", "portfolio"),
+        default="legacy",
+        help="benchmark-only ablation for budget-aware neighborhood portfolio",
+    )
     run.set_defaults(function=command_run)
     worker = commands.add_parser("worker")
     worker.add_argument("--request", required=True)

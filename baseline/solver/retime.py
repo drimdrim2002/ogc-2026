@@ -30,6 +30,7 @@ class RetimingConfig:
     time_cap_s: float = 3.0
     threads: int = 4
     seed: int = 20260710
+    exact_z1_skip: bool = False
 
     def __post_init__(self) -> None:
         if isinstance(self.max_free, bool) or not isinstance(self.max_free, int):
@@ -38,6 +39,8 @@ class RetimingConfig:
             raise TypeError("threads must be an integer")
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
             raise TypeError("seed must be an integer")
+        if not isinstance(self.exact_z1_skip, bool):
+            raise TypeError("exact_z1_skip must be a boolean")
         if self.max_free <= 0 or not 1 <= self.threads <= 4:
             raise ValueError("max_free must be positive and Gurobi threads must be 1..4")
         if (
@@ -79,6 +82,7 @@ class BackendResult:
     variables: int = 0
     constraints: int = 0
     diagnostics: tuple[str, ...] = ()
+    phase_times: tuple[tuple[str, float], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +97,7 @@ class RetimingResult:
     diagnostics: tuple[str, ...]
     operations: Mapping[str, Any] | None = None
     checker_result: Mapping[str, Any] | None = None
+    telemetry: Mapping[str, Any] | None = None
 
 
 class _RetimingDeadline(RuntimeError):
@@ -198,21 +203,33 @@ def build_requests(
     config: RetimingConfig,
     affected_ids: frozenset[int] | None = None,
     budget: Budget | None = None,
+    *,
+    phase_times: dict[str, float] | None = None,
 ) -> tuple[RetimingRequest, ...]:
     by_id = {item.block_id: item for item in snapshot.placements}
     if affected_ids is not None and not affected_ids <= set(by_id):
         raise ValueError("affected_ids contains an unknown block")
     requests: list[RetimingRequest] = []
     for bay in instance.bays:
-        for component in nonfree_components(snapshot, kernel, bay.index, budget):
+        phase_started = time.monotonic()
+        components = nonfree_components(snapshot, kernel, bay.index, budget)
+        if phase_times is not None:
+            phase_times["affected_component_discovery"] += (
+                time.monotonic() - phase_started
+            )
+        for component in components:
             if budget is not None and budget.search_remaining() <= 0.0:
                 raise _RetimingDeadline("request construction reached its deadline")
             if affected_ids is not None and component.isdisjoint(affected_ids):
                 continue
+            phase_started = time.monotonic()
             selected = _critical_ids(
                 component, snapshot, instance, config.max_free, affected_ids
             )
+            if phase_times is not None:
+                phase_times["request_construction"] += time.monotonic() - phase_started
             pairs: list[RetimingPair] = []
+            phase_started = time.monotonic()
             for i, k in combinations(sorted(component), 2):
                 if i not in selected and k not in selected:
                     continue
@@ -225,6 +242,11 @@ def build_requests(
                 if warm_mode is TemporalMode.INVALID:
                     raise ValueError("input snapshot violates a fixed-layout relation")
                 pairs.append(RetimingPair(i, k, relation, warm_mode))
+            if phase_times is not None:
+                phase_times["relation_pair_preprocessing"] += (
+                    time.monotonic() - phase_started
+                )
+            phase_started = time.monotonic()
             requests.append(
                 RetimingRequest(
                     snapshot=snapshot,
@@ -235,6 +257,8 @@ def build_requests(
                     max_component_free=len(selected),
                 )
             )
+            if phase_times is not None:
+                phase_times["request_construction"] += time.monotonic() - phase_started
     return tuple(requests)
 
 
@@ -286,6 +310,17 @@ class _GurobiBackend:
         config: RetimingConfig,
     ) -> BackendResult:
         started = time.monotonic()
+        model_construction = 0.0
+        optimize = 0.0
+        extraction = 0.0
+
+        def measured_phases() -> tuple[tuple[str, float], ...]:
+            return (
+                ("model_construction", model_construction),
+                ("optimize", optimize),
+                ("extraction", extraction),
+            )
+
         try:
             import gurobipy as gp
 
@@ -294,6 +329,7 @@ class _GurobiBackend:
             def remaining() -> float:
                 return max(0.0, deadline - time.monotonic())
 
+            build_started = time.monotonic()
             by_id = {item.block_id: item for item in request.snapshot.placements}
             horizons = dict(request.horizons)
             model = gp.Model("exact_four_state_retime")
@@ -307,10 +343,12 @@ class _GurobiBackend:
             tardy: dict[int, Any] = {}
             for block_id in sorted(request.modeled_ids):
                 if remaining() <= 0.001:
+                    model_construction += time.monotonic() - build_started
                     return BackendResult(
                         status="TIME_LIMIT",
                         runtime=time.monotonic() - started,
                         diagnostics=("deadline during model variables", "solution_count=0"),
+                        phase_times=measured_phases(),
                     )
                 placement = by_id[block_id]
                 block = instance.block(block_id)
@@ -343,12 +381,14 @@ class _GurobiBackend:
             mode_counts: dict[str, int] = defaultdict(int)
             for pair in request.pairs:
                 if remaining() <= 0.001:
+                    model_construction += time.monotonic() - build_started
                     return BackendResult(
                         status="TIME_LIMIT",
                         runtime=time.monotonic() - started,
                         variables=model.NumVars,
                         constraints=model.NumConstrs + model.NumGenConstrs,
                         diagnostics=("deadline during model relations", "solution_count=0"),
+                        phase_times=measured_phases(),
                     )
                 modes = relation_modes(pair.relation)
                 selectors = {
@@ -372,6 +412,7 @@ class _GurobiBackend:
 
             primary_expr = gp.quicksum(tardy.values())
             model.setObjective(primary_expr, gp.GRB.MINIMIZE)
+            model_construction += time.monotonic() - build_started
             first_limit = remaining()
             if first_limit <= 0.001:
                 return BackendResult(
@@ -380,9 +421,12 @@ class _GurobiBackend:
                     variables=model.NumVars,
                     constraints=model.NumConstrs + model.NumGenConstrs,
                     diagnostics=("deadline before primary solve", "solution_count=0"),
+                    phase_times=measured_phases(),
                 )
             model.Params.TimeLimit = max(0.001, first_limit)
+            optimize_started = time.monotonic()
             model.optimize()
+            optimize += time.monotonic() - optimize_started
             first_status = _status_name(gp, model.Status)
             if model.SolCount <= 0:
                 return BackendResult(
@@ -391,7 +435,9 @@ class _GurobiBackend:
                     variables=model.NumVars,
                     constraints=model.NumConstrs + model.NumGenConstrs,
                     diagnostics=("solution_count=0",),
+                    phase_times=measured_phases(),
                 )
+            extraction_started = time.monotonic()
             primary = float(sum(round(tardy[item].X) for item in tardy))
             bound = float(model.ObjBound)
             gap = float(model.MIPGap) if math.isfinite(float(model.MIPGap)) else None
@@ -407,9 +453,11 @@ class _GurobiBackend:
                     for block_id in request.free_ids
                 )
             )
+            extraction += time.monotonic() - extraction_started
 
             second_limit = remaining()
             if second_limit > 0.001:
+                build_started = time.monotonic()
                 best_primary = int(round(primary))
                 model.addConstr(primary_expr == best_primary, name="fix_primary")
                 secondary_expr = gp.quicksum(
@@ -418,13 +466,18 @@ class _GurobiBackend:
                 )
                 model.setObjective(secondary_expr, gp.GRB.MINIMIZE)
                 model.Params.TimeLimit = max(0.001, second_limit)
+                model_construction += time.monotonic() - build_started
+                optimize_started = time.monotonic()
                 model.optimize()
+                optimize += time.monotonic() - optimize_started
                 if model.SolCount > 0:
+                    extraction_started = time.monotonic()
                     best_dates = tuple(
                         (block_id, int(round(a[block_id].X)), int(round(e[block_id].X)))
                         for block_id in sorted(request.modeled_ids)
                     )
                     secondary = float(model.ObjVal)
+                    extraction += time.monotonic() - extraction_started
 
             diagnostics = (
                 f"free={len(request.free_ids)}",
@@ -444,12 +497,14 @@ class _GurobiBackend:
                 variables=model.NumVars,
                 constraints=model.NumConstrs + model.NumGenConstrs,
                 diagnostics=diagnostics,
+                phase_times=measured_phases(),
             )
         except Exception as exc:
             return BackendResult(
                 status="ERROR",
                 runtime=time.monotonic() - started,
                 diagnostics=(f"{type(exc).__name__}: {exc}",),
+                phase_times=measured_phases(),
             )
 
 
@@ -471,6 +526,7 @@ def _rollback(
     started: float,
     diagnostics: tuple[str, ...],
     backend: BackendResult | None = None,
+    telemetry: Mapping[str, Any] | None = None,
 ) -> RetimingResult:
     return RetimingResult(
         snapshot=snapshot,
@@ -481,6 +537,7 @@ def _rollback(
         runtime=time.monotonic() - started,
         changed_ids=frozenset(),
         diagnostics=diagnostics + (() if backend is None else backend.diagnostics),
+        telemetry=telemetry,
     )
 
 
@@ -551,6 +608,26 @@ def _candidate_from_backend(
     return candidate.with_objective(after_objective), solved.status, diagnostics
 
 
+def _already_at_exact_lexicographic_lower_bound(
+    request: RetimingRequest,
+    instance: Instance,
+) -> bool:
+    """Prove that neither primary tardiness nor secondary dwell can improve."""
+    by_id = {item.block_id: item for item in request.snapshot.placements}
+    for block_id in request.free_ids:
+        placement = by_id[block_id]
+        block = instance.block(block_id)
+        if placement.exit - placement.entry != block.dwell:
+            return False
+        current_tardiness = max(0, placement.exit - block.due_date)
+        independent_lower_bound = max(
+            0, block.release_time + block.dwell - block.due_date
+        )
+        if current_tardiness != independent_lower_bound:
+            return False
+    return True
+
+
 def retime(
     snapshot: SolutionSnapshot,
     instance: Instance,
@@ -562,6 +639,53 @@ def retime(
 ) -> RetimingResult:
     """Return a verified fixed-layout candidate or the exact input snapshot."""
     started = time.monotonic()
+    phase_times = {
+        "affected_component_discovery": 0.0,
+        "relation_pair_preprocessing": 0.0,
+        "request_construction": 0.0,
+        "model_construction": 0.0,
+        "optimize": 0.0,
+        "extraction": 0.0,
+        "local_feasibility": 0.0,
+        "serialization": 0.0,
+        "checker": 0.0,
+    }
+
+    def telemetry(
+        *,
+        status: str,
+        requests: tuple[RetimingRequest, ...] = (),
+        solved_results: list[BackendResult] | None = None,
+        changed_ids: set[int] | frozenset[int] = frozenset(),
+        z1_before: float | None = None,
+        z1_after: float | None = None,
+    ) -> dict[str, Any]:
+        solved = solved_results or []
+        return {
+            "status": status,
+            "phase_times": dict(phase_times),
+            "requested_components": len(requests),
+            "solved_components": sum(bool(item.dates) for item in solved),
+            "exact_skipped_components": sum(
+                item.status == "EXACT_Z1_SKIP" for item in solved
+            ),
+            "improved_components": sum(
+                item.status in {"OPTIMAL", "TIME_LIMIT", "SUBOPTIMAL"} and bool(item.dates)
+                for item in solved
+            ),
+            "component_sizes": [len(item.modeled_ids) for item in requests],
+            "free_sizes": [len(item.free_ids) for item in requests],
+            "pair_counts": [len(item.pairs) for item in requests],
+            "changed_ids": len(changed_ids),
+            "z1_before": z1_before,
+            "z1_after": z1_after,
+            "z1_improvement": (
+                None
+                if z1_before is None or z1_after is None
+                else float(z1_before) - float(z1_after)
+            ),
+        }
+
     config = config or RetimingConfig()
     try:
         if len(snapshot.placements) != len(instance.blocks):
@@ -581,10 +705,22 @@ def retime(
         child = budget.child(total_cap)
         try:
             requests = build_requests(
-                snapshot, instance, kernel, config, affected, child
+                snapshot,
+                instance,
+                kernel,
+                config,
+                affected,
+                child,
+                phase_times=phase_times,
             )
         except _RetimingDeadline as exc:
-            return _rollback(snapshot, "BUDGET", started, (str(exc),))
+            return _rollback(
+                snapshot,
+                "BUDGET",
+                started,
+                (str(exc),),
+                telemetry=telemetry(status="BUDGET"),
+            )
         if not requests:
             return _rollback(snapshot, "EMPTY", started, ("no affected blocks",))
         if any(len(request.free_ids) > config.max_free for request in requests):
@@ -605,6 +741,27 @@ def retime(
             if solve_cap <= 0.001:
                 last_rejection = "BUDGET"
                 break
+            if config.exact_z1_skip and _already_at_exact_lexicographic_lower_bound(
+                request, instance
+            ):
+                solved = BackendResult(
+                    status="EXACT_Z1_SKIP",
+                    diagnostics=(
+                        "primary_at_independent_lower_bound",
+                        "secondary_dwell_extension=0",
+                    ),
+                )
+                solved_results.append(solved)
+                last_rejection = solved.status
+                request_diagnostics.extend(
+                    (
+                        f"request[{request_index}].free={len(request.free_ids)}",
+                        f"request[{request_index}].modeled={len(request.modeled_ids)}",
+                        f"request[{request_index}].pairs={len(request.pairs)}",
+                        f"request[{request_index}].status={solved.status}",
+                    )
+                )
+                continue
             try:
                 solved = backend.solve(request, instance, solve_cap, config)
             except Exception as exc:
@@ -612,6 +769,9 @@ def retime(
                     status="ERROR", diagnostics=(f"{type(exc).__name__}: {exc}",)
                 )
             solved_results.append(solved)
+            for name, duration in solved.phase_times:
+                if name in phase_times:
+                    phase_times[name] += duration
             request_diagnostics.extend(
                 (
                     f"request[{request_index}].free={len(request.free_ids)}",
@@ -635,9 +795,11 @@ def retime(
             }:
                 last_rejection = solved.status
                 continue
+            phase_started = time.monotonic()
             candidate, candidate_status, candidate_diag = _candidate_from_backend(
                 working, request, solved, instance
             )
+            phase_times["local_feasibility"] += time.monotonic() - phase_started
             request_diagnostics.extend(
                 f"request[{request_index}].{item}" for item in candidate_diag
             )
@@ -681,9 +843,16 @@ def retime(
                 started,
                 tuple(request_diagnostics),
                 aggregate,
+                telemetry=telemetry(
+                    status=last_rejection,
+                    requests=requests,
+                    solved_results=solved_results,
+                ),
             )
 
+        phase_started = time.monotonic()
         operations = serialize(working, kernel)
+        phase_times["serialization"] += time.monotonic() - phase_started
         candidate_objective = working.objective or compute_objective(instance, working)
         input_objective = snapshot.objective or compute_objective(instance, snapshot)
 
@@ -693,7 +862,9 @@ def retime(
             from baseline.utils import check_feasibility
         check_started = time.monotonic()
         checked = check_feasibility(_thaw(instance.raw), copy.deepcopy(operations))
-        budget.record_checker_duration(time.monotonic() - check_started)
+        checker_duration = time.monotonic() - check_started
+        phase_times["checker"] += checker_duration
+        budget.record_checker_duration(checker_duration)
         if checked.get("feasible") is not True or checked.get("stage") != 5:
             return _rollback(
                 snapshot,
@@ -701,6 +872,14 @@ def retime(
                 started,
                 tuple(request_diagnostics) + (f"stage={checked.get('stage')}",),
                 aggregate,
+                telemetry=telemetry(
+                    status="CHECKER_REJECTED",
+                    requests=requests,
+                    solved_results=solved_results,
+                    changed_ids=changed_ids,
+                    z1_before=input_objective.z1,
+                    z1_after=candidate_objective.z1,
+                ),
             )
         external = (
             checked.get("obj1"),
@@ -726,6 +905,14 @@ def retime(
                 started,
                 tuple(request_diagnostics),
                 aggregate,
+                telemetry=telemetry(
+                    status="OBJECTIVE_MISMATCH",
+                    requests=requests,
+                    solved_results=solved_results,
+                    changed_ids=changed_ids,
+                    z1_before=input_objective.z1,
+                    z1_after=candidate_objective.z1,
+                ),
             )
         candidate = working.with_objective(candidate_objective)
         final_status = accepted_statuses[-1]
@@ -749,6 +936,14 @@ def retime(
             ),
             operations=copy.deepcopy(operations),
             checker_result=copy.deepcopy(checked),
+            telemetry=telemetry(
+                status=final_status,
+                requests=requests,
+                solved_results=solved_results,
+                changed_ids=changed_ids,
+                z1_before=input_objective.z1,
+                z1_after=candidate_objective.z1,
+            ),
         )
     except Exception as exc:
         return _rollback(snapshot, "ERROR", started, (f"{type(exc).__name__}: {exc}",))

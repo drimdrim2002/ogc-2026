@@ -98,6 +98,7 @@ def load_optional_phase(
                     seed=chosen.seed,
                     max_profiles=constructor_profile_limit(budget.limit),
                     max_candidate_attempts=constructor_candidate_limit(budget.limit),
+                    selection_policy=chosen.constructor_selection_policy,
                 ),
             )
             if trace is not None:
@@ -171,12 +172,16 @@ def load_optional_phase(
                         segment=8,
                         stall_iterations=8,
                         stall_time_fraction=0.0,
+                        neighborhood_policy=chosen.neighborhood_policy,
                     ),
                     retime_hook=(
                         lambda *args, **kwargs: retime(
                             *args,
                             **kwargs,
-                            config=RetimingConfig(seed=chosen.seed),
+                            config=RetimingConfig(
+                                seed=chosen.seed,
+                                exact_z1_skip=chosen.retime_exact_z1_skip,
+                            ),
                         )
                         if chosen.retime_enabled
                         else None
@@ -199,7 +204,10 @@ def load_optional_phase(
                 lambda *args, **kwargs: retime(
                     *args,
                     **kwargs,
-                    config=RetimingConfig(seed=chosen.seed),
+                    config=RetimingConfig(
+                        seed=chosen.seed,
+                        exact_z1_skip=chosen.retime_exact_z1_skip,
+                    ),
                 )
                 if chosen.retime_enabled
                 else None

@@ -202,8 +202,11 @@ class ConstructorUnitTests(unittest.TestCase):
         self.assertEqual(first.snapshot.placements, second.snapshot.placements)
         first_metrics = dataclasses.asdict(first.metrics)
         second_metrics = dataclasses.asdict(second.metrics)
-        first_metrics.pop("construction_time")
-        second_metrics.pop("construction_time")
+        for metrics in (first_metrics, second_metrics):
+            metrics.pop("construction_time")
+            # A reused exact-kernel cache intentionally changes miss counts,
+            # while placements, attempts, and relation-call counts stay fixed.
+            metrics.pop("exact_cache_misses")
         self.assertEqual(first_metrics, second_metrics)
 
     def test_transaction_rolls_back_indexes_load_and_version_on_exception(self):

@@ -67,6 +67,34 @@ class LongBudgetAnchorTests(unittest.TestCase):
         self.assertEqual(1, result.metrics.candidates_attempted)
         self.assertTrue(result.metrics.candidate_cap_exhausted)
         self.assertFalse(result.metrics.timebox_exhausted)
+        self.assertEqual(
+            (("CANDIDATE_CAP_SAFE_TAIL", 1),),
+            result.metrics.fallback_reasons,
+        )
+
+    def test_profile_priority_commits_before_same_quota_eager_regret_tail(self):
+        raw = instance([block() for _ in range(12)], bays=((20, 20),))
+        parsed = parse_instance(raw)
+
+        def run(policy):
+            return construct_complete(
+                parsed,
+                GeometryKernel.from_instance(parsed),
+                ConstructionSeed(None, "slack_due", 20260710),
+                Budget.start(5.0),
+                ConstructorConfig(
+                    max_profiles=1,
+                    max_candidate_attempts=100,
+                    selection_policy=policy,
+                ),
+            )
+
+        eager = run("eager_regret")
+        priority = run("profile_priority")
+
+        self.assertEqual(0, eager.metrics.nonfallback_committed)
+        self.assertGreater(priority.metrics.nonfallback_committed, 0)
+        self.assertLess(priority.metrics.fallback_count, eager.metrics.fallback_count)
 
     def test_sixty_and_one_eighty_share_initial_anchor_schedule(self):
         raw = instance([block()])

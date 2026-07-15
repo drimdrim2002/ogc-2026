@@ -8,8 +8,11 @@ from solver.alns import (
     AlnsConfig,
     AlnsContext,
     accept_candidate,
+    budget_aware_destroy_size,
+    destroy_size_targets,
     grow_destroy_size,
     initial_destroy_size,
+    portfolio_destroy_size,
     run_lns,
     update_weights,
 )
@@ -248,6 +251,86 @@ class AlnsUnitTests(unittest.TestCase):
         self.assertEqual(15, grow_destroy_size(14, 100))
         self.assertEqual(3, initial_destroy_size(3))
         self.assertEqual(4, grow_destroy_size(4, 10))
+
+    def test_portfolio_schedules_medium_and_large_deterministically(self):
+        self.assertEqual((4, 6, 10), destroy_size_targets(100))
+        self.assertEqual(("small", 4), portfolio_destroy_size(0, 100))
+        self.assertEqual(("medium", 6), portfolio_destroy_size(4, 100))
+        self.assertEqual(("large", 10), portfolio_destroy_size(10, 100))
+        self.assertEqual(("medium", 6), portfolio_destroy_size(16, 100))
+
+    def test_budget_aware_cap_uses_observed_repair_throughput(self):
+        self.assertEqual(
+            7,
+            budget_aware_destroy_size(
+                10,
+                4,
+                remaining_seconds=22.0,
+                checker_reserve=2.0,
+                repair_seconds_per_block=(1.0, 1.0, 1.0),
+            ),
+        )
+        self.assertEqual(
+            4,
+            budget_aware_destroy_size(
+                10,
+                4,
+                remaining_seconds=3.0,
+                checker_reserve=2.0,
+                repair_seconds_per_block=(1.0,),
+            ),
+        )
+        self.assertEqual(
+            10,
+            budget_aware_destroy_size(
+                10,
+                4,
+                remaining_seconds=3.0,
+                checker_reserve=2.0,
+                repair_seconds_per_block=(),
+            ),
+        )
+
+    def test_destroy_size_telemetry_is_reported_without_changing_result(self):
+        raw, parsed, kernel, initial, store = one_block_fixture()
+
+        def engine(current, destroyed, context, budget):
+            del context, budget
+            return RepairResult(
+                current,
+                "FEASIBLE",
+                destroyed,
+                frozenset(),
+                1,
+                0.0,
+            )
+
+        result = run_lns(
+            initial,
+            store,
+            AlnsContext(
+                parsed,
+                kernel,
+                raw,
+                checker,
+                destroy_operators=(FixedDestroy(),),
+                repair_engines=(engine,),
+            ),
+            Budget.start(5.0),
+            AlnsConfig(max_iterations=2, neighborhood_policy="portfolio"),
+        )
+
+        self.assertEqual(initial.placements, result.snapshot.placements)
+        self.assertEqual(1, len(result.metrics.per_destroy_size))
+        size = result.metrics.per_destroy_size[0]
+        self.assertEqual(("small", 1, 2, 2, 2, 0), (
+            size.level,
+            size.size,
+            size.attempts,
+            size.feasible,
+            size.accepted,
+            size.new_best,
+        ))
 
     def test_worse_current_acceptance_never_leaks_from_validated_best(self):
         raw, parsed, kernel, initial, store = one_block_fixture()

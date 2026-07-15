@@ -239,6 +239,65 @@ class RetimingPurePythonTests(unittest.TestCase):
         self.assertGreater(len(backend.free_counts), 1)
         self.assertTrue(all(count <= 80 for count in backend.free_counts), backend.free_counts)
 
+    def test_exact_z1_skip_preserves_fixed_work_dates_and_avoids_backend(self):
+        from solver.budget import Budget
+        from solver.retime import retime
+
+        parsed = parse_instance(
+            instance([block(release=0, due=-3, processing=2)])
+        )
+        snapshot = SolutionSnapshot((Placement(0, 0, 0, 0, 0, 0, 2),))
+        kernel = GeometryKernel.from_instance(parsed)
+        legacy_backend = _RecordingIdentityBackend()
+        exact_backend = _RecordingIdentityBackend()
+
+        legacy = retime(
+            snapshot,
+            parsed,
+            kernel,
+            Budget.start(20),
+            backend_factory=lambda: legacy_backend,
+            config=RetimingConfig(exact_z1_skip=False),
+        )
+        candidate = retime(
+            snapshot,
+            parsed,
+            kernel,
+            Budget.start(20),
+            backend_factory=lambda: exact_backend,
+            config=RetimingConfig(exact_z1_skip=True),
+        )
+
+        self.assertEqual([1], legacy_backend.free_counts)
+        self.assertEqual([], exact_backend.free_counts)
+        self.assertEqual("NO_IMPROVEMENT", legacy.status)
+        self.assertEqual("EXACT_Z1_SKIP", candidate.status)
+        self.assertEqual(legacy.snapshot, candidate.snapshot)
+        self.assertEqual(snapshot.placements, candidate.snapshot.placements)
+        self.assertEqual(1, candidate.telemetry["exact_skipped_components"])
+        self.assertEqual(0.0, candidate.telemetry["phase_times"]["optimize"])
+
+    def test_exact_z1_skip_does_not_skip_secondary_dwell_slack(self):
+        from solver.budget import Budget
+        from solver.retime import retime
+
+        parsed = parse_instance(instance([block(processing=2)]))
+        snapshot = SolutionSnapshot((Placement(0, 0, 0, 0, 0, 0, 3),))
+        kernel = GeometryKernel.from_instance(parsed)
+        backend = _RecordingIdentityBackend()
+
+        result = retime(
+            snapshot,
+            parsed,
+            kernel,
+            Budget.start(20),
+            backend_factory=lambda: backend,
+            config=RetimingConfig(exact_z1_skip=True),
+        )
+
+        self.assertEqual([1], backend.free_counts)
+        self.assertEqual(0, result.telemetry["exact_skipped_components"])
+
 
 if __name__ == "__main__":
     unittest.main()
