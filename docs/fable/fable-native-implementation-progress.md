@@ -8,7 +8,7 @@ Preservation-only legacy branch/worktree: `fable-native-implementation` at `/Use
 
 Stabilization target: `codex/fable-s3-stabilization` in `/Users/brown/workspace/ogc/fable-native-s3-stabilization`
 
-Planning status: `PLAN-RESET-01 IN_PROGRESS`; implementation status: S3 clean stabilization `COMPLETE`, S4 optional track `BLOCKED`, mandatory S6-05 `COMPLETE`, S6-06 `IN_PROGRESS`
+Planning status: `PLAN-RESET-01 COMPLETE`; implementation status: S3 clean stabilization `COMPLETE`, S4 optional track `BLOCKED`, mandatory S6 `COMPLETE`
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -154,7 +154,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
 | S4 | `BLOCKED` | `S4-04-RECOVERY-08` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; dirty candidate is unselected | clean S3 baseline; optional track | `benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/` | none for current recovery; legacy HEAD `388db7b27eda189e69140520548fc00362fba3f3` | focused 8/8; affected regression 66/67; 25% cap skipped work and omitted `assignment_seed_attempts` | preserve experiment; do not resume before stable baseline; mandatory path continues |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
-| S6 | `IN_PROGRESS` | `S6-06 isolated rehearsal and final report` | `NOT_RUN` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | S6-05 commit `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | `benchmarks/evidence/s6/stress/20260715T052600Z-s6-05-stress02/` | `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | — | implement S6-06 failing-first, freeze the qualified identity, then run the exact mandatory S6 chain |
+| S6 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | S6-05 commit `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | `benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/` | `824b24b0215855a9a233eb53be0b1253a1a2f922` | — | no next mandatory stage; hardened checker-verified submission candidate is selected |
 
 Allowed implementation statuses are exactly `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `GATE_FAILED_DISABLED`, and `COMPLETE`. Transition rules are deterministic:
 
@@ -5441,6 +5441,37 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   run_identity: pre_stage_diff_sha256=eb24d5fe4e80e4d785aa0d9e9f814d83504933c76c672c8750a8e57f99434bd4; protected_utils=a1dd3a0241a82500b2c107c13e9202ed95e823c1; protected_baseline_greedy=867d63e433a8174ad14a2581ed32ff13b711a056; full_discovery_exit_code=0; full_discovery_tests=85
   cleanup: development subprocess groups reaped; extraction directories and package outputs removed; evidence ignored
   next_action: stage only the six-path S6-06 allowlist, review the cached diff, create test(s6): complete isolated rehearsal support, and run the exact Tier-Q chain from that clean commit
+```
+
+```yaml
+- timestamp: 2026-07-15T16:14:57+09:00
+  stage: S6
+  slice: S6-06
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: codex/fable-s6-rehearsal
+  commit: 824b24b0215855a9a233eb53be0b1253a1a2f922
+  dirty: false during Q1-Q5; true only for this post-PASS tracked closeout
+  commands:
+    - Q1 cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - Q2 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature interlock=false --feature parallel_portfolio=false --feature fault=backend,after_incumbent
+    - Q3 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli submission-rehearsal --instances training,stress --timelimits 5,60,300 --seed 20260710 --isolated
+    - Q4 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s6 --latest-complete --commit HEAD
+    - Q5 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s6 --latest-complete
+    - post-Q protected hash, package/extraction cleanup, ignored-artifact, and process-table audits
+  red_evidence: benchmarks/evidence/s6/s6-06/development/20260715T061800Z-s6-06-development01/red.txt
+  green_evidence: Q1 PASS 85/85; benchmarks/evidence/s6/s6-06/development/20260715T061800Z-s6-06-development01/green-targeted.txt; affected-regression-attempt02.txt; full-discovery-attempt01.txt
+  checker_result: PASS; Q2 stress 62/62 and Q3 isolated rehearsal 144/144 official-checker Stage 5 feasible; Q4 gate and Q5 report exited zero
+  benchmark_or_stress_evidence: benchmarks/evidence/s6/stress/20260715T062300Z-1c1af384/; benchmarks/evidence/s6/submission-rehearsal/20260715T062455Z-f9a83806/; benchmarks/evidence/s6/gate/20260715T071357Z-829b8cee/; benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/
+  evidence_hashes: stress_summary=d1daafa57e3ce8ae83ce0313bb630eef9f8951bddcfa88a7b897977882b6cc5f; rehearsal_summary=c00108914829d69e947daf6b4836a605bc4c80ab8f2fd754d5aecdc12788c2e2; rehearsal_json=cdb0042ecfd79c9c87eee503afbb63044f5d02d11a750ef33801e561bc698168; rehearsal_markdown=744e71c144137de6f26ced02d55a1017318182f71ceb4b25a6a763a9698b4ddb; gate_json=9e06a8f8e8d7a81d9e6b193ca11da8bb5d0f798f11786e3044a434912da8f2ed; report_json=9e06a8f8e8d7a81d9e6b193ca11da8bb5d0f798f11786e3044a434912da8f2ed; report_markdown=d76b4e77bac95f442efc217558768111a97d9850016ac534eb50cfd0748e1e0a
+  gate_decision: PASS
+  failure_or_fallback_reason: null; all required injected backend and incumbent-boundary failures preserved a verified incumbent
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); assignment_refinement=false; parallel_portfolio=false; interlock=false; no optional promotion was run
+  run_identity: consumed_s6_05_commit=9e8a3382e3124c602e7182abed08a3ea72b8e6a0; qualified_s6_06_commit=824b24b0215855a9a233eb53be0b1253a1a2f922; implementation_staged_diff_sha256=a4cd1e2121fd66055474ac6499e568d51170a14596e6fe25c96c9178b216bb10; package_sha256=5cc1ae7054cc91d9f11b8bb5b0c47dd30c1b2c70f8ac2113914631965b769e8e; package_size_bytes=57694; package_entries=20
+  protected_files: baseline/utils.py=a1dd3a0241a82500b2c107c13e9202ed95e823c1=HEAD; baseline/baseline_greedy.py=867d63e433a8174ad14a2581ed32ff13b711a056=HEAD
+  safety_summary: stress_structural=48; stress_boundary_fault=10; stress_backend_fault=4; rehearsal_training=40x3; rehearsal_stress=8x3; checker_failure=0; timeout=0; crash=0; leak=0; unverified_return=0; parent_dependency=0; network_guard_failure=0; cleanup_failure=0
+  cleanup: generated submission packages removed; all fable-s6-package and fable-s6-rehearsal temporary directories removed; no S6 harness/worker process remains; generated evidence and reports remain ignored
+  next_action: stage only this progress closeout, create a docs-only closeout commit, push codex/fable-s6-rehearsal, verify local/upstream equality and clean status, then stop; there is no next mandatory slice
 ```
 
 ## 11. Planning quality audit
