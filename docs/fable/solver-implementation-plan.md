@@ -3,6 +3,8 @@
 Last updated: 2026-07-10
 Status: active — `docs/fable/solver-design.md`(이하 "설계서")의 구현 명세. 설계서가 "무엇을·왜"를 소유하고, 이 문서가 "정확히 어떻게"를 소유한다. 두 문서가 충돌하면 설계서 §2(체커 의미론)가 최우선이고, 그다음 이 문서가 우선한다.
 
+Execution override (2026-07-15): 단계 의존성, 선택 기능의 실패 처리, Git 보존 경계, 반복 가능한 개발 검사와 동결 qualification의 구분은 [`implementation-steps/plan-reset-01.md`](implementation-steps/plan-reset-01.md)가 이 초안보다 우선한다. 필수 전달 경로는 안정 S3에서 하드닝/패키징으로 직접 이어지고, S4/S5/interlock은 독립적인 선택 승격 트랙이다.
+
 표기: `dwell_i = max(P_i, 1)` (설계서 §2.6, P=0 체류≥1). `slack_i = D_i − R_i − P_i`. 모든 의사코드는 Python 3.12 기준.
 
 ---

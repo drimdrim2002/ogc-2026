@@ -1,16 +1,18 @@
 # Fable Native Solver: S0-S6 Progress and Execution Contract
 
-Last updated: 2026-07-13 (Asia/Seoul)
+Last updated: 2026-07-15 (Asia/Seoul)
 
 Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
-Implementation branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
+Preservation-only legacy branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planning status: complete; implementation status: S3 complete
+Planned stabilization target: `codex/fable-s3-stabilization` in a separate sibling worktree; not yet created
+
+Planning status: `PLAN-RESET-01 READY`; implementation status: reset execution `NOT_STARTED`, S4 optional track `BLOCKED`
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
-The objective is a checker-authoritative, anytime solver that always protects a fully verified feasible incumbent and then improves assignment, packing, and timing through S0-S6. This document is the mutable status board, append-only implementation history, architecture contract, evidence index, and restart point. The seven stage plans under [`implementation-steps/`](implementation-steps/) are the execution specifications.
+The objective is a checker-authoritative, anytime solver that always protects a fully verified feasible incumbent and then improves assignment, packing, and timing through independently gated stages. This document is the mutable status board, append-only implementation history, architecture contract, evidence index, and restart point. [`implementation-steps/plan-reset-01.md`](implementation-steps/plan-reset-01.md) is the binding recovery/Git boundary; the seven S0-S6 stage plans under [`implementation-steps/`](implementation-steps/) are the slice specifications.
 
 This plan does not authorize changing `baseline/utils.py` or `baseline/baseline_greedy.py`, weakening a checker/safety gate, using approximate geometry as an oracle, hard-coding hidden-instance behavior, or enabling an optional feature without its A/B gate. Planning completion is not implementation completion.
 
@@ -18,7 +20,7 @@ This plan does not authorize changing `baseline/utils.py` or `baseline/baseline_
 
 1. `baseline/myalgorithm.py` has the required `algorithm(prob_info, timelimit)` signature and returns only an operations dictionary previously accepted by the unmodified `baseline/utils.py::check_feasibility`.
 2. For every valid instance (defined below), the current mandatory pipeline has a verified-incumbent fallback under deadline, backend exception, candidate rejection, and optional-feature failure.
-3. The mandatory gate through the latest completed stage is green; optional S5 portfolio or S6 interlock may be disabled after a failed gain gate without invalidating the lower-tier solver.
+3. The clean mandatory S0-S3 core and mandatory S6-05/S6-06 hardening/package/rehearsal gates are green. S4, S5, and interlock may be `BLOCKED` within their own tracks or `GATE_FAILED_DISABLED` without invalidating the last qualified lower-tier solver.
 4. The exact interpreter, source commit, dirty state, instance hashes, seed, command, feature flags, checker result, and timings are recorded in complete evidence.
 5. The packaging rehearsal produces a root-level `myalgorithm.py`, only relative runtime paths, no modified checker/reference file, no local data or credentials, no prohibited extension, and a zip no larger than 15 MB.
 
@@ -32,8 +34,9 @@ Authority, highest first:
 2. [`../OGC2026_Problem_Analysis.md`](../OGC2026_Problem_Analysis.md).
 3. Checker-semantic rules in [`solver-design-en.md`](solver-design-en.md) §2.
 4. The remaining design and roadmap in `solver-design-en.md`.
-5. [`solver-implementation-plan.md`](solver-implementation-plan.md), treated as a draft.
-6. Historical/deprecated documents, used only for instance-set and experiment conventions.
+5. [`implementation-steps/plan-reset-01.md`](implementation-steps/plan-reset-01.md) for delivery topology, qualification tiers, and Git preservation/execution boundaries.
+6. [`solver-implementation-plan.md`](solver-implementation-plan.md), treated as a draft.
+7. Historical/deprecated documents, used only for instance-set and experiment conventions.
 
 Safety and semantic invariants:
 
@@ -42,9 +45,10 @@ Safety and semantic invariants:
 - Boundary contact and polygon contact of zero area are legal. Shapely behavior through the checker is the final geometric oracle.
 - Only a checker-feasible serialized solution can enter `Incumbent`; replacement is atomic and strictly improves checker objective within relative tolerance `1e-9`.
 - Internal objective and targeted validation are diagnostics/filters until parity-proved. Every incumbent replacement still receives a full official check.
-- A safety, checker-parity, infeasibility, or incumbent-safety failure blocks the next mandatory stage. Criteria are never relaxed to continue.
-- S5 gain failure disables portfolio and records `GATE_FAILED_DISABLED`; it does not invalidate the S4 single-process solver. S6 interlock gain failure disables interlock; mandatory hardening and packaging may still complete.
-- Completion of Sn provides every artifact needed by Sn+1. No stage gate consumes code or instrumentation owned by a later stage.
+- A safety, checker-parity, infeasibility, or incumbent-safety failure blocks the affected track. Criteria are never relaxed to continue. An optional-track failure does not block mandatory delivery from the last qualified lower tier.
+- S4, S5, and interlock gain failures disable the affected feature and record `GATE_FAILED_DISABLED` after safety PASS. Their flags remain false; mandatory hardening and packaging continue.
+- Exact-once applies only to an explicitly frozen Tier-Q qualification identity. Development RED/GREEN/regression and Tier-S safety checks are repeatable after a relevant change with a new attempt identity.
+- Mandatory completion provides every artifact needed by the next mandatory slice. No gate consumes code or instrumentation owned by an unselected later feature.
 
 Precise checker anchors used by all stage plans include `Bay.contains_block` at `baseline/utils.py:252-266`; equal-layer collision at `461-543`; entry OBS `603-724`; exit OBS `727-819`; one ENTRY/EXIT and timing at `1028-1136`; coordinate rounding and overlap at `1144-1158`; entry present-set at `1160-1198`; exit present-set at `1200-1232`; collision/boundary at `1234-1277`; ordered replay at `1279-1386`; and float Z1/Z2/Z3 at `1388-1421`.
 
@@ -136,32 +140,29 @@ Timeout handling uses a fresh process group per solver run, `SIGTERM`, a two-sec
 ## 6. Dependency graph and stage table
 
 ```text
-S0 foundation
-  -> S1 constructor
-    -> S2 exact retiming
-      -> S3 intra-bay LNS
-        -> S4 cross-bay assignment refinement
-          -> S5 optional process portfolio (may finish disabled)
-            -> S6 optional interlock + mandatory hardening/package
+mandatory: S0 -> S1 -> S2 -> S3-stable -> S6-05 hardening/package -> S6-06 rehearsal
+optional:  S3-stable -> S4 assignment refinement
+optional:  chosen stable lower tier -> S5 process portfolio
+optional:  chosen stable lower tier -> S6-01..04 interlock
 ```
 
 | Stage | Status | Active slice | Gate | Flag / initial default | Prerequisite | Last evidence | Last implementation commit | Blocker/fallback | Next action |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | S1 in progress |
-| S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate; S1-01 through S1-05 complete | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | S2 in progress |
-| S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; `retime_backend=auto`; timebox `5s`; pilot `0s`; threads `1` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | S3-01 in progress |
-| S3 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive `false`; dirty `max(3,.03n_b)` | S2 mandatory gate; S3-01 through S3-05 complete | `benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/` | pending atomic S3-05 commit | — | stop at the S3 boundary; S4 was not started |
-| S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 mandatory gate | — | — | — | wait for S3 |
-| S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 mandatory gate | — | — | optional failure keeps S4 | wait for S4 |
-| S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` or `GATE_FAILED_DISABLED` | — | — | interlock failure keeps hardened S5/S4 tier | wait for S5 |
+| S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | retained in stable baseline |
+| S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | retained in stable baseline |
+| S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; backend `auto`; timebox `5s` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | retained in stable baseline |
+| S3 | `COMPLETE` | `PLAN-RESET-01 stabilization` | `PASS` evidence; clean requalification pending | intended `alns=true`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/` | `c0da4a7971c57b85066f2610ead9b68d6305fe65` | gate ran on a dirty identity and the committed config still has `alns=false` | preserve legacy diff; create and qualify clean stabilization worktree |
+| S4 | `BLOCKED` | `S4-04-RECOVERY-08` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; dirty candidate is unselected | clean S3 baseline; optional track | `benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/` | none for current recovery; legacy HEAD `388db7b27eda189e69140520548fc00362fba3f3` | focused 8/8; affected regression 66/67; 25% cap skipped work and omitted `assignment_seed_attempts` | preserve experiment; do not resume before stable baseline; mandatory path continues |
+| S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
+| S6 | `NOT_STARTED` | `S6-05 eligible after reset execution` | `NOT_RUN` | `interlock=false`; portfolio false unless promoted | clean qualified S3 or promoted lower tier | — | — | optional interlock failure keeps mandatory package | after S3 stabilization, execute S6-05 then S6-06 |
 
 Allowed implementation statuses are exactly `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `GATE_FAILED_DISABLED`, and `COMPLETE`. Transition rules are deterministic:
 
 - `NOT_STARTED -> IN_PROGRESS` only after prerequisites are verified and the “before starting” history row is appended.
-- `IN_PROGRESS -> COMPLETE` only after all mandatory slices are committed and the stage gate exits 0.
-- `IN_PROGRESS -> BLOCKED` only for an unresolved mandatory safety/parity/feasibility condition; record exact failing evidence and do not start the next stage.
-- S5 `IN_PROGRESS -> GATE_FAILED_DISABLED` when safety passes but the optional wall-clock/license gain gate fails; S6 then may start.
-- S6 records interlock feature state `GATE_FAILED_DISABLED` independently; the stage becomes `COMPLETE` if mandatory hardening/package passes with interlock off.
+- `IN_PROGRESS -> COMPLETE` only after the track’s required slices are committed and its frozen qualification exits 0.
+- `IN_PROGRESS -> BLOCKED` records an unresolved safety/parity/feasibility/cleanup condition and stops only the affected track. Mandatory delivery may continue from the last qualified lower tier when the blocked track is optional.
+- S4, S5, or interlock `IN_PROGRESS -> GATE_FAILED_DISABLED` when safety passes but the preregistered optional gain/enablement gate fails.
+- S6 becomes `COMPLETE` when S6-05/06 mandatory hardening/package/rehearsal passes. Interlock state is recorded independently.
 - `BLOCKED -> IN_PROGRESS` requires a new history row naming the resolved condition and evidence. `COMPLETE` is not reopened; corrections start a new slice and temporarily return the stage to `IN_PROGRESS` with the prior completion retained in history.
 
 ## 7. Critical-review decision ledger
@@ -243,14 +244,16 @@ Threshold provenance registry:
 
 ## 9. Evidence, commits, cleanup, and restart
 
-Each behavioral slice follows: update this status to `IN_PROGRESS`; add a failing test; run the exact targeted test and save RED evidence showing missing/wrong behavior rather than syntax/setup failure; implement the minimum; run targeted GREEN; run prior regressions; run a real or synthetic official-checker case; generate structured evidence; clean child processes/temp solver environments/packages; update history; make one atomic implementation commit with the stage plan’s message. Generated raw evidence and local data are never packaged and are not automatically staged.
+Each behavioral slice follows PLAN-RESET-01: use a dedicated clean worktree; update status; run repeatable Tier-D RED/GREEN and regression; run Tier-S checker/safety proof; freeze a clean identity only when the stage requires Tier-Q qualification; generate structured evidence; clean resources; stage only an exact path allowlist; and make one atomic concern-specific commit. Generated raw evidence and local data are never packaged and are not automatically staged.
+
+Git boundary: the current `/Users/brown/workspace/ogc/fable-native-implementation` worktree is preservation-only. Do not run implementation/tests/gates or mutate Git state there until its 15-path dirty experiment is captured in a verified append-only manifest. The next execution action is to preserve that state and create a separate `codex/fable-s3-stabilization` worktree from `c0da4a7971c57b85066f2610ead9b68d6305fe65`.
 
 Restart without chat history:
 
-1. `git -C /Users/brown/workspace/ogc/fable-native-implementation status --short --branch` and verify branch.
-2. Read this document’s current table and last history entry, then the active stage document.
-3. Verify the last implementation commit exists and inspect the referenced evidence `COMPLETE`, `summary.json`, and `gate.json`.
-4. Run `$PY -m baseline.harness.cli report --stage sN --latest-complete` and the active slice’s targeted regression command.
+1. Read this document’s current table, last history entry, and PLAN-RESET-01 before running a command.
+2. Inspect the legacy worktree read-only and verify the recorded HEAD, dirty path set, and diff hash. Do not run solver/tests/gates there.
+3. Verify the preservation manifest and dedicated target worktree/branch exist before implementation.
+4. In the dedicated target, verify a clean status and the last implementation/evidence identity before running repeatable checks.
 5. Resume only the recorded next action. Never infer completion from files alone or from chat.
 
 ## 10. Append-only implementation history
@@ -2965,17 +2968,2133 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   next_action: remove only genuine S3-05 temporary candidate files if any, audit the complete selected-slice diff, create and push the atomic S3-05 commit, verify upstream equality and clean status, then stop without starting S4
 ```
 
+```yaml
+- timestamp: 2026-07-13T16:57:08+09:00
+  stage: S4
+  slice: S4-01
+  old_status: NOT_STARTED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S4-01\\b' docs/fable/implementation-steps/s4-assignment-refinement.md
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/{COMPLETE,gate.json,summary.json}
+    - inspect S3 COMPLETE history and commit c0da4a7971c57b85066f2610ead9b68d6305fe65
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-01 adds only the pure assignment-v2 contract and exact-float Gurobi proposal, without fallbacks, cross-bay search, entry integration, or later-stage behavior
+  next_action: add tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker and demonstrate the intended missing assignment request/model RED
+```
+
+```yaml
+- timestamp: 2026-07-13T17:01:14+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker -v
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T075708Z-s4-01/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.exact has no S4 AssignmentRequest and the assignment-v2 request/model boundary is absent; the first import-order setup attempt exposed another selected-slice missing symbol before the request symbol
+  feature_default_decision: assignment_refinement=false; no assignment-v2 source or backend behavior exists yet
+  next_action: implement the minimum immutable assignment contract, exact-float evaluator, bounded Gurobi model, v1 MIP start, and pure assignment extraction
+```
+
+```yaml
+- timestamp: 2026-07-13T17:11:00+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component assignment_v2 --instances high-w23 --timelimits 60 --seeds 20260710 --feature assignment_backend=gurobi --run-id 20260713T080916Z-s4-01-assignment-v2
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T075708Z-s4-01/red.txt
+  green_evidence: targeted S4-01 test GREEN; full discovery 80/80 GREEN
+  checker_result: BLOCKED; the benchmark wrote 10 terminal records and 10 failure records, including assignment-membership/parity failures and a prob_29 Stage 2 checker rejection, before summary aggregation raised TypeError on a null relative-error value
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T080916Z-s4-01-assignment-v2/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: required benchmark exited 5 with "harness runtime failure: TypeError: float() argument must be a string or a real number, not 'NoneType'"; source and harness were not edited after failure, the matrix was not rerun, and no later required command was started
+  feature_default_decision: assignment_refinement=false; no S4 behavior is integrated into entry and the verified S3 path remains the rollback state
+  next_action: in a fresh S4-01 recovery task, diagnose the preserved terminal records and incomplete run without using --rerun; do not start S4-02
+```
+
+```yaml
+- timestamp: 2026-07-13T17:54:41+09:00
+  stage: S4
+  slice: S4-01
+  old_status: BLOCKED
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: true
+  commands:
+    - read docs/fable/implementation-slice-session-prompt.md, docs/fable/fable-native-implementation-progress.md, docs/fable/implementation-steps/s4-assignment-refinement.md, and all prescribed blocked-run evidence completely
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - git status --short --branch
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c 'from baseline.harness.runner import repository_provenance; print(repository_provenance())'
+    - cmp -s benchmarks/evidence/s4/benchmark/20260713T080916Z-s4-01-assignment-v2/records.jsonl benchmarks/evidence/s4/benchmark/20260713T080916Z-s4-01-assignment-v2/failures.jsonl
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T075708Z-s4-01/red.txt
+  green_evidence: null
+  checker_result: BLOCKED; preserved evidence independently confirms assignment-membership/parity failures for v1/v2, a prob_29 official-checker Stage 2 rejection, and null-unsafe summary aggregation after 10 terminal failed records
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T080916Z-s4-01-assignment-v2/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: recovery audit complete; branch, local HEAD, and upstream match c0da4a7971c57b85066f2610ead9b68d6305fe65; the dirty paths are limited to the recorded S4-01 source, harness, test, and progress files; failed-run commit and dirty hash 439f51324dc533597fd11a8af496927ac89941ca423f68d1933530d98d898850 match run.json; current dirty hash differs only after the required recorded BLOCKED progress append; the terminal run must not be resumed or rerun
+  feature_default_decision: assignment_refinement=false; S3 remains the verified runtime fallback and no S4 entry integration is authorized
+  next_action: add focused behavioral regressions for fixed-assignment construction, the prob_29-equivalent Stage 2 failure, and null-safe failed-summary handling, then demonstrate intended RED before source edits
+```
+
+```yaml
+- timestamp: 2026-07-13T18:00:32+09:00
+  stage: S4
+  slice: S4-01
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker tests.test_assignment_refinement.AssignmentV2Tests.test_fixed_assignment_construction_never_falls_back_to_another_bay tests.test_assignment_refinement.AssignmentV2Tests.test_checker_roundoff_contact_is_avoided_by_fixed_construction tests.test_assignment_refinement.AssignmentV2Tests.test_failed_checker_summary_is_null_safe_and_nonzero -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_fixed_assignment_construction_never_falls_back_to_another_bay tests.test_assignment_refinement.AssignmentV2Tests.test_checker_roundoff_contact_is_avoided_by_fixed_construction tests.test_assignment_refinement.AssignmentV2Tests.test_failed_checker_summary_is_null_safe_and_nonzero -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/full-discovery.txt
+  checker_result: PASS; the exact targeted S4-01 test, fixed-membership regression, synthetic prob_29-equivalent Stage 2 roundoff-contact regression, null-safe failed-summary regression, and all 83 discovered tests passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: recorded blocker resolved in targeted evidence; proof construction serializes each bay while preserving the proposed bay and orientation, so v1/v2 checker Z2/Z3 prove the actual proposals; checker-failed records retain null metrics in a structured failed summary and exit 3
+  feature_default_decision: assignment_refinement=false; recovered S4-01 remains proof-only and disconnected from entry, with S3 as the verified runtime fallback
+  next_action: record the fresh benchmark identity and run the required high-w23 assignment-v2 benchmark exactly once with a new named run ID
+```
+
+```yaml
+- timestamp: 2026-07-13T18:01:47+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add exact-float Gurobi assignment v2
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component assignment_v2 --instances high-w23 --timelimits 60 --seeds 20260710 --feature assignment_backend=gurobi --run-id 20260713T090032Z-s4-01-assignment-v2-recovery
+    - verify benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/full-discovery.txt
+  checker_result: PASS; 10/10 high-w23 v1 and v2 proof states reached official checker Stage 5, including prob_29, with proposed membership preserved and exact 0.0 relative Z2/Z3 error
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-01 is complete as a pure Gurobi proposal/proof component, remains disconnected from entry, and S3 remains the verified runtime fallback
+  next_action: clean processes and temporary artifacts, audit and stage only S4-01 files, commit and push, verify clean upstream equality, then create the S4-02 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T18:03:00+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: true
+  commands:
+    - ps aux
+    - pgrep -fl 'baseline\.harness|gurobi|cpsat|test_assignment_refinement'
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/full-discovery.txt
+  checker_result: PASS before cleanup; 10/10 benchmark records reached Stage 5 with exact proposal membership and 0.0 Z2/Z3 relative error
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/BLOCKED.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: strict recovery failure rule triggered because the cleanup process-audit command exited 3 with "sysmon request failed with error: sysmond service not found" and "pgrep: Cannot get process list"; it was not rerun and no later closeout command was started
+  feature_default_decision: assignment_refinement=false; S3 remains the verified runtime fallback; the passing S4-01 implementation and benchmark are preserved uncommitted
+  next_action: in a fresh S4-01 closeout task, audit processes using a supported process-table command without rerunning the completed benchmark; if cleanup passes, audit/stage the preserved S4-01 diff, commit, push, verify clean upstream equality, and only then create the S4-02 task
+```
+
+```yaml
+- timestamp: 2026-07-13T18:30:55+09:00
+  stage: S4
+  slice: S4-01
+  old_status: BLOCKED
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: c0da4a7971c57b85066f2610ead9b68d6305fe65
+  dirty: true
+  commands:
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/{COMPLETE,gate.json,summary.json}
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c repository_provenance
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T075708Z-s4-01/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/full-discovery.txt
+  checker_result: BLOCKED at preflight; S3 is recorded COMPLETE with gate PASS and local HEAD equals upstream, but the worktree has nine preserved S4-01 modified/untracked paths
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/; benchmarks/evidence/s4/s4-01/20260713T183055Z-s4-01-preflight/BLOCKED.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: explicit orchestration prerequisite requires a clean worktree before starting S4-01; current dirty diff hash before this required progress append was 54d242c3a7c4cc96b0d7d1fd59019ea2b1374c95cf39171065e1abfa96d7f893
+  feature_default_decision: assignment_refinement=false; S3 remains the verified runtime fallback; no test, matrix, source/harness edit, commit, push, or next task was performed
+  next_action: supply a clean worktree or explicitly authorize closeout from the preserved dirty S4-01 state; never rerun the already complete benchmark for this code identity
+```
+
+```yaml
+- timestamp: 2026-07-13T18:37:42+09:00
+  stage: S4
+  slice: S4-01
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add exact-float Gurobi assignment v2
+  dirty: true
+  commands:
+    - ps aux
+    - git status --short --branch
+    - git diff --stat; git diff --name-only; git ls-files --others --exclude-standard
+    - git diff --check
+    - git rev-parse HEAD; git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c repository_provenance
+    - inspect benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/full-discovery.txt
+  checker_result: PASS from preserved completed evidence; 10/10 high-w23 records reached official checker Stage 5 with exact proposal membership and 0.0 relative Z2/Z3 error
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the user explicitly authorized closeout from the preserved dirty S4-01 state; supported ps aux process-table inspection exited 0 with no baseline harness, Gurobi, CP-SAT, or assignment-refinement test process; the worktree contains exactly the recorded eight implementation/test files plus this progress document; HEAD and upstream remain c0da4a7971c57b85066f2610ead9b68d6305fe65; git diff --check passed; the completed benchmark was not rerun
+  feature_default_decision: assignment_refinement=false; S4-01 remains proof-only and disconnected from entry, with S3 as the verified runtime fallback
+  next_action: record COMPLETE, stage only the nine audited S4-01 paths, create the planned atomic commit, push, and verify clean upstream equality
+```
+
+```yaml
+- timestamp: 2026-07-13T18:38:30+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add exact-float Gurobi assignment v2
+  dirty: true
+  commands:
+    - git diff --check
+    - git status --short --branch
+    - git diff --name-only
+    - git ls-files --others --exclude-standard
+  red_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/full-discovery.txt
+  checker_result: PASS; preserved targeted recovery tests passed 4/4, full discovery passed 83/83, and 10/10 high-w23 v1/v2 proof states reached official checker Stage 5 with exact proposal membership and 0.0 relative Z2/Z3 error
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T090032Z-s4-01-assignment-v2-recovery/; benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-01 adds only the pure exact-float Gurobi assignment proposal/proof and remains disconnected from entry; S3 remains the verified runtime fallback
+  next_action: create and push exactly one atomic commit for the nine audited S4-01 paths, verify local HEAD equals upstream with a clean worktree, then S4-02 is eligible
+```
+
+```yaml
+- timestamp: 2026-07-13T18:44:15+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S4-02\\b' docs/fable/implementation-steps/s4-assignment-refinement.md
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/{COMPLETE,gate.json}
+    - inspect benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/{COMPLETE,summary.json}
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 adds only scaled CP-SAT proposal fallback, exact-float post-evaluation, and greedy v1 fallback without entry integration, cross-bay search, or later-stage behavior
+  next_action: add tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float and demonstrate the intended missing fallback RED
+```
+
+```yaml
+- timestamp: 2026-07-13T18:48:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float -v
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.assign has no choose_assignment_candidate fallback API
+  feature_default_decision: assignment_refinement=false; no S4-02 backend or selector implementation exists yet
+  next_action: implement the scaled CP-SAT assignment adapter, overflow preflight, normalized fallback selection, exact-float post-evaluation, and greedy v1 preservation
+```
+
+```yaml
+- timestamp: 2026-07-13T19:10:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/assign.py baseline/solver/cpsat_backend.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_assignment_refinement.py
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt
+  checker_result: targeted GREEN; scaled CP-SAT solve, Gurobi-to-CP-SAT fallback, both-fault greedy preservation, unsafe-scale fallback, and exact-float Z2 rejection all passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 remains a proof/fallback component and is not integrated into entry
+  next_action: run the exact full unittest regression, then the named example fallback checker stress if regression passes
+```
+
+```yaml
+- timestamp: 2026-07-13T19:12:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression.txt
+  checker_result: PASS; all 86 discovered tests passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; no entry integration or S4-03 behavior is enabled
+  next_action: record the named S4-02 stress identity and launch the example three-fault checker stress exactly once
+```
+
+```yaml
+- timestamp: 2026-07-13T19:20:00+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 23598f19ca7af26402475dc72beffb9e7c1aeec6
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances example --timelimits 12 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260713T101300Z-s4-02-fallback-stress
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression-final.txt
+  checker_result: PASS on historical pre-audit identity; 3/3 example fault records were Stage 5 feasible, never worse, exact-Z2 non-regressing, and membership preserving
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/stress/20260713T101300Z-s4-02-fallback-stress/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: post-run safety audit found the summed per-bay CP-SAT demand domain was not explicitly included in overflow preflight; the preflight and regression were tightened, so the completed prior stress is historical-only and will not be reused as current-code proof
+  feature_default_decision: assignment_refinement=false; current exact-once tests pass 86/86 and no entry integration or later-slice behavior is enabled
+  next_action: record a fresh named stress identity for the changed dirty hash and run the same required example fault proof once for current code
+```
+
+```yaml
+- timestamp: 2026-07-13T18:53:43+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add safe assignment fallbacks
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentFallbackTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances example --timelimits 12 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260713T102100Z-s4-02-fallback-stress-final
+    - ps aux
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression-final.txt
+  checker_result: PASS; current-code stress produced 3/3 Stage 5 feasible records with zero never-worse, exact-Z2, assignment-membership, or unverified-return failures; Gurobi fault selected CP-SAT and both faults preserved greedy v1
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 COMPLETE as a scaled CP-SAT and greedy fallback component with exact-float post-evaluation; no entry integration, S4-03 cross-bay behavior, or S4 full gate was started
+  evidence_note: the immediately preceding rows labeled 19:10, 19:12, and 19:20 were appended during this same session with future wall-clock labels; this row preserves the append-only record and corrects the audit chronology using the actual command/evidence timestamps
+  next_action: stage only the six audited S4-02 files, commit feat(s4): add safe assignment fallbacks, push, verify clean upstream equality, then create the S4-03 task without implementing it here
+```
+
+```yaml
+- timestamp: 2026-07-13T18:54:21+09:00
+  stage: S4
+  slice: S4-02
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add safe assignment fallbacks
+  dirty: true
+  commands:
+    - verify benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/{COMPLETE,summary.json}
+    - verify benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/{COMPLETE,summary.json,records.jsonl,failures.jsonl}
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/green-targeted.txt; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/full-regression-final.txt
+  checker_result: PASS; all S4-02 behavioral, regression, checker, fallback, exact-float, overflow, and cleanup criteria passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/; benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; S4-02 COMPLETE and S4-03 remains unstarted
+  next_action: create and push the single atomic S4-02 commit, verify clean upstream equality, then create exactly one S4-03 task
+```
+
+```yaml
+- timestamp: 2026-07-13T18:58:22+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S4-03\\b' docs/fable/implementation-steps/s4-assignment-refinement.md
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/COMPLETE
+    - inspect benchmarks/evidence/s4/s4-01/20260713T090032Z-s4-01-recovery/COMPLETE
+    - inspect benchmarks/evidence/s4/s4-02/20260713T094415Z-s4-02/COMPLETE
+    - inspect benchmarks/evidence/s4/stress/20260713T102100Z-s4-02-fallback-stress-final/COMPLETE
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S4-03 adds only guarded move/swap/D6 refinement and does not integrate entry, run the S4 full gate, or add S5/S6 behavior
+  next_action: add tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta and demonstrate the intended missing cross-bay registry RED
+```
+
+```yaml
+- timestamp: 2026-07-13T18:59:59+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta -v
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.alns has no CrossBayRegistry and the S4-only move/swap/D6 guarded transaction API is absent
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S3 OperatorRegistry remains unchanged
+  next_action: implement the minimum S4-only cross-bay registry, exact-float candidate ranking, two-bay repair/retime transaction, checker-gated incumbent update, and exact rollback
+```
+
+```yaml
+- timestamp: 2026-07-13T19:06:00+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_successful_move_and_swap_are_fully_checked -v
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt
+  checker_result: PASS; successful synthetic move and swap each reached official checker Stage 5, and injected repair, retime, and full-check faults preserved the exact pre-candidate state and incumbent SHA
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; exact Z2/Z3 is the primary ranking key, measured congestion is tie-breaking telemetry only, and only VerifiedIncumbent.try_update can authorize replacement
+  next_action: extend the S4 harness for the exact named cross_bay benchmark, then run targeted S4-03 and S3 regressions before the full suite
+```
+
+```yaml
+- timestamp: 2026-07-13T19:04:35+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: PASS; 3/3 S4-03 tests, 12/12 S3 regression tests, and 89/89 full discovery tests passed; synthetic move and swap reached Stage 5 and all injected failure boundaries restored exact state/incumbent SHA
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; entry integration and the S4 full gate remain unstarted
+  next_action: record the exact named benchmark identity and launch the required high-w23 cross-bay benchmark once
+```
+
+```yaml
+- timestamp: 2026-07-13T19:04:35+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component cross_bay --instances high-w23 --timelimits 60 --seeds 20260710 --feature cross_bay=true --run-id 20260713T100435Z-s4-03-cross-bay
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: pending named benchmark
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/benchmark-launch.json; pending benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false
+  run_identity: run_id=20260713T100435Z-s4-03-cross-bay; commit=239d5fe57519db002e3521a832149ab8f3f7ea45; dirty_diff_hash=efd8f44b7c77bf9517471b9a97d998a99a6fab51b10396285bb15f8e27fcdc5b; selector=high-w23; expected_record_count=10; timelimits=60; seeds=20260710; features=cross_bay=true
+  next_action: launch the named benchmark exactly once; if it exits nonzero, record the exact failure and stop without edits or rerun
+```
+
+```yaml
+- timestamp: 2026-07-13T19:07:56+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 239d5fe57519db002e3521a832149ab8f3f7ea45
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component cross_bay --instances high-w23 --timelimits 60 --seeds 20260710 --feature cross_bay=true --run-id 20260713T100435Z-s4-03-cross-bay
+    - inspect benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+    - ps aux
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: PASS; 10/10 high-w23 records reached official checker Stage 5 with zero checker failures and zero unverified returns
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/summary.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; 10/10 moves and 10/10 swaps were attempted, 9 moves and 9 swaps were accepted, D6 recorded 20 attempts, and 40 affected-bay S2 retime calls completed; S4-04 owns entry integration and default selection
+  next_action: finish cleanup and selected-slice diff/evidence audits, record S4-03 COMPLETE, then commit and push only S4-03
+```
+
+```yaml
+- timestamp: 2026-07-13T19:09:00+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: fable-native-implementation
+  commit: pending atomic commit feat(s4): add guarded cross-bay refinement
+  dirty: true
+  commands:
+    - verify benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/{COMPLETE,red.txt,green-targeted.txt,regression.txt,summary.json}
+    - verify benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+    - ps aux
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - git status --short --branch
+    - git diff --stat
+    - git diff --name-only
+    - git ls-files --others --exclude-standard
+  red_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/regression.txt
+  checker_result: PASS; synthetic move and swap reached official checker Stage 5; repair, retime, and full-check fault injection preserved the exact pre-candidate state and incumbent SHA; 10/10 benchmark records were Stage 5 feasible
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260713T100435Z-s4-03-cross-bay/; benchmarks/evidence/s4/s4-03/20260713T095822Z-s4-03/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S4-03 COMPLETE as a guarded proof/search component with exact-float ranking, two-bay S2 retiming, and checker-only incumbent replacement; S4-04 remains unstarted and owns integration/default/gate decisions
+  next_action: stage only the five audited S4-03 tracked files, commit feat(s4): add guarded cross-bay refinement, push, verify clean upstream equality, then create exactly one S4-04 task
+```
+
+```yaml
+- timestamp: 2026-07-13T19:12:07+09:00
+  stage: S4
+  slice: S4-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: false
+  commands:
+    - git fetch origin
+    - git status --short --branch
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python --version
+    - rg -c '^### S4-04\\b' docs/fable/implementation-steps/s4-assignment-refinement.md
+    - inspect benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/{COMPLETE,gate.json,summary.json}
+    - inspect S4-01, S4-02, and S4-03 COMPLETE markers and summaries
+    - inspect commits 23598f19ca7af26402475dc72beffb9e7c1aeec6, 239d5fe57519db002e3521a832149ab8f3f7ea45, and 388db7b27eda189e69140520548fc00362fba3f3
+  red_evidence: null
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false until the exact S4 gate demonstrates the preregistered paired gain and safety rules; S3 remains the verified fallback
+  next_action: add tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_failure_keeps_s3 and demonstrate the intended missing entry branch RED
+```
+
+```yaml
+- timestamp: 2026-07-13T19:12:44+09:00
+  stage: S4
+  slice: S4-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_failure_keeps_s3 -v
+  red_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/red.txt
+  green_evidence: null
+  checker_result: null
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: intended RED confirmed with exit 1 solely because solver.entry.solve has no _assignment_refinement argument or guarded S4 entry branch
+  feature_default_decision: assignment_refinement=false; cross_bay=false until paired evidence passes the unchanged full S4 gate; S3 remains the verified fallback
+  next_action: implement the minimum guarded assignment-v2 construction seed, post-S3 cross-bay refinement, feature flags, telemetry, and exact S4 harness gate support
+```
+
+```yaml
+- timestamp: 2026-07-13T19:20:45+09:00
+  stage: S4
+  slice: S4-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_failure_keeps_s3 -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry tests.test_assignment_refinement -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/config.py baseline/solver/construct.py baseline/solver/entry.py baseline/harness/runner.py baseline/harness/cli.py baseline/harness/gates.py baseline/tests/test_budget_entry.py baseline/tests/test_assignment_refinement.py
+  red_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/green-targeted.txt
+  checker_result: PASS; injected S4 failure returned the verified S3 incumbent and enabled integration remained official-checker Stage 5 feasible
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: candidate defaults enable the already-passed S3 path plus assignment-v2 and guarded cross-bay refinement; no success commit is allowed unless the unchanged paired S4 gate passes
+  next_action: verify the final full-gate CLI/selector/paired semantics, then run each exact S4 full-gate command once for this source identity
+```
+
+```yaml
+- timestamp: 2026-07-13T19:21:10+09:00
+  stage: S4
+  slice: S4-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+  red_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/green-targeted.txt; benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/full-discovery.txt
+  checker_result: PASS; exact-once full discovery passed 91/91
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: candidate defaults remain contingent on the unchanged S4 parity, paired A/B, fault, and gate criteria
+  next_action: record and launch the named 100-case high-w23 assignment objective parity run exactly once
+```
+
+```yaml
+- timestamp: 2026-07-13T19:24:03+09:00
+  stage: S4
+  slice: S4-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260713T102125Z-s4-04-objective-parity
+    - inspect benchmarks/evidence/s4/parity/20260713T102125Z-s4-04-objective-parity/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+  red_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/green-targeted.txt; benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/full-discovery.txt
+  checker_result: PASS; assignment objective parity passed 100/100 high-w23 cases with zero mismatches, zero unverified returns, and zero Z2 or Z3 relative error
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/parity/20260713T102125Z-s4-04-objective-parity/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: candidate defaults remain contingent on the exact paired high-w23 and training A/B, backend-fault stress, and final S4 gate
+  run_identity: run_id=20260713T102125Z-s4-04-objective-parity; commit=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=6cb7814c7062fc75d368c825779b87dae0c514fb65cf868097fffa77f312e3bd; selector=high-w23; expected_record_count=100; cases=100; seed=20260710; features=component=assignment
+  next_action: record and launch the exact named high-w23 paired A/B run once for the current code identity
+```
+
+```yaml
+- timestamp: 2026-07-13T21:27:13+09:00
+  stage: S4
+  slice: S4-04
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260713T102419Z-s4-04-high-w23-ab
+    - inspect benchmarks/evidence/s4/ab/20260713T102419Z-s4-04-high-w23-ab/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+  red_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/red.txt
+  green_evidence: benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/green-targeted.txt; benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/full-discovery.txt
+  checker_result: PASS for feasibility/safety within this matrix; 160/160 records were checker-feasible, zero returns were unverified, and Z2 regression count was zero
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/parity/20260713T102125Z-s4-04-objective-parity/; benchmarks/evidence/s4/ab/20260713T102419Z-s4-04-high-w23-ab/
+  gate_decision: NOT_RUN; the required preceding high-w23 A/B command exited 2, so training A/B, backend-fault stress, gate, and report were not launched
+  failure_or_fallback_reason: exact measured gate failure: status=failed, exit_code=2, record_count=160/160, feasible_count=160, regression_count=11 (required zero), improved_count=2/10 (required at least 5/10), selected_assignment_refinement=false; median improved from 55945685.12823115 to 54934678.57280795 and cross_bay_accepted=7, but those passing criteria cannot override the two failed comparison rules
+  feature_default_decision: assignment_refinement=false; cross_bay=false; retain the verified S3 fallback and do not commit or push the blocked S4-04 candidate
+  run_identity: run_id=20260713T102419Z-s4-04-high-w23-ab; commit=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=a85522e43f27161e9657174401afe561a5a645b2d1206d12459c695bfd8361eb; selector=high-w23; expected_record_count=160; timelimits=60,300; seeds=20260710,20260711; orderings=forward,reverse; features=assignment_refinement false/true
+  next_action: stop this task BLOCKED; do not rerun this matrix for the same code identity, do not launch later S4 commands, do not commit or push, and do not create an S5 task
+```
+
+```yaml
+- timestamp: 2026-07-13T21:55:01+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-01
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - git fetch origin
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - git status --porcelain=v1 --untracked-files=no
+    - ps aux filtered for baseline.harness, unittest, Gurobi, and CP-SAT
+    - verify benchmarks/evidence/s4/parity/20260713T102125Z-s4-04-objective-parity/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+    - verify benchmarks/evidence/s4/ab/20260713T102419Z-s4-04-high-w23-ab/{COMPLETE,run.json,records.jsonl,failures.jsonl,summary.json}
+    - verify benchmarks/evidence/s4/s4-04/20260713T101207Z-s4-04/blocker.json
+  red_evidence: null
+  green_evidence: null
+  checker_result: preflight PASS; parity is complete and uninterrupted at 100/100 records, failed A/B is complete and uninterrupted at 160/160 records, and no old harness/backend/test process is active
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the recorded recovery condition is verified exactly; branch, local HEAD, and upstream equal 388db7b27eda189e69140520548fc00362fba3f3, and the dirty tracked set is exactly the nine expected preserved S4-04 paths; current pre-append diff hash 98bded9ad3210899106e388906babd3d183023f04b7292bc6bd4156e9b09677a differs from the failed-run identity only through required append-only progress history after the run
+  feature_default_decision: assignment_refinement=false; cross_bay=false; all thresholds, selectors, comparison rules, checker rules, safety rules, and evidence rules remain unchanged
+  next_action: run the four prescribed read-only audits in parallel, reconcile their findings, then add focused recovery RED tests before production edits
+```
+
+```yaml
+- timestamp: 2026-07-13T22:07:00+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_assignment_seed_starts_from_verified_incumbent_not_mutable_current tests.test_assignment_refinement.CrossBayTests.test_cross_bay_tries_next_ranked_candidate_and_preserves_rejected_state tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_enforces_paired_gain_and_z2_safety tests.test_assignment_refinement.AssignmentV2Tests.test_cpsat_normalizes_large_objective_weights_before_int64_preflight tests.test_alns.AnytimeTests.test_partial_epoch_restores_previous_verified_checkpoint tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_failure_keeps_s3 -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/red-result.json
+  green_evidence: null
+  checker_result: expected RED confirmed; exit 1 across six focused tests with four assertion failures and one expected overflow error, while the controlled feature-false/true S3-preservation control passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: missing verified-incumbent S4 seed, next-ranked cross-bay iteration, real-schema paired Z2/S3-floor enforcement, safe normalized CP-SAT coefficients, and completed-checkpoint-only ALNS publication were each reproduced before production recovery edits
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=85d09beea0bb8d8ba69357d2c6dd82138c217baf19a2339a866b0f35c1269191; expected=FAIL
+  next_action: implement the minimum reconciled solver and evidence corrections, then run the identical focused command once for GREEN
+```
+
+```yaml
+- timestamp: 2026-07-13T22:13:17+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-01
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_assignment_seed_starts_from_verified_incumbent_not_mutable_current tests.test_assignment_refinement.CrossBayTests.test_cross_bay_tries_next_ranked_candidate_and_preserves_rejected_state tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_enforces_paired_gain_and_z2_safety tests.test_assignment_refinement.AssignmentV2Tests.test_cpsat_normalizes_large_objective_weights_before_int64_preflight tests.test_alns.AnytimeTests.test_partial_epoch_restores_previous_verified_checkpoint tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_failure_keeps_s3 -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T125501Z-s4-04-recovery/green-result.json
+  checker_result: BLOCKED; required GREEN exited 1 after five focused tests passed and tests.test_assignment_refinement.AssignmentV2Tests.test_cpsat_normalizes_large_objective_weights_before_int64_preflight raised OverflowError
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN; directly affected regressions, full discovery, parity, A/B, stress, gate, and report were not launched after the required GREEN failure
+  failure_or_fallback_reason: CP-SAT objective normalization correctly refused to erase a positive coefficient, but the synthetic GREEN fixture expected the normalized model to remain representable; exact exception was "unsafe CP-SAT assignment normalization loses a positive objective coefficient"
+  feature_default_decision: assignment_refinement=false; cross_bay=false; retain the verified S3 fallback; the dirty recovery candidate is not eligible for commit or push
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=9dccdc847a6dec1b2ab5727301217a00442fc448ee654a092b69f52569cd7047; green_exit_code=1
+  next_action: stop this recovery BLOCKED without source/harness edits, reruns, later commands, commit, push, or S5
+```
+
+```yaml
+- timestamp: 2026-07-13T23:32:54+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-02
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - read docs/fable/fable-native-implementation-progress.md, docs/fable/implementation-steps/s4-assignment-refinement.md, docs/fable/implementation-slice-session-prompt.md, and the complete preserved 15-path candidate diff
+    - git fetch origin
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - git status --porcelain=v1 --untracked-files=no
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c repository_provenance
+    - parse and SHA-256 all S4-04-RECOVERY-01 JSON evidence
+    - ps auxww filtered for fable-native-implementation, baseline.harness, unittest, Gurobi, and CP-SAT
+  red_evidence: null
+  green_evidence: null
+  checker_result: preflight PASS; branch, local HEAD, upstream, exact 15-path tracked dirty set, and full dirty-diff hash match the recorded recovery entry, all five old recovery JSON files are present and unchanged, and no old harness/test/backend process is active
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the new recovery identity is explicitly authorized to replace only the failed adaptive coefficient-scaling behavior; all old recovery identities and evidence remain immutable
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_append_dirty_diff_hash=f56513ea3648a52f1ec32f4d0adbe818dba0289d9fb9b935cb093a691279bad9
+  next_action: collect and reconcile the three prescribed read-only recovery audits before adding the focused RED tests
+```
+
+```yaml
+- timestamp: 2026-07-13T23:39:11+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - read-only cpsat-adaptive-scale-auditor source, synthetic, and high-w23 coefficient preflight
+    - read-only cpsat-fallback-contract-auditor source and negative/fallback audit
+    - read-only recovery-gate-integrity-auditor complete preserved-diff and full-gate audit
+  red_evidence: null
+  green_evidence: null
+  checker_result: audit PASS; the failed synthetic coefficients (100000000,100,1) are representable at common coefficient scale 50000001 with quantized coefficients (50000001,50,1), exact objective upper bound 100000002000000, and extraction factor N/(D*K); all 10 preregistered high-w23 requests remain safe at preferred coefficient scale 1000000
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/audits.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: current CP-SAT code conflates the 1000000 data and coefficient scales, uses max(1.0, positives) instead of the maximum positive coefficient normalizer rule, and retains N/D^2 extraction; no gate-integrity change is needed or permitted
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  next_action: add the four prescribed focused tests, record the new RED identity, and run the exact targeted RED command once
+```
+
+```yaml
+- timestamp: 2026-07-13T23:44:02+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-02
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_cpsat_adaptive_scale_preserves_positive_coefficients tests.test_assignment_refinement.AssignmentFallbackTests.test_cpsat_unrepresentable_objective_scale_falls_back tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float tests.test_assignment_refinement.AssignmentFallbackTests.test_cpsat_assignment_model_and_unsafe_scaling_fallback -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/red-result.json
+  green_evidence: null
+  checker_result: expected RED confirmed; exit 1 with exactly one behavioral assertion failure in test_cpsat_adaptive_scale_preserves_positive_coefficients, while the three unrepresentable/fallback/float-recheck/domain-overflow controls passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the current fixed coefficient scale 1000000 erases the positive normalized congestion coefficient in a mathematically representable request
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=772f4c0342a10da03e212af5b6251c32323ba99fab69f56f9a4d88b287478ab5; red_exit_code=1
+  next_action: implement the minimum separate deterministic coefficient scale and mathematically consistent objective/bound extraction
+```
+
+```yaml
+- timestamp: 2026-07-13T23:45:42+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-02
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_cpsat_adaptive_scale_preserves_positive_coefficients tests.test_assignment_refinement.AssignmentFallbackTests.test_cpsat_unrepresentable_objective_scale_falls_back tests.test_assignment_refinement.AssignmentFallbackTests.test_scaled_candidate_rechecked_as_float tests.test_assignment_refinement.AssignmentFallbackTests.test_cpsat_assignment_model_and_unsafe_scaling_fallback -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_exact_backends tests.test_alns tests.test_budget_entry -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/green-result.json
+  checker_result: BLOCKED; targeted GREEN passed 4/4, but the exact-once directly affected regression exited 1 after 43/44 tests passed and tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix failed with AssertionError 30 != 6
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/regression-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T143254Z-s4-04-recovery02/regression-result.json
+  gate_decision: NOT_RUN; full discovery, review, parity, A/B, stress, gate, and report were not launched after the required regression failure
+  failure_or_fallback_reason: required directly affected regression failure at code identity 1874ae58970ccc4c1134175082ddd65d2c177e22a437cbbcd8de70addab55652; the 300-budget ALNS prefix produced 6 events rather than the expected 30
+  feature_default_decision: assignment_refinement=false; cross_bay=false; retain the verified S3 fallback and do not treat the dirty experimental candidate as selected
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=1874ae58970ccc4c1134175082ddd65d2c177e22a437cbbcd8de70addab55652; green_exit_code=0; regression_exit_code=1
+  next_action: stop S4-04-RECOVERY-02 BLOCKED without source/harness/test edits, reruns, later commands, commit, push, another automatic recovery, or S5
+```
+
+```yaml
+- timestamp: 2026-07-13T23:55:44+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - read docs/fable/fable-native-implementation-progress.md, docs/fable/implementation-steps/s4-assignment-refinement.md, docs/fable/implementation-slice-session-prompt.md, the complete preserved 15-path candidate diff, and all RECOVERY-01/RECOVERY-02 JSON evidence
+    - git fetch origin
+    - git branch --show-current
+    - git rev-parse HEAD
+    - git rev-parse '@{upstream}'
+    - git status --porcelain=v1 --untracked-files=no
+    - git diff --binary --no-ext-diff | shasum -a 256
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -c repository_provenance
+    - parse and SHA-256 all S4-04-RECOVERY-01 and S4-04-RECOVERY-02 JSON evidence
+    - ps auxww filtered for baseline.harness, unittest, Gurobi, and CP-SAT
+  red_evidence: null
+  green_evidence: null
+  checker_result: preflight PASS; branch, local HEAD, upstream, exact 15-path tracked dirty set, and full dirty-diff hash match the recorded recovery entry; all 13 old recovery JSON files are present and parseable, RECOVERY-01 hashes match its frozen manifest, RECOVERY-02 identities and terminal results are consistent, and no old harness/test/backend process is active
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the new recovery identity is explicitly authorized to investigate only the RECOVERY-02 ALNS prefix regression; every old recovery identity and evidence file remains immutable
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_append_dirty_diff_hash=935d8e190f414034904cdaa94afef4e89cfdf79e99569581f358d26a847a0c94
+  next_action: collect and reconcile the three prescribed read-only ALNS/recovery audits before launching the exact focused RED command
+```
+
+```yaml
+- timestamp: 2026-07-14T00:01:10+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - read-only alns-epoch-boundary-auditor source and deadline/transaction audit
+    - read-only alns-test-contract-auditor fake-clock and assertion audit
+    - read-only recovery-scope-auditor complete preserved-diff, RECOVERY-02 scaling, and gate-integrity audit
+  red_evidence: null
+  green_evidence: null
+  checker_result: audit PASS; the sixth callback at exactly 60 seconds is emitted before the acceptance checkpoint, official checker, incumbent update, and transaction commit, so it is deadline-truncated and mandatory whole-epoch rollback is correct
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/audits.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the legacy prefix fixture advances 6x10 seconds and unintentionally lands its final proposal exactly on the incomplete-decision boundary; the separate 3x20-second partial-epoch fixture intentionally models that boundary and remains unchanged
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate; RECOVERY-02 adaptive CP-SAT scaling remains intact
+  next_action: record the focused RED identity and run the exact two-test command once; require the 30-versus-6 mismatch with the partial-epoch rollback test passing
+```
+
+```yaml
+- timestamp: 2026-07-14T00:01:56+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix tests.test_alns.AnytimeTests.test_partial_epoch_restores_previous_verified_checkpoint -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-result.json
+  green_evidence: null
+  checker_result: valid RED confirmed; exit 1 with only tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix failing AssertionError 30 != 6, while tests.test_alns.AnytimeTests.test_partial_epoch_restores_previous_verified_checkpoint passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the legacy 10-second callback reaches the 60-second equality boundary after emitting its sixth proposal but before checking or commit, causing correct whole-epoch rollback and preventing the 300-second run from reaching later epochs
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=d7fd75ff5ed85317b2eeaaeea6ad199482e086e2a15504a75a3412017acc4300; red_exit_code=1
+  next_action: change only the legacy prefix-test callback from 10.0 to 9.0 seconds, preserving the 6/30 expectations and the separate partial-epoch rollback test, then run the identical command once for GREEN
+```
+
+```yaml
+- timestamp: 2026-07-14T00:02:38+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns.AnytimeTests.test_300_budget_contains_60_prefix tests.test_alns.AnytimeTests.test_partial_epoch_restores_previous_verified_checkpoint -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-result.json
+  checker_result: targeted GREEN; both focused ALNS tests passed, preserving 6 committed decisions for 60 seconds, 30 for 300 seconds, completed-epoch prefix consistency, and whole-partial-epoch state/incumbent/RNG rollback
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate; production ALNS and RECOVERY-02 scaling are unchanged by the fixture correction
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=5a2d43d71e322d365a964df212358215eaaf57a2eaca36994c2d2488dddeba5c; green_exit_code=0
+  next_action: record and run the exact directly affected 44-test regression once; any nonzero result is terminal for RECOVERY-03
+```
+
+```yaml
+- timestamp: 2026-07-14T00:03:16+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_exact_backends tests.test_alns tests.test_budget_entry -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-result.json
+  checker_result: PASS; the exact-once directly affected regression passed 44/44, including assignment refinement, exact backends, ALNS completed/partial epoch behavior, and entry fallback armor
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/regression-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/regression-result.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=045fd04321aac302d672f66830f997b6ee8b049360f9d7c280f52be85c0ccb4a; regression_exit_code=0
+  next_action: obtain a fresh read-only review of the complete diff for deadline/rollback safety, verified-incumbent integrity, CP-SAT scaling/extraction, test integrity, and unchanged S4 semantics; resolve findings before freezing the full-gate identity
+```
+
+```yaml
+- timestamp: 2026-07-14T00:11:30+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - fresh read-only deadline/incumbent audit of the complete 15-path candidate diff
+    - fresh read-only CP-SAT scaling and test-contract audit of the complete 15-path candidate diff
+    - fresh read-only S4 harness/gate/report semantics audit of the complete 15-path candidate diff
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-result.json
+  checker_result: fresh review found no CP-SAT or fixture defect; required fixes are limited to shared-budget rollback armor in assignment/retime/restart paths, the S4 assignment-v2 metric-key mismatch, deduplicated terminal-record handling, S4-only report identity enforcement, and stale progress state
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/fresh-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: unresolved review findings could permit post-deadline mutation or make valid S4 evidence fail for a schema-key mismatch; they must be corrected before freezing the full-gate identity
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; review_dirty_diff_hash=76dbba32b7f7d2b158f75e00f881aef38baf646de48ffdb079fa9038f514c480
+  next_action: apply the reconciled minimal review fixes, run git diff --check and immutable-file/evidence checks, then freeze one code identity for the exact-once full S4 gate sequence
+```
+
+```yaml
+- timestamp: 2026-07-14T00:13:34+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - apply the reconciled minimal review corrections to shared-budget rollback armor, the S4 assignment-v2 metric key, S4 deduplicated terminal status, S4-only report identity enforcement, and current progress state
+    - git diff --check
+    - git diff --exit-code HEAD -- baseline/utils.py baseline/baseline_greedy.py
+    - SHA-256 all immutable RECOVERY-01 and RECOVERY-02 JSON evidence and compare with the RECOVERY-03 preflight manifest
+    - inspect completed-epoch rollback, verified-incumbent checkpointing, adaptive CP-SAT common scaling and N/(D*K) extraction, the corrected 9-second prefix fixture, and the unchanged 20-second partial-epoch control
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-result.json
+  checker_result: review findings resolved; static diff check passes, the dirty set remains the exact authorized 15 paths, both protected checker/reference files are unchanged, old recovery evidence hashes match, and every RECOVERY-01/02/03 correction remains present
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/review-resolution.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; post_fix_pre_append_dirty_diff_hash=3e1d1929838c7e865765f8cf048b0a508f9152cdbbec49ca744b50a7fe925b71
+  next_action: perform the final static checks, freeze one HEAD plus dirty-diff identity and all exact run metadata, then launch full unittest discovery exactly once without tracked edits during the chain
+```
+
+```yaml
+- timestamp: 2026-07-14T04:48:07.467+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-03
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260713T151407Z-s4-04-recovery03-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260713T151407Z-s4-04-recovery03-high-w23-ab
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/green-result.json
+  checker_result: BLOCKED; full discovery passed 96/96 and objective parity passed 100/100 with zero mismatch and zero Z2/Z3 relative error, but the required exact-once high-w23 A/B command exited 2 and finalized status failed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/parity/20260713T151407Z-s4-04-recovery03-objective-parity/; benchmarks/evidence/s4/ab/20260713T151407Z-s4-04-recovery03-high-w23-ab/; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/high-w23-ab-result.json; benchmarks/evidence/s4/s4-04-recovery/20260713T145544Z-s4-04-recovery03/blocker.json
+  gate_decision: NOT_RUN; training A/B, fault stress, S4 gate, and S4 report were not launched after the terminal high-w23 A/B result
+  failure_or_fallback_reason: the exact frozen high-w23 A/B command returned terminal exit code 2 with summary status failed; RECOVERY-03 forbids inspecting/tuning through a later command, rerunning, or launching any later gate step
+  feature_default_decision: assignment_refinement=false; cross_bay=false; retain the verified S3 fallback and do not select the dirty S4 candidate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; frozen_dirty_diff_hash=e66b1a406900e3d8b6e1c7f9e1bd81345b80316388c2671c7b2822f2e494b2e0; full_discovery_exit_code=0; parity_exit_code=0; high_w23_ab_exit_code=2
+  next_action: stop S4-04-RECOVERY-03 BLOCKED without source/harness/test edits, tuning, reruns, later commands, commit, push, another automatic recovery, or S5
+```
+
+```yaml
+- timestamp: 2026-07-14T08:39:16+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - verify branch, HEAD, upstream, exact 15-path dirty set, current diff hash, protected files, old process absence, and immutable RECOVERY-01/02/03 evidence
+    - read-only S3 floor provenance audit
+    - read-only paired budget and branch-isolation audit
+    - read-only recovery scope and gate-integrity audit
+  red_evidence: null
+  green_evidence: null
+  checker_result: preflight and all three read-only audits PASS; RECOVERY-03 ran each arm as a separate full wall-clock-bounded solve even though assignment_refinement, assignment_v2, and cross_bay are first read only after ALNS
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/preflight.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/audits.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the two prob_32/tl300/seed20260711 comparisons used distinct official-checker-verified S3 SHA/objective floors; the existing checkpoint record and s4_input_solution telemetry also expose a mutable nested solution dictionary and are not sufficient paired evidence
+  feature_default_decision: assignment_refinement=false; cross_bay=false; preserve all RECOVERY-01/02/03 corrections and all existing S4 selectors, seeds, timelimits, records, thresholds, and gates
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_append_dirty_diff_hash=654d650ca492ac4d30bf50a4b4a997b1ce0a10ef8cddec05b418ec58083c58e5; recovery_run_id=20260713T233658Z-s4-04-recovery04
+  next_action: add the minimum focused tests for one shared S3 SHA/objective/Z2, original remaining-budget/reserve accounting, arm/order isolation, deliberate B regression rejection, and immutable checkpoint/telemetry evidence; record the exact focused command before launching RED once
+```
+
+```yaml
+- timestamp: 2026-07-14T08:42:22+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_enforces_paired_gain_and_z2_safety tests.test_assignment_refinement.CrossBayTests.test_paired_s4_ab_runs_s3_once_and_shares_verified_floor tests.test_assignment_refinement.CrossBayTests.test_forward_reverse_reconstruct_isolated_branches_and_rng tests.test_assignment_refinement.CrossBayTests.test_checkpoint_and_recorded_s3_floor_survive_branch_mutation tests.test_budget_entry.BudgetTests.test_s4_resume_uses_only_original_remaining_budget_and_reserve -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json
+  green_evidence: null
+  checker_result: NOT_RUN; five focused tests are recorded before launch and cover shared S3 SHA/objective/Z2, original remaining budget and reserve, isolated state/incumbent/RNG/telemetry, deliberate B regression rejection, and checkpoint mutation resistance
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_launch_dirty_diff_hash=7ccc433cc6938e5a030d8f273396a5bbeeca379039d4bb08987003d4b6d5cadc; red_launch_count=1
+  next_action: launch the recorded focused RED command exactly once; require a nonzero assertion-failure result before production implementation
+```
+
+```yaml
+- timestamp: 2026-07-14T08:42:47+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_enforces_paired_gain_and_z2_safety tests.test_assignment_refinement.CrossBayTests.test_paired_s4_ab_runs_s3_once_and_shares_verified_floor tests.test_assignment_refinement.CrossBayTests.test_forward_reverse_reconstruct_isolated_branches_and_rng tests.test_assignment_refinement.CrossBayTests.test_checkpoint_and_recorded_s3_floor_survive_branch_mutation tests.test_budget_entry.BudgetTests.test_s4_resume_uses_only_original_remaining_budget_and_reserve -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: null
+  checker_result: valid RED; exit 1 with five assertion failures and zero errors, proving missing S3 objective/Z2 floor validation, immutable checkpoint export, paired execution, isolated resume, and original-reserve budget contracts
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: expected recovery contracts are absent from the preserved RECOVERY-03 candidate
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; red_exit_code=1; failures=5; errors=0; red_launch_count=1
+  next_action: implement only the immutable verified checkpoint, isolated S4 resume with original reserve, paired runner/CLI plumbing, and S3 checker floor equality; then record and run the identical focused command exactly once for GREEN
+```
+
+```yaml
+- timestamp: 2026-07-14T08:46:30+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - add canonical immutable verified-checkpoint export and verified branch reconstruction
+    - split unchanged T0-through-S3 execution from isolated assignment-v2/cross-bay resume
+    - pair A/B from one checkpoint with original remaining hard allowance and reserve
+    - require identical paired S3 SHA, checker objective, and Z2 in the existing mismatch counter
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_enforces_paired_gain_and_z2_safety tests.test_assignment_refinement.CrossBayTests.test_paired_s4_ab_runs_s3_once_and_shares_verified_floor tests.test_assignment_refinement.CrossBayTests.test_forward_reverse_reconstruct_isolated_branches_and_rng tests.test_assignment_refinement.CrossBayTests.test_checkpoint_and_recorded_s3_floor_survive_branch_mutation tests.test_budget_entry.BudgetTests.test_s4_resume_uses_only_original_remaining_budget_and_reserve -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-launch.json
+  checker_result: NOT_RUN; minimum correction implemented and identical focused GREEN command recorded before launch
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_launch_dirty_diff_hash=b35d562800d2610dd4bd6c3e6b7bea4f346433e8ffdb4f7986872aecc8343ff7; green_launch_count=1
+  next_action: launch the identical focused GREEN command exactly once; any nonzero result is terminal with no edit, rerun, or later command
+```
+
+```yaml
+- timestamp: 2026-07-14T08:46:54+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_enforces_paired_gain_and_z2_safety tests.test_assignment_refinement.CrossBayTests.test_paired_s4_ab_runs_s3_once_and_shares_verified_floor tests.test_assignment_refinement.CrossBayTests.test_forward_reverse_reconstruct_isolated_branches_and_rng tests.test_assignment_refinement.CrossBayTests.test_checkpoint_and_recorded_s3_floor_survive_branch_mutation tests.test_budget_entry.BudgetTests.test_s4_resume_uses_only_original_remaining_budget_and_reserve -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_exact_backends tests.test_alns tests.test_budget_entry -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-result.json
+  checker_result: focused GREEN passed 5/5 exactly once; shared checkpoint provenance, original-reserve budget accounting, branch/RNG/telemetry isolation, true regression rejection, and immutable evidence all pass
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/regression-launch.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; green_exit_code=0; green_launch_count=1; regression_launch_count=1
+  next_action: launch the exact directly affected regression command once; any nonzero result is terminal with no edit, rerun, or later command
+```
+
+```yaml
+- timestamp: 2026-07-14T08:47:28+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_exact_backends tests.test_alns tests.test_budget_entry -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-result.json
+  checker_result: PASS; exact-once directly affected regression passed 48/48 with no failures or errors across assignment refinement, exact backends, completed/partial ALNS epochs, immutable checkpointing, and entry fallback armor
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/regression-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/regression-result.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; regression_exit_code=0; tests=48; regression_launch_count=1
+  next_action: obtain a fresh read-only review of the complete candidate diff for checkpoint integrity, absolute budget/reserve safety, branch isolation, paired record truth, prior recovery integrity, and unchanged S4 gate semantics; resolve findings before freezing one full-gate identity
+```
+
+```yaml
+- timestamp: 2026-07-14T08:55:18+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - fresh read-only immutable-checkpoint and S3-provenance review
+    - fresh read-only shared-budget, wall-time, and branch-isolation review
+    - fresh read-only paired resume/dedup, scope, test, and gate-semantics review
+    - resolve review findings in checkpoint guards, budget start, final-check wall accounting, pair-atomic resume, pair evidence, and summary integrity
+    - independent read-only resolution verification for all three review areas
+    - git diff --check
+    - git diff --exit-code HEAD -- baseline/utils.py baseline/baseline_greedy.py
+    - parse all recovery JSON and compare immutable RECOVERY-01/02 hashes with the RECOVERY-03 manifest
+    - verify the exact authorized 15-path dirty set and absence of a stale harness/test/solver process
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-result.json
+  checker_result: fresh review findings resolved and independently re-reviewed PASS; B setup and final verification are charged, checkpoint invariants are explicit, pair resume is commit-safe and dedup-free, and shared-budget evidence is mandatory without altering gain criteria
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/fresh-review.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/review-resolution.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; post_resolution_pre_append_dirty_diff_hash=55c801c121e4ad0405b3bbc9acdd11a061f05893bdc0b25ea45ecef479cc4b39
+  next_action: perform final static identity checks, append the freeze handoff, freeze one final HEAD plus dirty-diff hash and exact full-gate command metadata, then make no tracked edit during the exact-once full gate chain
+```
+
+```yaml
+- timestamp: 2026-07-14T08:56:06+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260713T235606Z-s4-04-recovery04-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260713T235606Z-s4-04-recovery04-high-w23-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances training --timelimits 60 --seed 20260710 --feature assignment_refinement --a false --b true --run-id 20260713T235606Z-s4-04-recovery04-training-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances smoke-3 --timelimits 60 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260713T235606Z-s4-04-recovery04-fault-stress
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s4 --latest-complete --commit HEAD --run-id 20260713T235606Z-s4-04-recovery04-gate
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s4 --latest-complete --run-id 20260713T235606Z-s4-04-recovery04-report
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-result.json
+  checker_result: freeze handoff recorded; final static checks pass, local and upstream HEAD match, protected files are unchanged, the dirty set is exactly 15 authorized paths, and all seven exact-once commands and fresh run IDs are fixed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/freeze.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false until every frozen full-gate command exits zero
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_freeze_append_dirty_diff_hash=436cf98111333bd4c7610ccd0a5f299f755e147bebd451ac9410d08881727b01; final frozen dirty hash is recorded in freeze.json after this last tracked append
+  next_action: write the ignored freeze manifest with the final dirty-diff hash, then launch full discovery exactly once and proceed strictly in order only after each zero exit; make no tracked edit during the frozen chain
+```
+
+```yaml
+- timestamp: 2026-07-14T13:07:57+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-04
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260713T235606Z-s4-04-recovery04-high-w23-ab
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260713T233658Z-s4-04-recovery04/green-result.json
+  checker_result: BLOCKED; focused GREEN passed 5/5, affected regression passed 48/48, full discovery passed 100/100, and objective parity passed 100/100, but the required high-w23 A/B command exited 4 before writing any record
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/parity/20260713T235606Z-s4-04-recovery04-objective-parity/; incomplete benchmarks/evidence/s4/ab/20260713T235606Z-s4-04-recovery04-high-w23-ab/
+  gate_decision: NOT_RUN; training A/B, fault stress, S4 gate, and S4 report were not launched
+  failure_or_fallback_reason: ValueError: verified checkpoint checker result mismatch; canonical sort_keys identity bytes were deserialized as the live checker solution, so a multidigit EXIT date could precede its ENTRY during checker Stage 1
+  feature_default_decision: assignment_refinement=false; cross_bay=false; retain the verified S3 fallback and do not select the dirty S4 candidate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; frozen_dirty_diff_hash=bbcdc265f34004e6992e7287f661257d4b60a9f189a86e91cd65ca010db1c6ce; high_w23_ab_exit_code=4; records=0; failures=0
+  next_action: begin S4-04-RECOVERY-05 under a new evidence identity; never resume, rerun, overwrite, append to, reinterpret, replace, or delete the incomplete RECOVERY-04 A/B evidence
+```
+
+```yaml
+- timestamp: 2026-07-14T13:07:58+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - read the complete progress document, S4 execution plan, reusable slice prompt, all 15 dirty tracked files, all RECOVERY-01 through RECOVERY-04 structured evidence, and the incomplete RECOVERY-04 A/B directory
+    - git fetch origin
+    - verify branch, local HEAD, upstream HEAD, exact dirty set, frozen diff hash, protected files, evidence parseability/integrity, and absence of stale unittest/harness/Gurobi/CP-SAT processes
+    - reconcile independent read-only checkpoint-order, checkpoint-integrity, and recovery-scope audits
+  red_evidence: null
+  green_evidence: null
+  checker_result: preflight and all required read-only audits PASS; the defect is isolated to checker-facing checkpoint materialization and the minimum safe correction is placement-based serialization with SHA and canonical-identity verification
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/preflight.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/audits.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; no algorithm, gate, threshold, selector, seed, timelimit, epoch, record, checker, or default change is authorized
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_reconciliation_dirty_diff_hash=bbcdc265f34004e6992e7287f661257d4b60a9f189a86e91cd65ca010db1c6ce; recovery_run_id=20260714T040647Z-s4-04-recovery05
+  next_action: add the deterministic multidigit-date checkpoint regression tests, record the exact focused command, and run focused RED exactly once before the production correction
+```
+
+```yaml
+- timestamp: 2026-07-14T13:10:36+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materialization_preserves_numeric_operation_order tests.test_assignment_refinement.CrossBayTests.test_checkpoint_roundtrip_rechecks_exactly_with_multidigit_dates tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materializations_are_branch_isolated tests.test_assignment_refinement.CrossBayTests.test_checkpoint_corruption_guards_survive_materialization_change -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json
+  green_evidence: null
+  checker_result: NOT_RUN; four deterministic focused tests are recorded before launch and cover multidigit numeric date order, exact checker-result roundtrip, branch-owned deep materialization, and bytes/SHA/placement/instance/checker corruption guards
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_launch_dirty_diff_hash=590930f78f51112a186ea97856b2c46e3501a74e73133bfa63b1b23e300b8c00; red_launch_count=1
+  next_action: launch the recorded focused RED command exactly once; require a nonzero result caused by lexicographic checkpoint materialization or the resulting checker mismatch
+```
+
+```yaml
+- timestamp: 2026-07-14T13:10:52+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materialization_preserves_numeric_operation_order tests.test_assignment_refinement.CrossBayTests.test_checkpoint_roundtrip_rechecks_exactly_with_multidigit_dates tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materializations_are_branch_isolated tests.test_assignment_refinement.CrossBayTests.test_checkpoint_corruption_guards_survive_materialization_change -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: null
+  checker_result: valid RED; 4 tests ran with 3 assertion failures and zero errors, proving lexicographic keys [105,96], exact Stage-5-to-Stage-1 checker mismatch, and missing direct materialization hash protection; deep repeated-copy isolation already passed
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: canonical identity bytes are incorrectly deserialized as the checker-facing solution
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; red_exit_code=1; failures=3; errors=0; red_launch_count=1
+  next_action: implement only solution_copy SHA verification, placement-based canonical materialization, and placement-to-identity verification; then record and launch the identical focused GREEN command exactly once
+```
+
+```yaml
+- timestamp: 2026-07-14T13:11:25+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - update VerifiedCheckpoint.solution_copy to verify identity SHA, reconstruct with serialize_non_interlock(frozen placements), verify placement-derived canonical bytes, and return the fresh checker-facing object
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materialization_preserves_numeric_operation_order tests.test_assignment_refinement.CrossBayTests.test_checkpoint_roundtrip_rechecks_exactly_with_multidigit_dates tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materializations_are_branch_isolated tests.test_assignment_refinement.CrossBayTests.test_checkpoint_corruption_guards_survive_materialization_change -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-launch.json
+  checker_result: NOT_RUN; minimum production correction implemented and the identical focused GREEN command recorded before launch
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_launch_dirty_diff_hash=7a8f39eb629c930747f3b62fc16b7f62d4ae5818b918de94c40221c7d19e8bd7; green_launch_count=1
+  next_action: launch the identical focused GREEN command exactly once; any nonzero result is terminal with no edit, rerun, or later command
+```
+
+```yaml
+- timestamp: 2026-07-14T13:11:51+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materialization_preserves_numeric_operation_order tests.test_assignment_refinement.CrossBayTests.test_checkpoint_roundtrip_rechecks_exactly_with_multidigit_dates tests.test_assignment_refinement.CrossBayTests.test_checkpoint_materializations_are_branch_isolated tests.test_assignment_refinement.CrossBayTests.test_checkpoint_corruption_guards_survive_materialization_change -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_exact_backends tests.test_alns tests.test_budget_entry -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-result.json
+  checker_result: focused GREEN passed 4/4 exactly once; numeric date order, exact Stage-5 CheckerResult roundtrip, branch isolation, and all corruption guards pass
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/regression-launch.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; green_exit_code=0; tests=4; green_launch_count=1; regression_launch_count=1
+  next_action: launch the exact directly affected regression command once; any nonzero result is terminal with no edit, rerun, or later command
+```
+
+```yaml
+- timestamp: 2026-07-14T13:12:23+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_exact_backends tests.test_alns tests.test_budget_entry -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-result.json
+  checker_result: PASS; the exact-once directly affected regression passed 52/52 with no failures or errors across assignment refinement, exact backends, ALNS completed/partial epochs, immutable checkpointing, and entry fallback armor
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/regression-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/regression-result.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; dirty_diff_hash=c78edaa82fdda58ffc12e53c4278f0433cbda3e193bfe522a7aeae4f378f0125; regression_exit_code=0; tests=52; regression_launch_count=1
+  next_action: obtain a fresh read-only review of the complete candidate diff for identity/materialization separation, shared-S3 provenance, budget accounting, branch isolation, corruption guards, prior recovery integrity, and unchanged S4 gate semantics
+```
+
+```yaml
+- timestamp: 2026-07-14T13:14:58+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - fresh read-only post-regression checkpoint-order, checkpoint-integrity, and recovery-scope reviews
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/fresh-review.json
+  checker_result: PASS; all three fresh reviews found no actionable issue and confirmed identity/live separation, numeric checker order, exact checkpoint guards, immutable provenance, original-budget accounting, deep branch isolation, and corruption rejection
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/regression-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/regression-result.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; reviewed_dirty_diff_hash=9047d311bda5f5d85af1470a847b071c2246a9d1f14f3a59f0534d40d79858c1; review_count=3; actionable_findings=0; git_diff_check=PASS; protected_files=UNCHANGED
+  next_action: perform final static and process checks, record all fresh run IDs, append the frozen handoff, and then make no tracked edits while the ordered full gate chain is running
+```
+
+```yaml
+- timestamp: 2026-07-14T13:16:12+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260714T041612Z-s4-04-recovery05-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260714T041612Z-s4-04-recovery05-high-w23-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances training --timelimits 60 --seed 20260710 --feature assignment_refinement --a false --b true --run-id 20260714T041612Z-s4-04-recovery05-training-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances smoke-3 --timelimits 60 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260714T041612Z-s4-04-recovery05-fault-stress
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s4 --latest-complete --commit HEAD --run-id 20260714T041612Z-s4-04-recovery05-gate
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s4 --latest-complete --run-id 20260714T041612Z-s4-04-recovery05-report
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/fresh-review.json
+  checker_result: freeze handoff recorded; all static checks pass, local and upstream HEAD match, protected files and prior recovery evidence are unchanged, the incomplete RECOVERY-04 A/B evidence is untouched, the dirty set is exactly 15 authorized paths, no relevant process is running, and all seven exact-once commands and fresh run IDs are fixed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/freeze.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false until every frozen full-gate command exits zero
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_freeze_append_dirty_diff_hash=28675823f0f76d13f85b935421063a413b42e0978148a779df850f655bad3b1a; final frozen dirty hash is recorded in freeze.json after this last tracked append
+  next_action: write the ignored freeze manifest with the final dirty-diff hash, then launch full discovery exactly once and proceed strictly in order only after each zero exit; make no tracked edit during the frozen chain
+```
+
+```yaml
+- timestamp: 2026-07-14T16:56:06+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-05
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260714T041612Z-s4-04-recovery05-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260714T041612Z-s4-04-recovery05-high-w23-ab
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/regression-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/fresh-review.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/full-discovery-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/objective-parity-result.json
+  checker_result: BLOCKED; focused GREEN passed 4/4, affected regression passed 52/52, full discovery passed 104/104, objective parity passed 100/100 with zero mismatch, and high-w23 returned 160/160 feasible verified records with zero S3 floor mismatch, zero objective regression, zero Z2 regression, seven improvements, and 16 accepted cross-bay moves, but the required high-w23 A/B command exited 2 because all 40 paired comparison keys were reported as shared-budget violations
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/parity/20260714T041612Z-s4-04-recovery05-objective-parity/; benchmarks/evidence/s4/ab/20260714T041612Z-s4-04-recovery05-high-w23-ab/; benchmarks/evidence/s4/s4-04-recovery/20260714T040647Z-s4-04-recovery05/blocker.json
+  gate_decision: NOT_RUN; training A/B, fault stress, S4 gate, and S4 report were not launched after the terminal high-w23 A/B result
+  failure_or_fallback_reason: complete high-w23 summary status=failed with shared_budget_violation_count=40; the immutable terminal rule forbids inspection-driven tuning, source/harness/test edits, rerun, or any later full-gate command in this recovery
+  feature_default_decision: assignment_refinement=false; cross_bay=false; retain the verified S3 fallback and do not select the dirty S4 candidate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; frozen_dirty_diff_hash=d56618d4039cd413f96282288d1b413cbf0a7116681a209982b9da9e80b4ea94; high_w23_ab_exit_code=2; records=160; feasible=160; shared_budget_violations=40
+  next_action: stop S4-04-RECOVERY-05 BLOCKED without source/harness/test edits, tuning, reruns, later commands, commit, push, another automatic recovery, or S5
+```
+
+```yaml
+- timestamp: 2026-07-14T17:50:50+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - verify branch, local/upstream HEAD equality, exact 15-path dirty set, protected-file integrity, diff cleanliness, prior evidence hashes, and absence of stale test/benchmark processes
+    - independently recalculate every RECOVERY-05 high-w23 pair budget predicate using its own pair key
+    - inspect the mixed-timelimit summary loop and existing single-timelimit regression
+  red_evidence: null
+  green_evidence: null
+  checker_result: RECOVERY-06 preflight PASS; all 80 completed RECOVERY-05 pairs satisfy every shared-budget predicate when evaluated against their own key, proving the recorded 40 violations are a harness false positive rather than solver budget failure
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/preflight.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/diagnosis.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: _s4_ab_summary iterates paired.values() but later reads stale key[1]; the final 300-second record causes all 40 valid 60-second pairs to be evaluated as 300-second pairs
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; entry_dirty_diff_hash=b9542ceec7a687d6efc15ea43def7d3d0ea9d9ff17e78c6eede8258dba970f25; recovery05_record_count=160; complete_pairs=80; recorded_violations=40; independently_recalculated_violations=0
+  next_action: add one deterministic mixed-60/300-timelimit regression and run it RED exactly once before changing the one defective summary loop
+```
+
+```yaml
+- timestamp: 2026-07-14T17:51:56+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_uses_each_mixed_timelimit_pair_key -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json
+  green_evidence: null
+  checker_result: NOT_RUN; a deterministic eight-record fixture now covers valid 60-second and 300-second forward/reverse pairs in one sequence ending at 300 seconds and requires zero budget violations
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/diagnosis.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_red_dirty_diff_hash=455b7f70b96eced778107510c80d1e5ef73944c4cc06d00233de8301041441c4; red_launch_count=1
+  next_action: launch the focused RED command exactly once; require a nonzero assertion failure before changing _s4_ab_summary
+```
+
+```yaml
+- timestamp: 2026-07-14T17:52:27+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_uses_each_mixed_timelimit_pair_key -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-result.json
+  green_evidence: null
+  checker_result: valid RED; the one focused test exited 1 with AssertionError 0 != 2, proving two valid 60-second ordering pairs were rejected when the final stale key was 300 seconds
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/diagnosis.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: _s4_ab_summary rejected valid mixed-timelimit records because its budget loop did not retain each pair key
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; red_exit_code=1; tests=1; failures=1; errors=0; red_launch_count=1
+  next_action: change only the budget-summary loop from paired.values() to paired.items(), then record and run the identical focused GREEN command exactly once
+```
+
+```yaml
+- timestamp: 2026-07-14T17:52:55+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - change only _s4_ab_summary budget iteration from paired.values() to paired.items()
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_uses_each_mixed_timelimit_pair_key -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-launch.json
+  checker_result: NOT_RUN; the minimum one-line data-plumbing correction is implemented and the identical focused GREEN command is recorded before launch
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/diagnosis.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_green_dirty_diff_hash=ebc1317cdb6eaefc8be9ba8516a62c02357c359447e8e1d2d677291e6de9dfcd; green_launch_count=1
+  next_action: launch the identical focused GREEN command exactly once, then run directly affected harness, assignment, budget, checkpoint, and ALNS regressions only after a zero exit
+```
+
+```yaml
+- timestamp: 2026-07-14T17:53:32+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_ab_summary_uses_each_mixed_timelimit_pair_key -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_schema tests.test_harness_process tests.test_budget_entry tests.test_alns tests.test_exact_backends -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-result.json
+  checker_result: focused GREEN passed 1/1 exactly once; valid mixed 60/300-second forward/reverse pairs now produce zero shared-budget violations and a passing summary
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/regression-launch.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; green_exit_code=0; tests=1; green_launch_count=1; regression_launch_count=1
+  next_action: launch the affected regression command exactly once; any nonzero result is terminal for RECOVERY-06
+```
+
+```yaml
+- timestamp: 2026-07-14T17:54:25+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_schema tests.test_harness_process tests.test_budget_entry tests.test_alns tests.test_exact_backends -v
+    - diagnostic-only corrected summary of the immutable 160 RECOVERY-05 records
+    - git diff --check and protected/prior-evidence integrity checks
+    - fresh read-only post-regression scope and gate review
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/regression-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/fresh-review.json
+  checker_result: PASS; affected regression passed 59/59, genuine budget faults still fail, all 160 old records pass the corrected summary diagnostically with zero budget violations, and the fresh scope review found no actionable issue
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/diagnostic-replay.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; reviewed_dirty_diff_hash=8ec13c083f2cb9ea89af8922c7fc934e21f0b89f829bac33390e092331698978; regression_exit_code=0; tests=59; diagnostic_records=160; corrected_budget_violations=0; actionable_findings=0
+  next_action: verify final static/process state, append the RECOVERY-06 freeze handoff with new run IDs, record the final dirty hash in ignored evidence, and then make no tracked edits during the ordered full gate chain
+```
+
+```yaml
+- timestamp: 2026-07-14T17:55:22+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260714T085522Z-s4-04-recovery06-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260714T085522Z-s4-04-recovery06-high-w23-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances training --timelimits 60 --seed 20260710 --feature assignment_refinement --a false --b true --run-id 20260714T085522Z-s4-04-recovery06-training-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s4 --instances smoke-3 --timelimits 60 --seeds 20260710 --feature assignment_refinement=true --feature backend_fault=gurobi,cp_sat,both --run-id 20260714T085522Z-s4-04-recovery06-fault-stress
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s4 --latest-complete --commit HEAD --run-id 20260714T085522Z-s4-04-recovery06-gate
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s4 --latest-complete --run-id 20260714T085522Z-s4-04-recovery06-report
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/regression-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/fresh-review.json
+  checker_result: freeze handoff recorded; all static checks pass, local/upstream HEAD match, protected files and RECOVERY-01 through RECOVERY-05 evidence are unchanged, the dirty set remains exactly 15 authorized paths, no relevant process is running, and all seven exact-once commands and new run IDs are fixed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/freeze.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false until every frozen full-gate command exits zero
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_freeze_append_dirty_diff_hash=49a43a271b9416df97cc7cb663c1317a5c599fe2f15736200907fa041e3edba3; final frozen dirty hash is recorded in freeze.json after this last tracked append
+  next_action: write the ignored freeze manifest, then launch full discovery exactly once and proceed strictly in order only after each zero exit; make no tracked edit during the frozen chain
+```
+
+```yaml
+- timestamp: 2026-07-14T22:55:12+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-06
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260714T085522Z-s4-04-recovery06-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260714T085522Z-s4-04-recovery06-high-w23-ab
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances training --timelimits 60 --seed 20260710 --feature assignment_refinement --a false --b true --run-id 20260714T085522Z-s4-04-recovery06-training-ab
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/regression-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/full-discovery-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/objective-parity-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/high-w23-ab-result.json
+  checker_result: BLOCKED; full discovery passed 105/105, objective parity passed 100/100, and high-w23 A/B passed 160/160 with zero shared-budget violations, but training A/B exited 2 after 160/160 feasible records because six refined records exceeded the shared 60-second wall budget
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/ab/20260714T085522Z-s4-04-recovery06-training-ab; benchmarks/evidence/s4/s4-04-recovery/20260714T085050Z-s4-04-recovery06/blocker.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: prob_18, prob_20, and prob_36 each violated the wall budget in both forward and reverse order; maximum wall_seconds was 73.5611603330035. The records were checker-feasible with zero objective/Z2 regression, so this is a real S4 hard-deadline enforcement defect, not the corrected mixed-timelimit summary false positive. Budget/backend enforcement is cooperative and prob_36 overran without any assignment attempt, so assignment-only timebox tuning is insufficient.
+  feature_default_decision: assignment_refinement=false; cross_bay=false; no default promotion because fault-stress, gate, and report were not run
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; frozen_dirty_diff_hash=1b676ce79cad0a984ad427d261e5af04009a0db57a9e59e5447718685956e6b3; training_ab_exit_code=2; records=160; feasible=160; shared_budget_violations=6; regression_count=0; z2_regression_count=0; improved_count=9
+  next_action: start a new recovery with deterministic RED coverage for an overlong backend/cross-bay call, add hard-deadline isolation with verified S3 fallback and final-check reserve accounting, then rerun the complete unchanged S4 gate chain under a new run id
+```
+
+```yaml
+- timestamp: 2026-07-14T23:37:52+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - verify branch, local/upstream HEAD equality, exact 15-path dirty set, protected-file integrity, prior evidence aggregates, and absence of stale unittest/harness/Gurobi/CP-SAT processes
+    - run five direct read-only audits for recovery state, deadline path, checkpoint protocol, process cleanup, and RED design
+  red_evidence: null
+  green_evidence: null
+  checker_result: RECOVERY-07 preflight PASS; fixed entry HEAD, terminal dirty hash, authorized path set, protected files, prior recovery evidence, and process state all match the plan
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: RECOVERY-06 exposed cooperative S4 work continuing beyond the protected work deadline; all five auditors require full-branch subprocess isolation with parent-owned verified S3 fallback
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; upstream_head=388db7b27eda189e69140520548fc00362fba3f3; entry_dirty_diff_hash=5adb266fad40a1a24cd704efa5a4e076e5f6f841362b1329dba9177761c96d15; dirty_paths=15; preflight_auditors=5; actionable_design_conflicts_resolved=5
+  next_action: add the five fixed hard-isolation RED tests, record their launch, and execute the focused RED command exactly once
+```
+
+```yaml
+- timestamp: 2026-07-14T23:39:52+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json
+  green_evidence: null
+  checker_result: NOT_RUN; five deterministic tests now require process-group timeout cleanup, exact verified-S3 fallback, successful checkpoint roundtrip, invalid-output rejection, and production solve routing through the isolated worker
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_red_dirty_diff_hash=ad8e09b8f0cc22b60ea2c50d76eccd7be5a43d2791214381b7f5e2140de09511; red_launch_count=1; focused_tests=5
+  next_action: launch the focused RED command exactly once; require only isolation/telemetry assertion failures before production implementation
+```
+
+```yaml
+- timestamp: 2026-07-14T23:40:22+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: null
+  checker_result: valid RED; all five focused tests exited with assertion failures for the absent hard-isolation helper/private worker command, with zero errors
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: S4 still executes in-process and exposes no process cleanup or verified-worker telemetry boundary
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; red_exit_code=1; tests=5; failures=5; errors=0; red_launch_count=1
+  next_action: implement the minimum parent-owned hard-isolated S4 worker, verified checkpoint protocol, production solve routing, and runner checker-result reuse before pre-GREEN review
+```
+
+```yaml
+- timestamp: 2026-07-14T23:46:42+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - implement one start_new_session S4 worker with parent absolute work deadline, bounded process-group TERM/KILL, and mandatory reap
+    - transport final VerifiedCheckpoint and telemetry through JSON with atomic worker output publication
+    - route production solve and paired harness through the same isolated wrapper and reuse the parent-verified checker payload in records
+    - statically parse all four RECOVERY-07 production/test files and run git diff --check
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: null
+  checker_result: NOT_RUN; minimum production implementation is complete and static syntax/diff checks pass, but focused GREEN is intentionally held until four parallel read-only pre-GREEN reviews return and all findings are resolved
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_review_dirty_diff_hash=024c80973422906dfbcfc404b15331e1f10f7dc294731005855ee004d868cac7; red_launch_count=1; green_launch_count=0
+  next_action: run four parallel read-only pre-GREEN reviews for deadline/process cleanup, checkpoint/fallback, test completeness, and gate/selector/default/scope invariants; resolve every actionable finding before recording GREEN launch
+```
+
+```yaml
+- timestamp: 2026-07-14T23:53:11+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - complete four parallel direct read-only pre-GREEN reviews without running tests, solvers, parity, A/B, stress, gates, or reports
+    - resolve all hard-deadline/process-cleanup, checkpoint/fallback, RED/GREEN completeness, and S4 gate/scope findings
+    - statically parse the changed recovery implementation/tests and run git diff --check
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: null
+  checker_result: NOT_RUN; all four pre-GREEN reviews completed read-only, all 10 actionable findings were resolved, and static syntax/diff/scope checks pass
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/pre-green-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_review_resolution_dirty_diff_hash=0cef3232e7d37ab0ec5ea7f71e97be000c0455128ed574295c0fe7723aed210b; pre_green_reviewers=4; actionable_findings=10; resolved_findings=10; green_launch_count=0
+  next_action: record the focused GREEN launch and execute the same five focused tests exactly once; any nonzero result is terminal for RECOVERY-07
+```
+
+```yaml
+- timestamp: 2026-07-14T23:53:44+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-launch.json
+  checker_result: RUNNING; focused GREEN launch is frozen after all pre-GREEN findings were resolved
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/pre-green-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; pre_launch_dirty_diff_hash=fa71b8e90dee122ce9ac6e8d796ce3a825158c1167bf5e52a73708cd801cb9f5; focused_tests=5; green_launch_count=1
+  next_action: execute this focused GREEN command exactly once; on nonzero write terminal blocker/progress and stop without retry or regression
+```
+
+```yaml
+- timestamp: 2026-07-14T23:54:11+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_process tests.test_harness_schema tests.test_budget_entry tests.test_exact_backends tests.test_alns -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/regression-launch.json
+  checker_result: focused GREEN PASS 5/5 in 1.110 seconds; affected regression is now RUNNING under its single authorized launch
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/pre-green-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending a fresh unchanged full S4 gate
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; focused_green_exit_code=0; focused_green_tests=5; green_launch_count=1; regression_launch_count=1; pre_regression_dirty_diff_hash=61eac9fce701ca132ccf45b99013187a4708e8980d2be41193376b15411fedf0
+  next_action: execute affected regression exactly once; on nonzero write terminal blocker/progress and stop without retry or freeze
+```
+
+```yaml
+- timestamp: 2026-07-14T23:54:59+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_process tests.test_harness_schema tests.test_budget_entry tests.test_exact_backends tests.test_alns -v
+    - verify git diff --check, exact 15-path tracked scope, protected-file hashes, and no stale unittest/harness/solver-worker process before freeze
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/regression-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/regression-result.json
+  checker_result: focused GREEN PASS 5/5 and affected regression PASS 64/64, each from exactly one launch; static scope, protected files, and cleanup preconditions pass
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/pre-green-review.json
+  gate_decision: FROZEN_PENDING_CHAIN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false pending the frozen complete S4 gate chain
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; affected_regression_exit_code=0; affected_regression_tests=64; regression_launch_count=1; pre_freeze_dirty_diff_hash=b705776241177d5fb32c5a1a0e4de4ed842ab52160d5a774e10d092d98ca21e4; gate_base=20260714T145459Z-s4-04-recovery07
+  next_action: freeze the resulting tracked diff, then run full discovery, objective parity, high-w23 A/B, training A/B, fault stress, gate, and report sequentially exactly once; stop immediately on any nonzero
+```
+
+```yaml
+- timestamp: 2026-07-15T03:35:00+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-07
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli parity --kind objective --cases 100 --instances high-w23 --seed 20260710 --feature component=assignment --run-id 20260714T145459Z-s4-04-recovery07-objective-parity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s4 --instances high-w23 --timelimits 60,300 --seed 20260710,20260711 --feature assignment_refinement --a false --b true --run-id 20260714T145459Z-s4-04-recovery07-high-w23-ab
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/regression-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/full-discovery-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/objective-parity-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/high-w23-ab-result.json
+  checker_result: BLOCKED; focused GREEN passed 5/5, affected regression passed 64/64, full discovery passed 110/110, objective parity passed 100/100, and high-w23 A/B produced 160/160 feasible records with zero shared-budget, objective, Z2, S3-floor, or unverified-return violations, but the frozen gain gate exited 2
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/ab/20260714T145459Z-s4-04-recovery07-high-w23-ab; benchmarks/evidence/s4/s4-04-recovery/20260714T143752Z-s4-04-recovery07/blocker.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: high-w23 improved_count=2/10 and real_s4_improved_count=2/10, below the required 5/10, while median_b_objective=58985609.12823115 equals median_a_objective=58985609.12823115 instead of being strictly lower; hard-deadline isolation itself held max wall to 285.241559416012 seconds with zero shared-budget violations
+  feature_default_decision: assignment_refinement=false; cross_bay=false; no default promotion because training A/B, fault stress, gate, and report were not run after the terminal nonzero
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; frozen_dirty_diff_hash=2ebb44b73fd807be9c07b78f64f02b6953f83b06e2907e445a538936f33bb718; high_w23_ab_exit_code=2; records=160; feasible=160; shared_budget_violations=0; regression_count=0; z2_regression_count=0; improved_count=2; real_s4_improved_count=2; cross_bay_accepted=16; max_wall_seconds=285.241559416012
+  next_action: stop RECOVERY-07 without rerun, source/test edits, automatic recovery, commit, push, or S5; await an explicitly authorized next recovery plan focused on measured high-w23 gain rather than deadline safety
+```
+
+```yaml
+- timestamp: 2026-07-15T03:56:47+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - verify branch, local/upstream HEAD equality, exact 15-path dirty set, terminal dirty hash, protected files, immutable RECOVERY-06/07 evidence, and absence of stale unittest/harness/solver/S4-worker processes
+    - complete five direct read-only audits for recovery state, deadline protocol, blocking stages, prior evidence, and deterministic RED design
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_assignment_refinement.CrossBayTests.test_s4_cooperative_expiry_publishes_verified_incumbent tests.test_assignment_refinement.CrossBayTests.test_s4_deadlines_are_ordered_publishable_and_identity_bound tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_assignment_refinement.CrossBayTests.test_s4_no_work_returns_exact_verified_s3_telemetry tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json
+  green_evidence: null
+  checker_result: RECOVERY-08 preflight PASS; focused RED launch recorded and not yet executed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: RECOVERY-07 kills the worker at its cooperative deadline and loses verified incumbents before atomic publication
+  feature_default_decision: preserve all existing defaults, selectors, and gate thresholds
+  run_identity: head=388db7b27eda189e69140520548fc00362fba3f3; upstream_head=388db7b27eda189e69140520548fc00362fba3f3; entry_dirty_diff_hash=c9b8d7f5eca3a2adc996c5e155b3b0770bb6c84cf9707a012824482ac8fdac1a; dirty_paths=15; preflight_auditors=5; red_launch_count=1
+  next_action: execute the recorded focused RED exactly once and require only semantic assertion failures
+```
+
+```yaml
+- timestamp: 2026-07-15T04:00:02+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_assignment_refinement.CrossBayTests.test_s4_cooperative_expiry_publishes_verified_incumbent tests.test_assignment_refinement.CrossBayTests.test_s4_deadlines_are_ordered_publishable_and_identity_bound tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_assignment_refinement.CrossBayTests.test_s4_no_work_returns_exact_verified_s3_telemetry tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-result.json
+  green_evidence: null
+  checker_result: valid RED; 8 tests ran once with 2 expected semantic failures, 6 passing safety characterizations, and 0 errors
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/preflight.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: cooperative BudgetExpired exits without publishing the improved checkpoint, and the request contains only work_deadline rather than three ordered identity-bound deadlines
+  feature_default_decision: preserve all existing defaults, selectors, and gate thresholds
+  run_identity: red_exit_code=1; tests=8; failures=2; errors=0; red_launch_count=1; post_red_dirty_diff_hash=05f08e756710b5d7879d8c3a8733227106cdfa651634a1b8fbedb934a15a2662
+  next_action: implement the measured split-deadline protocol, cooperative checkpoint export, bounded blocking paths, and hard-timeout-only exact S3 fallback before pre-GREEN review
+```
+
+```yaml
+- timestamp: 2026-07-15T04:03:32+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - split cooperative_return_deadline, process_kill_deadline, and parent_hard_deadline and bind all authoritative timing fields into request identity
+    - preserve the existing cooperative work allowance while allocating a measured 2.5-second atomic-publish margin inside the existing reserve
+    - treat worker BudgetExpired as completed_after_budget, preserve the current verified incumbent, and reserve exact S3 fallback for hard timeout, invalid output, and launch failure
+    - checkpoint ranking/backend/checker starts, bound unlimited insertion fallbacks, and retain an accepted assignment incumbent across post-update expiry
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-result.json
+  green_evidence: null
+  checker_result: NOT_RUN; production and test implementation is complete, but GREEN is held for four required direct read-only reviews
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/implementation.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: defaults, selectors, CLI exit semantics, and gate thresholds remain byte-identical to RECOVERY-08 entry
+  run_identity: pre_review_dirty_diff_hash=87f9fa7245530df33384ba7e3721ed2960f38839507f746c3992f2fd72d3d711; worker_schema_version=2; worker_return_margin=2.5; green_launch_count=0
+  next_action: complete four direct read-only pre-GREEN reviews and resolve every actionable finding before static checks or GREEN launch
+```
+
+```yaml
+- timestamp: 2026-07-15T04:12:13+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - complete four required direct read-only pre-GREEN reviews without tests, solvers, gates, or evidence mutation
+    - move cooperative checkpoints to the budgeted assignment path and add post-backend, post-materialization, post-retime, and post-checker checkpoints
+    - bound all worker reap attempts by parent_hard_deadline and guard parent output parsing plus exact official validation with the same deadline
+    - expand request identity mutation coverage across all authoritative timing, seed, feature, fault, checkpoint SHA, and instance SHA fields
+    - statically parse six affected Python files and run git diff --check
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-result.json
+  green_evidence: null
+  checker_result: NOT_RUN; all four pre-GREEN reviews completed read-only, all five deduplicated actionable findings were resolved, and static syntax/diff/scope checks pass
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/pre-green-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: defaults, selectors, CLI exit semantics, and gate thresholds remain byte-identical to RECOVERY-08 entry
+  run_identity: pre_progress_dirty_diff_hash=9e3b4d8c4fcec9e6f18ef0020cd32a531a6d72bc7a59e71eaad48249ce589ca3; pre_green_reviewers=4; actionable_findings=5; resolved_findings=5; green_launch_count=0
+  next_action: record the focused GREEN launch and execute the exact eight-test command once; any nonzero result is terminal for RECOVERY-08
+```
+
+```yaml
+- timestamp: 2026-07-15T04:12:41+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_assignment_refinement.CrossBayTests.test_s4_cooperative_expiry_publishes_verified_incumbent tests.test_assignment_refinement.CrossBayTests.test_s4_deadlines_are_ordered_publishable_and_identity_bound tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_assignment_refinement.CrossBayTests.test_s4_no_work_returns_exact_verified_s3_telemetry tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/green-launch.json
+  checker_result: RUNNING; the exact eight-test focused GREEN launch is frozen after all pre-GREEN findings and static checks passed
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/pre-green-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: preserve all existing defaults, selectors, CLI exit semantics, and gate thresholds
+  run_identity: pre_launch_progress_dirty_diff_hash=e529733ae8e67e41acb7db1f212e68688409fd99ef59c6c19c5fe21945f754f9; focused_tests=8; green_launch_count=1
+  next_action: execute this focused GREEN command exactly once; on nonzero write terminal blocker/progress and stop without retry or regression
+```
+
+```yaml
+- timestamp: 2026-07-15T04:13:12+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_assignment_refinement.CrossBayTests.test_s4_cooperative_expiry_publishes_verified_incumbent tests.test_assignment_refinement.CrossBayTests.test_s4_deadlines_are_ordered_publishable_and_identity_bound tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_assignment_refinement.CrossBayTests.test_s4_no_work_returns_exact_verified_s3_telemetry tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_process tests.test_harness_schema tests.test_budget_entry tests.test_exact_backends tests.test_alns -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/regression-launch.json
+  checker_result: focused GREEN PASS 8/8 in 1.432 seconds; affected regression is now RUNNING under its single authorized launch
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/pre-green-review.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: preserve all existing defaults, selectors, CLI exit semantics, and gate thresholds
+  run_identity: focused_green_exit_code=0; focused_green_tests=8; green_launch_count=1; regression_launch_count=1; pre_regression_launch_progress_dirty_diff_hash=248ecac7c662ec8a9fb7298bb9cc9557746f1749d653e89069eac21d4f4087f4
+  next_action: execute affected regression exactly once; on nonzero write terminal blocker/progress and stop without retry or sentinel work
+```
+
+```yaml
+- timestamp: 2026-07-15T04:13:44+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-08
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_assignment_refinement.CrossBayTests.test_s4_cooperative_expiry_publishes_verified_incumbent tests.test_assignment_refinement.CrossBayTests.test_s4_deadlines_are_ordered_publishable_and_identity_bound tests.test_assignment_refinement.CrossBayTests.test_s4_worker_hard_timeout_reaps_process_group tests.test_assignment_refinement.CrossBayTests.test_s4_hard_timeout_returns_verified_s3 tests.test_assignment_refinement.CrossBayTests.test_s4_worker_success_roundtrips_verified_checkpoint tests.test_assignment_refinement.CrossBayTests.test_s4_worker_invalid_output_falls_back_without_regression tests.test_assignment_refinement.CrossBayTests.test_s4_no_work_returns_exact_verified_s3_telemetry tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_uses_hard_isolated_worker_and_return_reserve
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_process tests.test_harness_schema tests.test_budget_entry tests.test_exact_backends tests.test_alns -v
+  red_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/red-result.json
+  green_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/green-launch.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/green-result.json; benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/regression-launch.json
+  checker_result: BLOCKED; focused GREEN passed 8/8, but affected regression ran exactly once and exited 1 with 66/67 passing and one telemetry-coverage failure
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/blocker.json
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the 25-percent cap policy rejects the full 2.5-second worker return margin when remaining_timelimit is about 11.92 seconds and work_allowance is about 8.92 seconds, so S4 skips the worker and omits assignment_seed_attempts required by test_assignment_refinement_failure_keeps_s3
+  feature_default_decision: assignment_refinement=false; cross_bay=false; no promotion because sentinel and frozen gate work were not reached
+  run_identity: focused_green_exit_code=0; focused_green_tests=8; affected_regression_exit_code=1; affected_regression_tests=67; affected_regression_passed=66; affected_regression_failures=1; pre_terminal_progress_dirty_diff_hash=5f4f2d53c5526c8c2296476198d1d8a4107b0938e6ef786cf6fe80a61db7798b
+  next_action: stop RECOVERY-08 without rerun, production/test edits, sentinel, full gate, automatic recovery, commit, push, or S5; await explicit authorization for a subsequent recovery that revises the small-window cap policy without weakening the measured 2.5-second publish margin
+```
+
+```yaml
+- timestamp: 2026-07-15T10:32:54+09:00
+  stage: PLAN
+  slice: PLAN-RESET-01
+  old_status: BLOCKED
+  new_status: BLOCKED
+  branch: fable-native-implementation
+  commit: 388db7b27eda189e69140520548fc00362fba3f3
+  dirty: true
+  commands:
+    - read-only audit of Git history, selected defaults, current dirty path ownership, S0-S6 dependency contracts, and RECOVERY-06..08 evidence
+    - documentation-only rewrite; no solver, unittest, harness, benchmark, stress, A/B, gate, branch, worktree, commit, or push command
+  red_evidence: null
+  green_evidence: null
+  checker_result: NOT_RUN; this event changes planning and Git execution boundaries only
+  benchmark_or_stress_evidence: docs/fable/implementation-steps/plan-reset-01.md
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the linear plan made optional S4 gain and worker recovery a prerequisite for mandatory hardening, while no clean committed S3 selected-default baseline exists; RECOVERY-08 also conflated safe no-work telemetry with sufficient-work attempt telemetry
+  feature_default_decision: S4/S5/interlock remain false until independent frozen promotion; mandatory delivery restarts from a clean qualified S3 baseline
+  run_identity: legacy_head=388db7b27eda189e69140520548fc00362fba3f3; upstream_head=388db7b27eda189e69140520548fc00362fba3f3; pre_plan_reset_dirty_diff_hash=7fc5be2e1bbb5cab5af9c4db1a7d18662cc4a684a9e587dd68a4b2ac154e2a12; source_dirty_paths=15; source_numstat=+6178/-65; s3_base=c0da4a7971c57b85066f2610ead9b68d6305fe65
+  next_action: create a verified preservation manifest for the legacy dirty experiment, then create a separate codex/fable-s3-stabilization worktree from c0da4a7971c57b85066f2610ead9b68d6305fe65; do not resume solver work in the legacy worktree
+```
+
 ## 11. Planning quality audit
 
-Planning audit completed 2026-07-12 Asia/Seoul: **PASS**. This is a document-quality result only, not an implementation gate.
+Planning audit completed 2026-07-12 Asia/Seoul: **PASS at that historical snapshot**. It is superseded for execution topology and current status by PLAN-RESET-01. This remains a document-quality result only, not an implementation gate.
 
 - All eight primary documents exist; declared/actual slice counts are S0=6, S1=5, S2=5, S3=5, S4=4, S5=4, S6=6.
 - Every stage and slice has explicit prerequisites/consumed artifacts, outputs, non-dependencies, next-entry conditions, RED/GREEN/checker/evidence work, rollback, cleanup, flags/defaults, and an atomic commit message.
-- All stage statuses are `NOT_STARTED`; all gates are `NOT_RUN`; no solver, test, harness, benchmark, or package implementation exists in the target changes.
+- At the 2026-07-12 audit snapshot all stage statuses were `NOT_STARTED`; that historical assertion must not be used as current status. The live table above now records S0-S3 completion, S4 blocking, and reset execution boundaries.
 - S0 owns validation parity; S3/S4 ownership is separated; S2 does not require S4 assignment; S5/S6 disabled-feature outcomes preserve the lower tier; no earlier gate calls later-stage behavior.
 - Harness schema, selectors, exit codes, proof-of-run, resume/dedup, A/B, previous-stage comparison, gate evaluation, and failure format are specified.
 - All local Markdown links resolve. All new planning text passes the Hangul absence check and is English.
 - The two planning inputs remain byte-identical to source. Source branch/HEAD remain `start-point`/`78ef82ece960ac686a6f5c41497a13c2217ffab5`; its three pre-existing untracked paths remain untouched.
 - Target status contains only this master document and `docs/fable/implementation-steps/`; checker/reference/input documents are unmodified.
 
-Audit commands used read-only checks with `rg`, `wc`, `cmp`, `git status --short --branch`, and a local-link resolver under the explicit project interpreter. The audit must be rerun after any future plan edit; a failure permits edits only to these planning documents in the planning session.
+Audit commands used read-only checks with `rg`, `wc`, `cmp`, `git status --short --branch`, and a local-link resolver under the explicit project interpreter. PLAN-RESET-01 requires link/status/diff-scope validation after its document edits; this is not a solver or stage gate.

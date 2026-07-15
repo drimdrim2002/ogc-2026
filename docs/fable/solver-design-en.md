@@ -241,19 +241,21 @@ Attach move families to one acceptance loop. Every candidate follows targeted re
 
 ---
 
-## 5. Implementation roadmap (remain submission-ready after every stage)
+## 5. Implementation roadmap (stable core plus independently gated options)
 
-| Stage | Content | Gate (do not proceed if it fails) |
+| Stage | Content | Gate / failure disposition |
 |---|---|---|
 | **S0 foundation** | Semantic contract tests (all §2 theorems/truth table/edges), geometry kernel + cache, canonical serializer, T0 + incumbent + budget armor, microbenchmarks (measure predicate cost) | 100% feasible on all training instances at 5s; contract tests green; predicate-cost table produced |
 | **S1 constructor** | Insertion construction + multi-profile + P1 v1 assignment | 300-block construction ≤ 5s (empirical recalibration allowed); every block placed; large improvement over T0; 100% feasible |
 | **S2 exact retiming** | Gurobi indicator-MIP + isomorphic CP-SAT model + pilot selector + never-worse guard | Z1 non-worsening on 100% of instances; median improvement > 0; backend timeboxes met; forced Gurobi failure successfully falls back to CP-SAT |
 | **S3 LNS** | Destroy-repair + retime loop, anytime | Monotonic improvement curve; 300s result ≥ 60s result (zero deterioration); structural evidence of acceptance count > 0 |
-| **S4 assignment refinement** | Bay-move/swap + Gurobi v2 initial assignment (CP-SAT fallback) | Improvement on a subset of high-w2/w3-profile instances; non-regression elsewhere; checker-float Z2 non-worsening |
-| **S5 parallel portfolio** | Process portfolio (gated) | Enable only after proving wall-clock gain and zero crashes in a server-like environment |
-| **S6 interlock + hardening** | Densifier (gated) + submission packaging, stress, report draft | Enable only when dense subset improves; every stress-matrix item feasible |
+| **S4 assignment refinement (optional)** | Bay-move/swap + Gurobi v2 initial assignment (CP-SAT fallback) | Enable after safety plus high-w2/w3 gain; otherwise keep disabled without blocking hardening |
+| **S5 parallel portfolio (optional)** | Process portfolio over the chosen stable lower tier | Enable only after proving wall-clock gain and zero crashes in a server-like environment; otherwise keep disabled |
+| **S6 mandatory hardening + optional interlock** | Submission packaging/stress/rehearsal first; densifier on a separate gated track | Packaging/stress must pass from stable S3 or a promoted tier; enable interlock only when dense subset improves |
 
 If time is short, **S0–S3 are the competitive core**. S4 and S6 add profile-dependent points, while S5 is a multiplier.
+
+Binding execution topology is `S0 -> S1 -> S2 -> S3-stable -> mandatory hardening/package/rehearsal`. S4, S5, and interlock are independent promotion tracks. Safety failure blocks only the affected optional track; safety PASS with insufficient gain records `GATE_FAILED_DISABLED`. Neither outcome prevents delivery from the last clean qualified lower tier. See [`implementation-steps/plan-reset-01.md`](implementation-steps/plan-reset-01.md).
 
 ---
 

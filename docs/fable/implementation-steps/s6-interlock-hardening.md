@@ -1,18 +1,20 @@
-# S6 Execution Plan: Interlock and Hardening
+# S6 Execution Plan: Mandatory Hardening and Optional Interlock
 
 Parent: [`../fable-native-implementation-progress.md`](../fable-native-implementation-progress.md)
 
 Status: `NOT_STARTED`; gate: `NOT_RUN`; planned slices: 6
 
+Plan-reset authority: [`plan-reset-01.md`](plan-reset-01.md). Slice numbers are historical identifiers, not execution order.
+
 ## Goal, split gate, and dependencies
 
-S6 first locks OBS direction semantics, then optionally adds staggered-layer interlock candidate generation, nested host/guest timing, exit extension, and guest-first exit ordering. Independently, it hardens, packages, stress-tests, and rehearses the best solver. Interlock starts/defaults off and is enabled only by dense-subset gain with no safety regression. Hardening/package are mandatory even if interlock is `GATE_FAILED_DISABLED`.
+S6 first hardens, packages, stress-tests, and rehearses stable S3 or the best already qualified lower tier through S6-05 and S6-06. It may later lock OBS direction semantics and add staggered-layer interlock through S6-01..04 as an independent optional promotion. Interlock starts/defaults off and is enabled only by dense-subset gain with no safety regression. Optional interlock work never delays the first mandatory submission candidate.
 
 Included: truth-table tests before behavior, OBS candidate relation, host/guest timing, extended exits, interlock-aware exact constraints, topological EXIT serializer, safe ordering rejection, dense A/B, complete stress matrix, package audit, isolated rehearsal, report. Excluded: new non-interlock optimization families or geometry acceleration.
 
 Evidence: design §2.4 branch 3, §2.5, §4.7-4.8, §5 S6, §6; checker entry OBS `603-724`, exit OBS `727-819`, entry present `1160-1198`, exit present `1200-1232`, Stage-5 live order `1279-1386`. If only `OBS(host;guest)` is true: `a_host<a_guest`, `e_guest<=e_host`, and equal-day exits list guest first. `e_host` may exceed `a_host+dwell_host`; it may not violate release/minimum dwell and any tardiness is exact Z1.
 
-Prerequisite: S5 `COMPLETE` or `GATE_FAILED_DISABLED`, hence a submission-ready S4/S5 lower tier. Produces optional interlock and final package/evidence. Explicit non-dependencies: no later stage exists; packaging works with interlock/portfolio independently off. Failure of interlock gain never invalidates mandatory hardening.
+Mandatory prerequisite: the clean S3 selected-default baseline required by PLAN-RESET-01. S6-05/06 may consume enabled S4/S5 only if those tiers already passed their own frozen promotion gates; otherwise their flags are false. Optional S6-01..04 consume the best qualified lower tier available when that track begins. Produces a hardened package/evidence and, independently, an optional interlock tier. Explicit non-dependencies: mandatory packaging does not depend on S4, S5, OBS candidates, or interlock serialization. Failure of interlock safety or gain never invalidates an earlier qualified package.
 
 ## Files and symbols
 
@@ -25,12 +27,16 @@ Prerequisite: S5 `COMPLETE` or `GATE_FAILED_DISABLED`, hence a submission-ready 
 
 | Slice | Prerequisite / consumes | Produces | Explicit non-dependency | Next entry condition |
 |---|---|---|---|---|
-| S6-01 | S0 geometry/checker contracts | OBS truth classification/tests | Candidate behavior | Truth gate GREEN/committed |
-| S6-02 | S6-01 relation, S3/S4 state | Guarded nested candidates | Extended-exit backend | Third-party checker proof GREEN |
+| S6-05 | Clean qualified S3 or already promoted lower tier | Audited package and stress proof | S4/S5/interlock implementation | Mandatory hardening GREEN |
+| S6-06 | S6-05 package/harness | Isolated rehearsal/report and delivery decision | Optional optimization | Final mandatory gate exits 0 |
+| S6-01 | S0 geometry/checker contracts, qualified lower tier | OBS truth classification/tests | Candidate behavior | Truth gate GREEN/committed |
+| S6-02 | S6-01 relation, lower-tier state | Guarded nested candidates | Extended-exit backend | Third-party checker proof GREEN |
 | S6-03 | S6-02 candidates, S2 backends | Interlock retiming/exit extension | Serializer ordering | Backend/checker parity GREEN |
-| S6-04 | S6-01…03 dependencies | Topological serializer/rejection | Packaging | Order/cycle stress GREEN |
-| S6-05 | Complete lower-tier solver/S6 flag | Audited package and stress proof | New optimization | Mandatory hardening GREEN |
-| S6-06 | S6-05 package/harness | Enablement decision/rehearsal/report | Any later stage | Final mandatory gate exits 0 |
+| S6-04 | S6-01…03 dependencies | Topological serializer/rejection and optional promotion candidate | Mandatory package | Order/cycle safety GREEN; then optional qualification |
+
+## Binding execution order
+
+Execute S6-05 then S6-06 first to produce the mandatory delivery candidate. S6-01..04 may run afterward or on a separate optional branch. If interlock later passes promotion and becomes selected, rerun S6-05 and S6-06 on that new clean selected identity; the prior package remains valid evidence and is never overwritten.
 
 ## Atomic slices
 
@@ -78,44 +84,52 @@ Observable: same-day interlock exits are deterministically guest-first by a depe
 - Stress: `stress --stage s6 --instances synthetic --timelimits 60 --seeds 20260710 --feature interlock=true --feature fault=serializer_cycle,serializer_order`; final output feasible, rejection counter >0.
 - Commit: `feat(s6): serialize interlock exits topologically`.
 
-### S6-05 — Mandatory package and stress hardening
+### S6-05 — Mandatory package and stress hardening (execute first)
 
 Observable: reproducible package contains only audited production files, has root `myalgorithm.py`, no absolute paths/prohibited/local files, imports in isolation, and the solver survives the full matrix.
 
 - RED: `cd baseline && $PY -m unittest tests.test_packaging.PackagingTests.test_audited_isolated_package -v`; package builder absent.
 - Implement harness package builder (development-only), sorted timestamps/entries, SHA manifest, ≤15 MB, extract/import smoke. Assert `git hash-object baseline/utils.py` equals `HEAD:baseline/utils.py`; never package changed utils, tests, harness, evidence, data, licenses, caches, binaries, or docs. Search extracted text for `/Users/`, worktree path, `file://`, and parent-directory traversal.
 - GREEN targeted/full suite.
-- Stress matrix: timelimits `{0.5,2,5,12,60,300}`; one bay; one layer; P=0; contact; no preferred bay fit but another fit; maximal tracked/training n; dense; backend import/license/optimize failures; portfolio worker failure if enabled; interlock serializer failure; cache pressure; ordinary exception after every incumbent boundary. Every valid case returns Stage 5 feasible, no leak, within time budget tolerance.
+- Stress matrix: timelimits `{0.5,2,5,12,60,300}`; one bay; one layer; P=0; contact; no preferred bay fit but another fit; maximal tracked/training n; dense; backend import/license/optimize failures; cache pressure; ordinary exception after every incumbent boundary. Portfolio-worker and interlock-serializer faults are included only when those features are already selected on the frozen identity. Every valid case returns Stage 5 feasible, no leak, within time budget tolerance.
 - Commit: `build(s6): harden and audit submission package`.
 
-### S6-06 — Dense A/B, isolated rehearsal, and final report
+### S6-06 — Isolated rehearsal and final report (execute second)
 
-Observable: interlock default is decided from preregistered dense A/B; selected package runs all training/stress inputs from a new temporary directory with no parent access; final report is complete.
+Observable: the selected lower-tier package runs all training/stress inputs from a new temporary directory with no parent access; final report is complete. This mandatory slice does not decide interlock enablement.
 
 - RED: `cd baseline && $PY -m unittest tests.test_packaging.PackagingTests.test_rehearsal_rejects_parent_dependency -v`; isolated runner behavior absent.
-- Implement isolated extraction/cwd, sanitized environment, no network use, import and per-case subprocess/checker, report-ready Markdown/JSON. Choose interlock default by gate below; build the final package after the choice and repeat rehearsal.
+- Implement isolated extraction/cwd, sanitized environment, no network use, import and per-case subprocess/checker, report-ready Markdown/JSON. Record the selected feature flags from the incoming qualified identity; do not enable an optional feature here.
 - GREEN targeted/full discovery and exact gate below.
 - Commit: `test(s6): complete isolated rehearsal support`. Raw evidence, generated reports, and packages remain untracked; the progress document records their paths and hashes.
 
-Progress updates occur at all required milestones. Evidence is `benchmarks/evidence/s6/...`; packages are `submission-dist/<run_id>/` and removed after hashes/report are stored unless designated last-known-good outside Git. Cleanup requirements: close models/processes, delete extraction temp dirs, and assert no descendants. On interlock failure disable it and repeat mandatory hardening; on packaging/stress safety failure S6 is `BLOCKED`.
+Progress updates occur at all required milestones. Evidence is `benchmarks/evidence/s6/...`; packages are `submission-dist/<run_id>/` and removed after hashes/report are stored unless designated last-known-good outside Git. Cleanup requirements: close models/processes, delete extraction temp dirs, and assert no descendants. Packaging/stress/rehearsal safety failure blocks mandatory delivery. Interlock failure disables or blocks only the optional track and leaves the last mandatory package intact.
 
-## Gates and exact commands
+## Mandatory hardening qualification
 
 ```bash
 PY=/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python
 cd baseline && $PY -m unittest discover -s tests -p 'test_*.py' -v
 cd ..
-$PY -m baseline.harness.cli contract --suite interlock-truth --instances synthetic --seed 20260710
-$PY -m baseline.harness.cli ab --stage s6 --instances dense --timelimits 300 --seed 20260710,20260711 --feature interlock --a false --b true
-$PY -m baseline.harness.cli ab --stage s6 --instances training --timelimits 60 --seed 20260710 --feature interlock --a false --b true
-$PY -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature interlock=auto --feature fault=backend,worker,serializer,after_incumbent
+$PY -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature interlock=false --feature parallel_portfolio=false --feature fault=backend,after_incumbent
 $PY -m baseline.harness.cli submission-rehearsal --instances training,stress --timelimits 5,60,300 --seed 20260710 --isolated
 $PY -m baseline.harness.cli gate --stage s6 --latest-complete --commit HEAD
 $PY -m baseline.harness.cli report --stage s6 --latest-complete
 ```
 
-Interlock enablement PASS: truth table zero mismatch; all A/B outputs feasible; dense median checker objective strictly lower with at least 25% of dense cases improving; no dense or remaining training case worse than paired interlock-off incumbent; serializer failures safely reject; structural counters prove candidates were tried/accepted. Otherwise feature status is `GATE_FAILED_DISABLED`, default false, and rerun stress/rehearsal with it off.
-
 Mandatory S6 PASS: every stress and isolated training case Stage 5 feasible; package root/layout/size/hash/path/prohibited-file checks pass; unmodified checker/reference verified; all injected failures preserve incumbent; no timeout/crash/leak; `COMPLETE` evidence and final report exist. The S6 stage is `COMPLETE` when mandatory PASS holds, even if interlock is disabled. Final defaults record portfolio/interlock independently. There is no next stage; the artifact is the hardened, checker-verified submission candidate.
+
+## Optional interlock promotion qualification
+
+After S6-01..04 safety work passes on a clean optional branch, freeze a new identity and run:
+
+```bash
+$PY -m baseline.harness.cli contract --suite interlock-truth --instances synthetic --seed 20260710
+$PY -m baseline.harness.cli ab --stage s6 --instances dense --timelimits 300 --seed 20260710,20260711 --feature interlock --a false --b true
+$PY -m baseline.harness.cli ab --stage s6 --instances training --timelimits 60 --seed 20260710 --feature interlock --a false --b true
+$PY -m baseline.harness.cli stress --stage s6 --instances stress --timelimits 0.5,2,5,12,60,300 --seeds 20260710 --feature interlock=true --feature fault=backend,serializer,after_incumbent
+```
+
+Interlock enablement PASS: truth table zero mismatch; all A/B outputs feasible; dense median checker objective strictly lower with at least 25% of dense cases improving; no dense or remaining training case worse than paired interlock-off incumbent; serializer failures safely reject; structural counters prove candidates were tried/accepted. Otherwise the optional feature is `GATE_FAILED_DISABLED` after safety PASS or `BLOCKED` after safety failure, its default remains false, and the existing mandatory package remains the delivery candidate. An enabled result must repeat S6-05/06 on the newly selected identity before replacing that candidate.
 
 Known risks and deferred decisions: OBS direction reversal, nested third-party cycles, host tardiness erasing guest gain, and environment-dependent packaging are the primary risks. Truth tests, total-objective guards, cycle rejection, and isolated rehearsal are mandatory mitigations; no numeric interlock threshold is enabled without dense A/B evidence.

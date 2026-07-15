@@ -4,15 +4,17 @@ Parent: [`../fable-native-implementation-progress.md`](../fable-native-implement
 
 Status: `NOT_STARTED`; gate: `NOT_RUN`; planned slices: 4
 
+Plan-reset authority: [`plan-reset-01.md`](plan-reset-01.md). S5 is optional and consumes the best clean, qualified lower tier available; S4 promotion is not a prerequisite.
+
 ## Goal, optional semantics, and dependencies
 
-S5 evaluates a process portfolio of diverse S4 solvers under the four-core limit. It owns worker spawning, seed/profile diversity, verified best exchange, worker/license failure isolation, backend thread limiting, process cleanup, and server-like evidence. It begins and remains disabled until the gain and safety gate passes.
+S5 evaluates a process portfolio of diverse copies of the chosen stable single-process solver under the four-core limit. The lower tier may be stable S3 or an enabled S4. S5 owns worker spawning, seed/profile diversity, verified best exchange, worker/license failure isolation, backend thread limiting, process cleanup, and server-like evidence. It begins and remains disabled until the gain and safety gate passes.
 
 Included: orchestrator/worker protocol, 2/3-worker configurations, periodic exchange of serialized checker-verified incumbents, crash/timeout cleanup, resource telemetry, license behavior, server-like test. Excluded: new search operators, assignment logic, and interlock.
 
 Evidence: design §3 lever 7, §4.9, §5 S5; problem analysis §5.4 (4 cores, 16 GB, Ubuntu 24.04, no internet). The orchestrator never trusts a worker objective: it rechecks each exchanged operations dict with the official checker before replacing its incumbent.
 
-Prerequisite: S4 `COMPLETE`. Consumes the complete single-process entry with config override and harness process utilities. Produces an optional `portfolio.py` path. Explicit non-dependencies: no S6 OBS/interlock/serializer extension. S6 entry accepts S5 `COMPLETE` or `GATE_FAILED_DISABLED`. If gain, license, Linux, cleanup, or resource proof fails, set S5 `GATE_FAILED_DISABLED`, keep `parallel_portfolio=false`, and preserve submission-ready S4.
+Prerequisite: a clean, qualified single-process lower tier under PLAN-RESET-01. Prefer enabled S4 when its promotion gate passes; otherwise use stable S3 with all S4 flags false. Consumes that entry with config override and harness process utilities. Produces an optional `portfolio.py` path. Explicit non-dependencies: no S6 OBS/interlock/serializer extension and no mandatory packaging behavior. Mandatory hardening does not wait for S5. If safety and cleanup pass but gain, license concurrency, Linux, or server-like proof fails, set S5 `GATE_FAILED_DISABLED`, keep `parallel_portfolio=false`, and preserve the chosen lower tier. A safety/cleanup failure leaves S5 `BLOCKED` within the optional track without blocking mandatory delivery.
 
 ## Files/symbols
 
@@ -24,7 +26,7 @@ Prerequisite: S4 `COMPLETE`. Consumes the complete single-process entry with con
 
 | Slice | Prerequisite / consumes | Produces | Explicit non-dependency | Next entry condition |
 |---|---|---|---|---|
-| S5-01 | Complete S4 callable/config | Spawned diverse workers | Exchange/interlock | Worker isolation GREEN |
+| S5-01 | Qualified lower-tier callable/config | Spawned diverse workers | Exchange/interlock | Worker isolation GREEN |
 | S5-02 | S5-01 messages, S0 checker adapter | Verified exchange | Resource gate | Forged/stale rejection GREEN |
 | S5-03 | S5-01/02 processes | Bounded cleanup/fault isolation | S6 behavior | Leak/resource stress GREEN |
 | S5-04 | All S5 artifacts, Linux host | Optional enabled/disabled decision | Interlock | PASS or `GATE_FAILED_DISABLED` |
@@ -39,7 +41,7 @@ Observable: two spawned workers receive immutable problem/config, distinct deter
 - Implement `multiprocessing` `spawn` context (portable and avoids inherited Gurobi environments), pure dict messages, seeds `base+104729*worker_id`, profiles fixed before launch, child lazy backend init.
 - GREEN targeted and full prior regression.
 - Checker: each worker’s final message is independently full-checked on example; invalid message rejected.
-- Stress: worker initialization/license exception yields terminal failure record while orchestrator retains S4 incumbent.
+- Stress: worker initialization/license exception yields terminal failure record while orchestrator retains the selected lower-tier incumbent.
 - Commit: `feat(s5): add isolated portfolio workers`.
 
 ### S5-02 — Verified best exchange
@@ -58,7 +60,7 @@ Observable: workers publish only their locally verified serialized incumbent; or
 Observable: max workers 3, every backend thread 1 in worker mode, active solver processes+backend threads stay within four cores, and termination leaves no descendants/queues/models.
 
 - RED: `cd baseline && $PY -m unittest tests.test_portfolio.PortfolioTests.test_crash_timeout_and_cleanup -v`.
-- Implement orchestrator-as-idle coordinator, configurations `{2,3}` workers only, runtime assertions, psutil child/RSS/CPU telemetry, TERM/two-second/KILL cleanup, queue close/join, per-child backend disposal. Any worker death is ignored after recording; all-worker failure returns orchestrator’s initial S4 incumbent.
+- Implement orchestrator-as-idle coordinator, configurations `{2,3}` workers only, runtime assertions, psutil child/RSS/CPU telemetry, TERM/two-second/KILL cleanup, queue close/join, per-child backend disposal. Any worker death is ignored after recording; all-worker failure returns orchestrator’s initial lower-tier incumbent.
 - GREEN targeted/full regression.
 - Stress: `stress --stage s5 --instances smoke-3 --timelimits 60 --seeds 20260710 --feature parallel_portfolio=true --feature workers=3 --feature exact_threads=1 --feature fault=worker_crash,worker_hang,license`; zero leaked PID, feasible final result.
 - Commit: `feat(s5): bound and clean portfolio resources`.
@@ -72,7 +74,7 @@ Observable: entry can invoke portfolio behind a false-by-default flag; a Linux/U
 - GREEN targeted/full discovery; run gate below on server-like host.
 - Commit: `feat(s5): gate parallel portfolio integration`.
 
-Update progress at required moments. Evidence `benchmarks/evidence/s5/...`. Cleanup is itself a gate: terminate process groups, close queues, dispose solver environments, delete temp sockets/files; never mark `COMPLETE` with a live PID. On any optional failure, record exact reason and S4 fallback evidence rather than blocking S6.
+Update progress at required moments. Evidence `benchmarks/evidence/s5/...`. Cleanup is itself a safety gate: terminate process groups, close queues, dispose solver environments, delete temp sockets/files; never mark `COMPLETE` with a live PID. On any optional failure, record the exact reason and selected lower-tier fallback evidence. Mandatory S6-05/S6-06 remain eligible.
 
 ## Optional enablement gate
 
@@ -86,8 +88,8 @@ $PY -m baseline.harness.cli gate --stage s5 --latest-complete --commit HEAD
 $PY -m baseline.harness.cli report --stage s5 --latest-complete
 ```
 
-PASS/enable: every final output Stage 5 feasible, zero orchestrator/worker crash in non-fault A/B, zero leaked processes, max workers ≤3, every worker backend threads=1, observed aggregate core use ≤4 and peak RSS <16 GiB; at 300 seconds the selected portfolio has strictly lower median checker objective than S4 and reaches the paired S4 300-second final objective by ≤240 seconds on at least half of cases; results repeat directionally across both seeds; server-like preflight passes. Select fewer workers on ties.
+PASS/enable: every final output Stage 5 feasible, zero orchestrator/worker crash in non-fault A/B, zero leaked processes, max workers ≤3, every worker backend threads=1, observed aggregate core use ≤4 and peak RSS <16 GiB; at 300 seconds the selected portfolio has strictly lower median checker objective than the frozen lower tier and reaches that tier’s paired 300-second final objective by ≤240 seconds on at least half of cases; results repeat directionally across both seeds; server-like preflight passes. Select fewer workers on ties.
 
-If safety/resource cleanup fails, the feature is disabled and failure is serious but does not corrupt S4. If only measurable gain, license concurrency, or server-like proof fails, set stage `GATE_FAILED_DISABLED`, `parallel_portfolio=false`, record fallback reason and S4 checker evidence, and proceed to S6. Feature default is true only after full PASS; otherwise false. Proposed commits are the four slice messages above.
+If safety/resource cleanup fails, the feature is disabled and S5 is `BLOCKED`, but the failure does not corrupt the lower tier or stop mandatory delivery. If only measurable gain, license concurrency, or server-like proof fails, set stage `GATE_FAILED_DISABLED`, `parallel_portfolio=false`, record fallback reason and lower-tier checker evidence, and continue. Feature default is true only after full PASS; otherwise false. Proposed commits are the four slice messages above.
 
-Known risks and deferred decisions: concurrent Gurobi licensing, spawn overhead, queue backpressure, and OS resource accounting may erase gains. Worker count is selected only from `{2,3}` by the server-like gate. Next-stage entry: S6 starts after S5 `COMPLETE` or `GATE_FAILED_DISABLED`, clean status, and a recorded enabled/disabled reason.
+Known risks and deferred decisions: concurrent Gurobi licensing, spawn overhead, queue backpressure, and OS resource accounting may erase gains. Worker count is selected only from `{2,3}` by the server-like gate. Optional interlock may consume S5 only after `COMPLETE`; otherwise it consumes the previously qualified lower tier. Mandatory hardening/package may start from stable S3 without waiting for S5.

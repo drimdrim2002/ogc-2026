@@ -2,7 +2,7 @@
 
 Authoritative parent: [`../fable-native-implementation-progress.md`](../fable-native-implementation-progress.md)
 
-Status: `NOT_STARTED`; gate: `NOT_RUN`; planning complete, implementation absent
+Status: `COMPLETE`; gate: `PASS`; implementation/evidence tracked by the authoritative parent
 
 Planned slices: 6
 

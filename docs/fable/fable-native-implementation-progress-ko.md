@@ -1,12 +1,14 @@
 # Fable 네이티브 솔버: S0-S6 진행 및 실행 계약
 
-최종 업데이트 날짜: 2026-07-12(아시아/서울)
+최종 업데이트 날짜: 2026-07-15(아시아/서울)
+
+> 실행 권위 알림: 현재 상태, append-only 이력 및 세부 증거는 영어 마스터 [`fable-native-implementation-progress.md`](fable-native-implementation-progress.md)가 권위 기준이다. 의존성/Git/qualification 리셋은 [`implementation-steps/plan-reset-01.md`](implementation-steps/plan-reset-01.md)가 구속력을 가진다. 이 한국어 문서의 오래된 이력 본문은 참고용 스냅샷이다.
 
 계획 기준: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
-구현 브랜치/작업 트리: `/Users/brown/workspace/ogc/fable-native-implementation`의 `fable-native-implementation`
+보존 전용 레거시 브랜치/작업 트리: `/Users/brown/workspace/ogc/fable-native-implementation`의 `fable-native-implementation`
 
-계획 상태: 완료; 구현 상태: S0 진행 중
+계획 상태: `PLAN-RESET-01 READY`; 구현 상태: reset 실행 `NOT_STARTED`, S4 선택 트랙 `BLOCKED`
 
 ## 1. 목표, 비목표 및 제출 준비 정의
 
@@ -18,7 +20,7 @@
 
 1. `baseline/myalgorithm.py`는 필수 시그니처 `algorithm(prob_info, timelimit)`를 가지며, 수정되지 않은 `baseline/utils.py::check_feasibility`가 수용한 작업 딕셔너리만 반환한다.
 2. 모든 유효 인스턴스(아래 정의)에 대해 현재 필수 파이프라인은 마감 시한, 백엔드 예외, 후보 거부 및 선택 기능 실패 상황에서도 검증된 현직해 대체 경로를 제공한다.
-3. 가장 최근 완료 단계까지의 필수 게이트는 통과 상태다. 선택인 S5 포트폴리오 또는 S6 인터록은 이득 게이트 실패 뒤에 비활성화할 수 있으며, 이는 하위 계층 solver를 무효화하지 않는다.
+3. 깨끗한 S0-S3 코어와 S6-05/06 필수 하드닝·패키징·리허설 게이트가 통과 상태다. 선택인 S4, S5, 인터록은 자체 트랙에서 `BLOCKED` 또는 `GATE_FAILED_DISABLED`여도 마지막 검증 하위 계층을 무효화하지 않는다.
 4. 정확한 인터프리터, 소스 커밋, dirty 상태, 인스턴스 해시, 시드, 명령, 기능 플래그, 체커 결과 및 소요 시간을 완전한 증거로 기록한다.
 5. 패키징 리허설에서는 루트 수준 `myalgorithm.py`, 상대 런타임 경로만 생성되고, 수정된 체커/참조 파일이 없고, 로컬 데이터나 자격 증명이 없고, 금지된 확장자가 없고, 15MB 이하의 zip이 생성됩니다.
 
@@ -42,9 +44,10 @@
 - 경계 접촉과 면적 0의 다각형 접촉은 적법하다. 체커를 통한 Shapely 동작이 최종 기하 오라클이다.
 - 체커 실행 가능 직렬화 해만 `Incumbent`에 들어갈 수 있으며, 교체는 원자적이고 상대 허용오차 `1e-9` 내에서 체커 목적함수를 엄격히 개선한다.
 - 내부 목적함수와 표적 검증은 동등성이 증명될 때까지 진단/필터다. 모든 현직해 교체는 전체 공식 검사를 받는다.
-- 안전, 체커 동등성, 실행 불가능성 또는 현직해 안전 실패는 다음 필수 단계를 차단한다. 계속 진행하기 위해 기준을 완화하지 않는다.
-- S5 이득 실패는 포트폴리오를 비활성화하고 `GATE_FAILED_DISABLED`를 기록합니다. S4 단일 프로세스 솔버를 무효화하지 않습니다. S6 인터록 이득 실패로 인해 인터록이 비활성화됩니다. 필수 강화 및 포장이 여전히 완료될 수 있습니다.
-- Sn을 완성하면 Sn+1에 필요한 모든 아티팩트가 제공됩니다. 어떤 단계 게이트도 이후 단계에서 소유한 코드나 계측을 사용하지 않습니다.
+- 안전, 체커 동등성, 실행 불가능성 또는 현직해 안전 실패는 해당 트랙을 차단한다. 선택 트랙 실패는 마지막 검증 하위 계층의 필수 전달을 막지 않으며, 계속 진행하기 위해 기준을 완화하지 않는다.
+- S4, S5, 인터록 이득 실패는 해당 기능을 비활성화하고 안전성 통과 후 `GATE_FAILED_DISABLED`를 기록한다. 필수 강화 및 패키징은 계속할 수 있다.
+- Exact-once는 명시적으로 동결된 Tier-Q qualification identity에만 적용한다. 개발 RED/GREEN/회귀와 Tier-S 안전 검사는 관련 변경 후 새 시도 identity로 반복할 수 있다.
+- 필수 단계 완료는 다음 필수 슬라이스에 필요한 아티팩트를 제공한다. 어떤 게이트도 선택되지 않은 이후 기능이 소유한 코드나 계측을 사용하지 않는다.
 
 모든 단계 계획에서 사용하는 정확한 체커 기준점은 `baseline/utils.py:252-266`의 `Bay.contains_block`, `461-543`의 동일 레이어 충돌, `603-724`의 입고 OBS, `727-819`의 출고 OBS, `1028-1136`의 ENTRY/EXIT 각 1회 및 타이밍, `1144-1158`의 좌표 반올림과 겹침, `1160-1198`의 입고 present-set, `1200-1232`의 출고 present-set, `1234-1277`의 충돌/경계, `1279-1386`의 순서 있는 재생, `1388-1421`의 float Z1/Z2/Z3이다.
 
@@ -136,32 +139,29 @@ $PY -m baseline.harness.cli <subcommand> ...
 ## 6. 의존성 그래프와 단계 테이블
 
 ```text
-S0 foundation
-  -> S1 constructor
-    -> S2 exact retiming
-      -> S3 intra-bay LNS
-        -> S4 cross-bay assignment refinement
-          -> S5 optional process portfolio (may finish disabled)
-            -> S6 optional interlock + mandatory hardening/package
+필수: S0 -> S1 -> S2 -> S3-stable -> S6-05 hardening/package -> S6-06 rehearsal
+선택: S3-stable -> S4 assignment refinement
+선택: 선택된 안정 하위 계층 -> S5 process portfolio
+선택: 선택된 안정 하위 계층 -> S6-01..04 interlock
 ```
 
 | 단계 | 상태 | 활성 슬라이스 | 게이트 | 플래그/초기 기본값 | 전제 조건 | 마지막 증거 | 마지막 구현 커밋 | 차단 요인/대체 경로 | 다음 작업 |
 |---|---|---|---|---|---|---|---|---|---|
-| S0 | `IN_PROGRESS` | — | `NOT_RUN` | `native_solver=false` | 계획 커밋, 데이터 사전 검사 | `benchmarks/evidence/s0/s0-01/20260712T110925Z-s0-01/` | S0-01 원자적 커밋 | 학습 JSON 없음; 초기 단위 슬라이스는 차단하지 않음 | S0-02 실행 |
-| S1 | `NOT_STARTED` | — | `NOT_RUN` | `constructor=false` | S0 필수 게이트 | — | — | — | S0을 기다리세요 |
-| S2 | `NOT_STARTED` | — | `NOT_RUN` | `exact_retime=false` | S1 필수 게이트 | — | — | — | S1을 기다려 |
-| S3 | `NOT_STARTED` | — | `NOT_RUN` | `alns=false`; 수용기 `strict` | S2 필수 게이트 | — | — | — | S2를 기다려 |
-| S4 | `NOT_STARTED` | — | `NOT_RUN` | `assignment_refinement=false` | S3 필수 게이트 | — | — | — | S3를 기다려 |
-| S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | S4 필수 게이트 | — | — | 선택적 실패로 인해 S4가 유지됨 | S4를 기다려 |
-| S6 | `NOT_STARTED` | — | `NOT_RUN` | `interlock=false` | S5 `COMPLETE` 또는 `GATE_FAILED_DISABLED` | — | — | 인터록 실패로 인해 S5/S4 계층이 강화됨 | S5를 기다려 |
+| S0 | `COMPLETE` | — | `PASS` | `native_solver=true` | S0 게이트 | 영어 마스터 참조 | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | 안정 baseline에 유지 |
+| S1 | `COMPLETE` | — | `PASS` | `constructor=true` | S0 | 영어 마스터 참조 | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | 안정 baseline에 유지 |
+| S2 | `COMPLETE` | — | `PASS` | `exact_retime=true` | S1 | 영어 마스터 참조 | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | 안정 baseline에 유지 |
+| S3 | `COMPLETE` | `PLAN-RESET-01 안정화` | 기존 `PASS`; 깨끗한 재qualification 필요 | 의도 `alns=true`; 선택 기능 false | S2 | 영어 마스터 참조 | `c0da4a7971c57b85066f2610ead9b68d6305fe65` | gate identity가 dirty이고 clean commit 기본값은 false | 별도 안정화 워크트리 생성 |
+| S4 | `BLOCKED` | `S4-04-RECOVERY-08` | `NOT_RUN` | 선택 기본값 false | 깨끗한 S3; 선택 트랙 | 영어 마스터 참조 | 현재 recovery 커밋 없음 | focused 8/8, affected 66/67; 25% cap telemetry 실패 | 실험 보존; 필수 경로는 계속 |
+| S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | 검증된 하위 계층; 선택 | — | — | 실패 시 하위 계층 유지 | S6-05/06을 막지 않음 |
+| S6 | `NOT_STARTED` | `S6-05` | `NOT_RUN` | `interlock=false` | 깨끗한 S3 또는 승격 계층 | — | — | 선택 인터락 실패 시 필수 package 유지 | S3 안정화 후 S6-05, S6-06 |
 
 허용되는 구현 상태는 정확히 `NOT_STARTED`, `IN_PROGRESS`, `BLOCKED`, `GATE_FAILED_DISABLED` 및 `COMPLETE`입니다. 전환 규칙은 결정적입니다.
 
 - `NOT_STARTED -> IN_PROGRESS`는 전제 조건이 확인되고 "시작 전" 기록 행이 추가된 후에만 가능합니다.
-- 모든 필수 슬라이스가 커밋되고 단계 게이트가 0을 종료한 후에만 `IN_PROGRESS -> COMPLETE`입니다.
-- 해결되지 않은 필수 안전성/동등성/타당성 조건에 대해서만 `IN_PROGRESS -> BLOCKED`; 실패한 증거를 정확하게 기록하고 다음 단계를 시작하지 마십시오.
-- 안전은 통과했으나 선택적 wall-clock/license 이득 게이트가 실패하면 S5는 `IN_PROGRESS -> GATE_FAILED_DISABLED`가 된다. 그 후 S6를 시작할 수 있다.
-- S6는 인터록 기능 상태 `GATE_FAILED_DISABLED`를 독립적으로 기록한다. 인터록을 끈 상태에서 필수 강화/패키지가 통과하면 단계는 `COMPLETE`가 된다.
+- 해당 트랙의 필수 슬라이스가 커밋되고 동결 qualification이 0을 종료한 후에만 `IN_PROGRESS -> COMPLETE`입니다.
+- 해결되지 않은 안전성/동등성/타당성/정리 조건은 해당 트랙을 `BLOCKED`로 만든다. 선택 트랙의 차단은 마지막 검증 하위 계층의 필수 전달을 막지 않는다.
+- S4, S5, 인터락은 안전성을 통과했지만 이득 게이트가 실패하면 `GATE_FAILED_DISABLED`가 된다.
+- S6는 S6-05/06 필수 하드닝/패키징/리허설이 통과하면 `COMPLETE`가 되며, 인터락 상태는 별도로 기록한다.
 - `BLOCKED -> IN_PROGRESS`에는 해결된 조건 및 증거를 명명하는 새로운 기록 행이 필요합니다. `COMPLETE`는 다시 열리지 않습니다. 수정은 새 슬라이스를 시작하고 이전 완료가 기록에 유지된 상태로 일시적으로 단계를 `IN_PROGRESS`로 반환합니다.
 
 ## 7. 비판적 검토 결정 원장
@@ -243,14 +243,16 @@ S0 foundation
 
 ## 9. 증거, 커밋, 정리 및 다시 시작
 
-각 동작 슬라이스는 상태를 `IN_PROGRESS`로 갱신하고 실패 테스트를 추가하며, 문법/설정 실패가 아닌 누락/잘못된 동작을 보이는 정확한 표적 RED 증거를 저장한다. 최소 구현 후 표적 GREEN, 이전 회귀, 실제 또는 합성 공식 체커 사례를 실행하고 구조화된 증거를 생성한다. 자식 프로세스·임시 solver 환경·패키지를 정리하고 이력을 갱신한 다음 단계 계획의 메시지로 원자적 구현 커밋 하나를 만든다. 원시 증거와 로컬 데이터는 패키징하지 않고 자동 stage하지 않는다.
+각 동작 슬라이스는 PLAN-RESET-01을 따른다. 전용 깨끗한 워크트리에서 반복 가능한 Tier-D RED/GREEN/회귀와 Tier-S 안전 검사를 수행하고, 필요한 경우에만 깨끗한 소스 identity를 Tier-Q로 동결한다. 정확한 경로 allowlist만 stage하고 한 관심사당 원자 커밋 하나를 만든다.
+
+Git 경계: 현재 레거시 워크트리는 dirty 실험의 보존 원본이다. 검증된 보존 manifest를 만들기 전에는 그곳에서 구현/테스트/gate 또는 Git 상태 변경을 하지 않는다. 다음 실행은 `c0da4a7971c57b85066f2610ead9b68d6305fe65`에서 별도 `codex/fable-s3-stabilization` 워크트리를 만드는 것이다.
 
 채팅 기록 없이 다시 시작:
 
-1. `git -C /Users/brown/workspace/ogc/fable-native-implementation status --short --branch` 및 브랜치를 확인합니다.
-2. 이 문서의 현재 테이블과 마지막 기록 항목을 읽은 다음 활성 단계 문서를 읽습니다.
-3. 마지막 구현 커밋이 존재하는지 확인하고 참조 증거 `COMPLETE`, `summary.json` 및 `gate.json`를 검사합니다.
-4. `$PY -m baseline.harness.cli report --stage sN --latest-complete`와 활성 슬라이스의 대상 회귀 명령을 실행합니다.
+1. 영어 마스터의 현재 표·마지막 이력과 PLAN-RESET-01을 먼저 읽습니다.
+2. 레거시 워크트리는 읽기 전용으로 기록된 HEAD/dirty 경계를 확인합니다.
+3. 보존 manifest와 별도 대상 워크트리가 존재하기 전에는 구현을 시작하지 않습니다.
+4. 전용 대상에서 clean status와 마지막 증거 identity를 확인합니다.
 5. 기록된 다음 동작만 재개합니다. 파일이나 채팅만으로 완료를 추론하지 마세요.
 
 ## 10. 추가 전용 구현 내역

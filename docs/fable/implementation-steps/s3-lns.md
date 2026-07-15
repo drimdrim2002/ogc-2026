@@ -2,7 +2,7 @@
 
 Parent: [`../fable-native-implementation-progress.md`](../fable-native-implementation-progress.md)
 
-Status: `NOT_STARTED`; gate: `NOT_RUN`; planned slices: 5
+Status: `COMPLETE`; gate: `PASS`; clean selected-default stabilization required by [`plan-reset-01.md`](plan-reset-01.md); planned slices: 5
 
 ## Goal, ownership, and dependencies
 

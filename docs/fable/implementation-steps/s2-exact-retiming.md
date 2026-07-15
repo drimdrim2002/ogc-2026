@@ -2,7 +2,7 @@
 
 Parent: [`../fable-native-implementation-progress.md`](../fable-native-implementation-progress.md)
 
-Status: `NOT_STARTED`; gate: `NOT_RUN`; planned slices: 5
+Status: `COMPLETE`; gate: `PASS`; planned slices: 5
 
 ## Goal and boundary
 
