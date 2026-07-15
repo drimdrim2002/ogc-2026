@@ -536,6 +536,7 @@ class RepairResult:
     objective_delta: float
     diagnostics: tuple[str, ...] = ()
     engine: str = "heuristic"
+    telemetry: tuple[tuple[str, object], ...] = ()
 
     @property
     def feasible(self) -> bool:

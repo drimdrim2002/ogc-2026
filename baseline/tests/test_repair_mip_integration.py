@@ -148,6 +148,11 @@ class MipRepairIntegrationTests(unittest.TestCase):
             lambda: feasible_backend,
         )
         self.assertEqual("mip", feasible.engine)
+        feasible_probe = dict(feasible.telemetry)
+        self.assertEqual(1, feasible_probe["solve_calls"])
+        self.assertEqual(1, feasible_probe["sol_count_max"])
+        self.assertTrue(feasible_probe["feasible_extraction"])
+        self.assertEqual({"TIME_LIMIT": 1}, feasible_probe["status_counts"])
         self.assertEqual(5, checker(raw, serialize(feasible.snapshot, context.kernel))["stage"])
 
         fallback_calls = 0
@@ -174,9 +179,13 @@ class MipRepairIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(1, fallback_calls)
         self.assertEqual("mip_fallback", empty.engine)
+        empty_probe = dict(empty.telemetry)
+        self.assertEqual("TIME_LIMIT_NO_SOLUTION", empty_probe["fallback_reason"])
+        self.assertEqual(1, empty_probe["solve_calls"])
+        self.assertGreaterEqual(empty_probe["heuristic_fallback_seconds"], 0.0)
         self.assertEqual(5, checker(raw, serialize(empty.snapshot, context.kernel))["stage"])
 
-    def test_import_license_and_model_failure_each_fallback_once(self):
+    def test_import_license_size_and_model_failure_each_fallback_once(self):
         raw, _, _, current, context = fixture(1)
         rows = ((0, (candidate(current.placements[0], context, incumbent=True),)),)
 
@@ -186,12 +195,24 @@ class MipRepairIntegrationTests(unittest.TestCase):
                 raise RuntimeError("model failure")
 
         factories = (
-            lambda: (_ for _ in ()).throw(ImportError("gurobi import")),
-            lambda: (_ for _ in ()).throw(RuntimeError("license failure")),
-            lambda: CrashBackend(),
+            (
+                lambda: (_ for _ in ()).throw(ImportError("gurobi import")),
+                "BACKEND_IMPORT",
+            ),
+            (
+                lambda: (_ for _ in ()).throw(RuntimeError("no Gurobi license")),
+                "BACKEND_LICENSE",
+            ),
+            (
+                lambda: (_ for _ in ()).throw(
+                    RuntimeError("model too large for size-limited license")
+                ),
+                "MODEL_SIZE",
+            ),
+            (lambda: CrashBackend(), "MODEL_FAILURE"),
         )
-        for factory in factories:
-            with self.subTest(factory=factory):
+        for factory, expected_reason in factories:
+            with self.subTest(expected_reason=expected_reason):
                 fallback_calls = 0
 
                 def fallback(current, destroyed, context, budget):
@@ -213,6 +234,7 @@ class MipRepairIntegrationTests(unittest.TestCase):
                 )
                 self.assertEqual(1, fallback_calls)
                 self.assertEqual("mip_fallback", result.engine)
+                self.assertEqual(expected_reason, dict(result.telemetry)["fallback_reason"])
                 checked = checker(raw, serialize(result.snapshot, context.kernel))
                 self.assertTrue(checked["feasible"])
                 self.assertEqual(5, checked["stage"])
@@ -274,6 +296,9 @@ class AlnsMipTransactionTests(unittest.TestCase):
         self.assertEqual(initial.placements, result.current.placements)
         self.assertEqual(initial.placements, result.snapshot.placements)
         self.assertEqual(5, checker(raw, result.serialized_operations)["stage"])
+        event = dict(result.metrics.mip_events[0])
+        self.assertFalse(event["retime_success"])
+        self.assertEqual("RETIME_STATUS", event["transaction_failure"])
 
     def test_mip_checker_reject_keeps_current_and_best_immutable(self):
         raw, parsed, kernel, initial, store, better = self.one_block()
@@ -300,6 +325,9 @@ class AlnsMipTransactionTests(unittest.TestCase):
         )
         self.assertEqual(initial.placements, result.current.placements)
         self.assertEqual(initial.placements, result.snapshot.placements)
+        event = dict(result.metrics.mip_events[0])
+        self.assertFalse(event["checker_pass"])
+        self.assertEqual("FULL_CHECKER", event["transaction_failure"])
 
     def test_mip_candidate_full_check_installs_strict_improvement(self):
         raw, parsed, kernel, initial, store, better = self.one_block()
@@ -322,6 +350,10 @@ class AlnsMipTransactionTests(unittest.TestCase):
         self.assertTrue(checked["feasible"])
         self.assertEqual(5, checked["stage"])
         self.assertAlmostEqual(result.snapshot.objective.total, checked["objective"])
+        event = dict(result.metrics.mip_events[0])
+        self.assertTrue(event["checker_pass"])
+        self.assertTrue(event["strict_install"])
+        self.assertLess(event["post_retime_objective_delta"], 0.0)
 
     def test_periodic_and_stall_portfolio_selects_mip_engine(self):
         raw, parsed, kernel, initial, store, _ = self.one_block()
@@ -371,6 +403,7 @@ class AlnsMipTransactionTests(unittest.TestCase):
         metrics = {name: values for name, *values in result.metrics.repair_engines}
         self.assertEqual(1, metrics["heuristic"][0])
         self.assertEqual(2, metrics["mip"][0])
+        self.assertEqual(2, len(result.metrics.mip_events))
 
 
 if __name__ == "__main__":

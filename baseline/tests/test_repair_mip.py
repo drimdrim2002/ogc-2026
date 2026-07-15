@@ -80,6 +80,7 @@ class EnumeratingBackend:
             constraints=len(request.rows)
             + len(request.pair_cuts)
             + len(request.no_good_cuts),
+            sol_count=1,
             diagnostics=(f"selected={refs}",),
         )
 

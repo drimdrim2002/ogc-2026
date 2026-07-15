@@ -29,6 +29,7 @@ class _Metrics:
     exit_reason: str
     per_operator: tuple[tuple[str, _OperatorMetrics], ...]
     best_trace: tuple[float, ...]
+    mip_events: tuple[tuple[tuple[str, object], ...], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,14 @@ class LnsTelemetryTests(unittest.TestCase):
                             exit_reason="DEADLINE",
                             per_operator=(("random", _OperatorMetrics(5, 4, 3, 2)),),
                             best_trace=(90.0, 80.0),
+                            mip_events=(
+                                (
+                                    ("dispatch", 1),
+                                    ("last_status", "OPTIMAL"),
+                                    ("checker_pass", True),
+                                    ("strict_install", True),
+                                ),
+                            ),
                         )
                     )
 
@@ -131,6 +140,11 @@ class LnsTelemetryTests(unittest.TestCase):
         self.assertEqual(1.5, trace.phase_times["lns_retime"])
         self.assertEqual(0.5, trace.phase_times["lns_checker"])
         self.assertEqual(8, trace.model_stats["lns_aggregate"]["iterations"])
+        self.assertEqual(
+            "OPTIMAL",
+            trace.model_stats["lns_aggregate"]["mip_events"][0]["last_status"],
+        )
+        self.assertTrue(trace.lns_invocations[1]["mip_events"][0]["strict_install"])
         self.assertEqual(5, trace.model_stats["lns_last"]["iterations"])
         self.assertEqual(8, trace.operator_stats["random"]["attempts"])
         self.assertEqual(5, trace.operator_stats_last["random"]["attempts"])

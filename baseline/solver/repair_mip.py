@@ -159,6 +159,10 @@ class MipBackendResult:
     runtime: float = 0.0
     variables: int = 0
     constraints: int = 0
+    sol_count: int = 0
+    build_time: float = 0.0
+    solve_time: float = 0.0
+    extract_time: float = 0.0
     diagnostics: tuple[str, ...] = ()
 
 
@@ -426,10 +430,17 @@ def _fallback(
     fallback_engine: Callable[..., RepairResult],
     reason: str,
     diagnostics: tuple[str, ...] = (),
+    telemetry: Mapping[str, Any] | None = None,
 ) -> RepairResult:
+    fallback_started = time.monotonic()
     try:
         result = fallback_engine(current, destroyed, context, budget)
     except Exception as exc:
+        values = dict(telemetry or {})
+        values.update(
+            fallback_reason=reason,
+            heuristic_fallback_seconds=max(0.0, time.monotonic() - fallback_started),
+        )
         return RepairResult(
             current,
             "ERROR",
@@ -441,12 +452,36 @@ def _fallback(
             + diagnostics
             + (f"fallback_exception={type(exc).__name__}: {exc}",),
             "mip_fallback",
+            tuple(values.items()),
         )
+    values = dict(telemetry or {})
+    values.update(
+        fallback_reason=reason,
+        heuristic_fallback_seconds=max(0.0, time.monotonic() - fallback_started),
+    )
     return replace(
         result,
         diagnostics=(f"mip_fallback_reason={reason}",) + diagnostics + result.diagnostics,
         engine="mip_fallback",
+        telemetry=tuple(values.items()),
     )
+
+
+def _backend_failure_reason(exc: BaseException, *, stage: str) -> str:
+    if isinstance(exc, (ImportError, ModuleNotFoundError)):
+        return "BACKEND_IMPORT"
+    detail = f"{type(exc).__name__}: {exc}".lower()
+    if "license" in detail:
+        if "too large" in detail or "size-limit" in detail or "size limit" in detail:
+            return "MODEL_SIZE"
+        return "BACKEND_LICENSE"
+    if "too large" in detail or "size-limit" in detail or "size limit" in detail:
+        return "MODEL_SIZE"
+    if "memory" in detail:
+        return "MODEL_MEMORY"
+    if "time limit" in detail or "timeout" in detail:
+        return "BACKEND_TIMEOUT"
+    return "BACKEND_FACTORY" if stage == "factory" else "MODEL_FAILURE"
 
 
 def repair_with_mip(
@@ -462,13 +497,49 @@ def repair_with_mip(
 ) -> RepairResult:
     """Run bounded solve-inspect-add-cut repair or one heuristic fallback."""
     config = config or MipRepairConfig()
-    if not destroyed:
-        return RepairResult(current, "FEASIBLE", (), frozenset(), 0, 0.0, engine="mip")
-    if len(destroyed) > config.max_blocks:
-        return _fallback(
-            current, destroyed, context, budget, fallback_engine, "BLOCK_CAP"
+    probe_started = time.monotonic()
+    probe: dict[str, Any] = {
+        "dispatch": 1,
+        "destroyed_blocks": len(destroyed),
+        "solve_calls": 0,
+        "sol_count_max": 0,
+        "feasible_extraction": False,
+        "model_build_seconds": 0.0,
+        "model_solve_seconds": 0.0,
+        "model_extract_seconds": 0.0,
+    }
+
+    def fallback(reason: str, diagnostics: tuple[str, ...] = ()) -> RepairResult:
+        probe["mip_seconds_before_fallback"] = max(
+            0.0, time.monotonic() - probe_started
         )
+        return _fallback(
+            current,
+            destroyed,
+            context,
+            budget,
+            fallback_engine,
+            reason,
+            diagnostics,
+            probe,
+        )
+
+    if not destroyed:
+        probe.update(feasible_extraction=True, total_mip_seconds=0.0)
+        return RepairResult(
+            current,
+            "FEASIBLE",
+            (),
+            frozenset(),
+            0,
+            0.0,
+            engine="mip",
+            telemetry=tuple(probe.items()),
+        )
+    if len(destroyed) > config.max_blocks:
+        return fallback("BLOCK_CAP")
     try:
+        candidate_started = time.monotonic()
         if candidates is None:
             candidates = export_complete_candidates(
                 current,
@@ -478,42 +549,39 @@ def repair_with_mip(
                 max_per_block=config.max_per_block,
             )
         table = canonicalize_candidates(current, destroyed, candidates, context, config)
+        probe.update(
+            candidate_rows=len(table.rows),
+            candidates_before=table.before_count,
+            candidates_after=table.after_count,
+            candidate_product=table.product,
+            candidate_seconds=max(0.0, time.monotonic() - candidate_started),
+        )
         draft = destroy_snapshot(current, destroyed)
         available = budget.search_remaining()
         if available < config.min_timebox_s:
-            return _fallback(
-                current,
-                destroyed,
-                context,
-                budget,
-                fallback_engine,
-                "TIMEBOX",
-                (f"remaining={available}",),
-            )
+            return fallback("TIMEBOX", (f"remaining={available}",))
         child = budget.child(min(config.max_timebox_s, available))
+        prefilter_started = time.monotonic()
         index = ConflictIndex.build(table, draft.retained, context.kernel, child)
+        probe.update(
+            prefilter_seconds=max(0.0, time.monotonic() - prefilter_started),
+            prefilter_checks=index.prefilter_checks,
+            prefilter_exact=index.exact_checks,
+            prefilter_excluded=len(index.excluded),
+        )
         if any(ref in index.excluded for ref in table.incumbent_choice):
-            return _fallback(
-                current,
-                destroyed,
-                context,
-                budget,
-                fallback_engine,
-                "INCUMBENT_PREFILTER",
-            )
+            return fallback("INCUMBENT_PREFILTER")
         for block_id, row in table.rows:
             if all((block_id, index_) in index.excluded for index_ in range(len(row))):
-                return _fallback(
-                    current,
-                    destroyed,
-                    context,
-                    budget,
-                    fallback_engine,
-                    "EMPTY_ROW",
-                    (f"block={block_id}",),
-                )
+                return fallback("EMPTY_ROW", (f"block={block_id}",))
         factory = backend_factory or _gurobi_backend_factory
-        backend = factory()
+        try:
+            backend = factory()
+        except Exception as exc:
+            return fallback(
+                _backend_failure_reason(exc, stage="factory"),
+                (f"{type(exc).__name__}: {exc}",),
+            )
         pair_cuts: set[tuple[CandidateRef, CandidateRef]] = set()
         no_good_cuts: list[tuple[CandidateRef, ...]] = []
         diagnostics = [
@@ -528,15 +596,7 @@ def repair_with_mip(
         for iteration in range(config.max_cut_iterations):
             remaining = child.search_remaining()
             if remaining <= 0.001:
-                return _fallback(
-                    current,
-                    destroyed,
-                    context,
-                    budget,
-                    fallback_engine,
-                    "TIMEOUT",
-                    tuple(diagnostics),
-                )
+                return fallback("TIMEOUT", tuple(diagnostics))
             request = _request(
                 table,
                 current,
@@ -547,20 +607,45 @@ def repair_with_mip(
                 remaining,
                 config,
             )
-            last_result = backend.solve(request)
+            try:
+                last_result = backend.solve(request)
+            except Exception as exc:
+                return fallback(
+                    _backend_failure_reason(exc, stage="solve"),
+                    tuple(diagnostics) + (f"{type(exc).__name__}: {exc}",),
+                )
+            probe["solve_calls"] += 1
+            probe["sol_count_max"] = max(
+                int(probe["sol_count_max"]),
+                int(last_result.sol_count),
+                int(bool(last_result.selected)),
+            )
+            probe["model_build_seconds"] += max(0.0, last_result.build_time)
+            probe["model_solve_seconds"] += max(0.0, last_result.solve_time)
+            probe["model_extract_seconds"] += max(0.0, last_result.extract_time)
+            probe["variables"] = max(
+                int(probe.get("variables", 0)), int(last_result.variables)
+            )
+            probe["constraints"] = max(
+                int(probe.get("constraints", 0)), int(last_result.constraints)
+            )
+            statuses = dict(probe.get("status_counts", {}))
+            statuses[last_result.status] = statuses.get(last_result.status, 0) + 1
+            probe["status_counts"] = statuses
+            probe["last_status"] = last_result.status
+            probe["last_gap"] = last_result.gap
             diagnostics.extend(last_result.diagnostics)
             diagnostics.append(f"iteration={iteration + 1} status={last_result.status}")
             extracted = _selection_from_result(table, last_result)
             if extracted is None:
-                return _fallback(
-                    current,
-                    destroyed,
-                    context,
-                    budget,
-                    fallback_engine,
-                    "NO_FEASIBLE_EXTRACTION",
-                    tuple(diagnostics),
-                )
+                status_reason = {
+                    "TIME_LIMIT": "TIME_LIMIT_NO_SOLUTION",
+                    "INFEASIBLE": "MODEL_INFEASIBLE",
+                    "INF_OR_UNBD": "MODEL_INFEASIBLE_OR_UNBOUNDED",
+                    "UNBOUNDED": "MODEL_UNBOUNDED",
+                    "ERROR": "MODEL_STATUS_ERROR",
+                }.get(last_result.status, "NO_FEASIBLE_EXTRACTION")
+                return fallback(status_reason, tuple(diagnostics))
             refs, selected = extracted
             conflicts, cycles = inspect_selection(
                 selected, context.kernel, unchanged=draft.retained.placements
@@ -601,15 +686,7 @@ def repair_with_mip(
                     f"cuts_pair={len(pair_cuts)} cuts_cycle={len(no_good_cuts)}"
                 )
                 if not new_cut:
-                    return _fallback(
-                        current,
-                        destroyed,
-                        context,
-                        budget,
-                        fallback_engine,
-                        "CUT_STALL",
-                        tuple(diagnostics),
-                    )
+                    return fallback("CUT_STALL", tuple(diagnostics))
                 continue
 
             selected_by_id = {item.block_id: item.placement for item in selected}
@@ -621,15 +698,7 @@ def repair_with_mip(
             )
             snapshot = snapshot.with_objective(compute_objective(context.instance, snapshot))
             if not locally_feasible(snapshot, context):
-                return _fallback(
-                    current,
-                    destroyed,
-                    context,
-                    budget,
-                    fallback_engine,
-                    "LOCAL_REJECTED",
-                    tuple(diagnostics),
-                )
+                return fallback("LOCAL_REJECTED", tuple(diagnostics))
             before = current.objective or compute_objective(context.instance, current)
             changed = frozenset(
                 block_id
@@ -647,6 +716,13 @@ def repair_with_mip(
                     f"runtime={last_result.runtime}",
                 )
             )
+            probe.update(
+                feasible_extraction=True,
+                conflict_cuts=len(pair_cuts),
+                cycle_cuts=len(no_good_cuts),
+                repair_objective_delta=snapshot.objective.total - before.total,
+                total_mip_seconds=max(0.0, time.monotonic() - probe_started),
+            )
             return RepairResult(
                 snapshot,
                 "FEASIBLE",
@@ -656,26 +732,11 @@ def repair_with_mip(
                 snapshot.objective.total - before.total,
                 tuple(diagnostics),
                 "mip",
+                tuple(probe.items()),
             )
-        return _fallback(
-            current,
-            destroyed,
-            context,
-            budget,
-            fallback_engine,
-            "CUT_ITERATION_CAP",
-            tuple(diagnostics),
-        )
+        return fallback("CUT_ITERATION_CAP", tuple(diagnostics))
     except Exception as exc:
-        return _fallback(
-            current,
-            destroyed,
-            context,
-            budget,
-            fallback_engine,
-            "EXCEPTION",
-            (f"{type(exc).__name__}: {exc}",),
-        )
+        return fallback("PREPARATION_FAILURE", (f"{type(exc).__name__}: {exc}",))
 
 
 def make_mip_repair_engine(
@@ -790,14 +851,23 @@ class _GurobiBackend:
             for candidate_index, candidate in enumerate(row)
         )
         model.setObjective(known + request.w2 * z2, gp.GRB.MINIMIZE)
+        build_time = max(0.0, time.monotonic() - started)
+        solve_started = time.monotonic()
         model.optimize()
+        solve_time = max(0.0, time.monotonic() - solve_started)
+        extract_started = time.monotonic()
         status = self._status_name(gp, model.Status)
         if model.SolCount <= 0:
+            extract_time = max(0.0, time.monotonic() - extract_started)
             return MipBackendResult(
                 status=status,
                 runtime=time.monotonic() - started,
                 variables=model.NumVars,
                 constraints=model.NumConstrs,
+                sol_count=int(model.SolCount),
+                build_time=build_time,
+                solve_time=solve_time,
+                extract_time=extract_time,
                 diagnostics=(f"SolCount={model.SolCount}",),
             )
         selected = tuple(
@@ -807,6 +877,7 @@ class _GurobiBackend:
             )
             for block_id, row in request.rows
         )
+        extract_time = max(0.0, time.monotonic() - extract_started)
         return MipBackendResult(
             status=status,
             selected=selected,
@@ -816,6 +887,10 @@ class _GurobiBackend:
             runtime=time.monotonic() - started,
             variables=model.NumVars,
             constraints=model.NumConstrs,
+            sol_count=int(model.SolCount),
+            build_time=build_time,
+            solve_time=solve_time,
+            extract_time=extract_time,
             diagnostics=(
                 f"variables={model.NumVars}",
                 f"constraints={model.NumConstrs}",
@@ -823,6 +898,9 @@ class _GurobiBackend:
                 f"ObjVal={model.ObjVal}",
                 f"ObjBound={model.ObjBound}",
                 f"MIPGap={model.MIPGap}",
+                f"build_time={build_time}",
+                f"solve_time={solve_time}",
+                f"extract_time={extract_time}",
             ),
         )
 

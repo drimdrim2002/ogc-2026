@@ -160,6 +160,7 @@ class AlnsMetrics:
     remaining_seconds: float = field(default=0.0, compare=False)
     budget_utilization: float = field(default=0.0, compare=False)
     repair_engines: tuple[tuple[str, int, int, int, float], ...] = ()
+    mip_events: tuple[tuple[tuple[str, Any], ...], ...] = ()
     densify_triggers: int = 0
     densify_attempts: int = 0
     densify_improvements: int = 0
@@ -340,6 +341,7 @@ def run_lns(
     densify_reason: str | None = None
     phase_time = {"destroy": 0.0, "repair": 0.0, "retime": 0.0, "checker": 0.0}
     engine_stats: dict[str, list[float]] = {}
+    mip_events: list[dict[str, Any]] = []
     cache_before = context.kernel.cache_info()
     started = context.clock()
     iterations = 0
@@ -494,6 +496,7 @@ def run_lns(
         metric.attempts += 1
         segment_uses[operator_index] += 1
         iteration_started = context.clock()
+        mip_event: dict[str, Any] | None = None
         try:
             phase_started = context.clock()
             destroyed = operator.select(
@@ -523,6 +526,14 @@ def run_lns(
             repair_duration = max(0.0, context.clock() - phase_started)
             phase_time["repair"] += repair_duration
             engine_stats[selected_engine_name][3] += repair_duration
+            if "mip" in selected_engine_name.lower() or repaired.engine.startswith("mip"):
+                mip_event = dict(repaired.telemetry)
+                mip_event.setdefault("dispatch", 1)
+                mip_event["selected_engine"] = selected_engine_name
+                mip_event["result_engine"] = repaired.engine
+                mip_event["repair_total_seconds"] = repair_duration
+                mip_event["repair_status"] = repaired.status
+                mip_event["repair_objective_delta"] = repaired.objective_delta
             if repaired.engine == "mip_fallback":
                 engine_stats[selected_engine_name][2] += 1
             if not repaired.feasible:
@@ -546,8 +557,11 @@ def run_lns(
                     invariant_errors = 0
                     evidence: _ValidationEvidence | None = None
                     mip_transaction = repaired.engine.startswith("mip")
+                    actual_mip_candidate = repaired.engine == "mip"
                     if mip_transaction:
                         if retime_hook is not None and repaired.changed_ids:
+                            if actual_mip_candidate and mip_event is not None:
+                                mip_event["retime_attempted"] = True
                             phase_started = context.clock()
                             retime_triggers += 1
                             try:
@@ -572,6 +586,9 @@ def run_lns(
                                 "OBJECTIVE_MISMATCH",
                                 "WORSE_Z1",
                             }:
+                                if actual_mip_candidate and mip_event is not None:
+                                    mip_event["retime_success"] = False
+                                    mip_event["transaction_failure"] = "RETIME_STATUS"
                                 raise ValueError("MIP retime failed transactionally")
                             retimed_snapshot = getattr(retimed, "snapshot", candidate)
                             if (
@@ -580,6 +597,9 @@ def run_lns(
                                     retimed_snapshot, context.neighborhood
                                 )
                             ):
+                                if actual_mip_candidate and mip_event is not None:
+                                    mip_event["retime_success"] = False
+                                    mip_event["transaction_failure"] = "RETIME_INVALID"
                                 raise ValueError("MIP retime returned an invalid snapshot")
                             retimed_snapshot = _objective(
                                 retimed_snapshot, context.instance
@@ -588,15 +608,32 @@ def run_lns(
                                 retimed_snapshot.objective.total
                                 > candidate.objective.total + 1e-9
                             ):
+                                if actual_mip_candidate and mip_event is not None:
+                                    mip_event["retime_success"] = False
+                                    mip_event["transaction_failure"] = "RETIME_WORSENED"
                                 raise ValueError("MIP retime worsened the candidate")
                             candidate = retimed_snapshot
+                            if actual_mip_candidate and mip_event is not None:
+                                mip_event["retime_success"] = True
+                        elif actual_mip_candidate and mip_event is not None:
+                            mip_event["retime_attempted"] = False
+                            mip_event["retime_success"] = True
+                        if actual_mip_candidate and mip_event is not None:
+                            mip_event["checker_attempted"] = True
                         evidence = validate_candidate(candidate)
                         if evidence is None:
+                            if actual_mip_candidate and mip_event is not None:
+                                mip_event["checker_pass"] = False
+                                mip_event["transaction_failure"] = "FULL_CHECKER"
                             raise ValueError("MIP candidate failed canonical full check")
+                        if actual_mip_candidate and mip_event is not None:
+                            mip_event["checker_pass"] = True
 
                     metric.feasible += 1
                     engine_stats[selected_engine_name][1] += 1
                     delta = candidate.objective.total - current.objective.total
+                    if actual_mip_candidate and mip_event is not None:
+                        mip_event["post_retime_objective_delta"] = delta
                     metric.delta_sum += delta
                     warmup = total_iterations < config.warmup_iterations
                     if delta < 0.0 and warmup:
@@ -611,12 +648,17 @@ def run_lns(
                         allow_worse=not warmup,
                     )
                     if accepted:
+                        if actual_mip_candidate and mip_event is not None:
+                            mip_event["accepted"] = True
                         current = candidate
                         metric.accepted += 1
                         accepted_trace.append(current.objective.total)
                         if not mip_transaction:
                             pending_retime.update(repaired.changed_ids)
-                        if try_install(current, evidence):
+                        installed = try_install(current, evidence)
+                        if actual_mip_candidate and mip_event is not None:
+                            mip_event["strict_install"] = installed
+                        if installed:
                             metric.new_best += 1
                             segment_scores[operator_index] += config.rewards[0]
                             best_trace.append(best.objective.total)
@@ -631,12 +673,24 @@ def run_lns(
                         if not mip_transaction:
                             apply_pending_retime(metric, operator_index)
                     else:
+                        if actual_mip_candidate and mip_event is not None:
+                            mip_event["accepted"] = False
+                            mip_event["strict_install"] = False
                         iterations_since_best += 1
-        except Exception:
+        except Exception as exc:
+            if mip_event is not None and mip_event.get("result_engine") == "mip":
+                mip_event.setdefault(
+                    "transaction_failure", f"EXCEPTION:{type(exc).__name__}"
+                )
             metric.exceptions += 1
             iterations_since_best += 1
         finally:
             metric.time_s += max(0.0, context.clock() - iteration_started)
+            if mip_event is not None:
+                mip_event["iteration_seconds"] = max(
+                    0.0, context.clock() - iteration_started
+                )
+                mip_events.append(mip_event)
 
         iterations += 1
         total_iterations += 1
@@ -749,6 +803,7 @@ def run_lns(
             )
             for name, values in engine_stats.items()
         ),
+        mip_events=tuple(tuple(event.items()) for event in mip_events),
         exit_reason=exit_reason,
         densify_triggers=densify_triggers,
         densify_attempts=densify_attempts,

@@ -232,6 +232,10 @@ class RunTrace:
             and not isinstance(value, bool)
             and math.isfinite(float(value))
         ]
+        mip_events = [
+            _json_value(dict(event))
+            for event in getattr(metrics, "mip_events", ())
+        ]
         record = {
             "kind": kind,
             "start_seconds": max(0.0, float(started) - self._started),
@@ -249,6 +253,7 @@ class RunTrace:
             ),
             "operator_stats": operators,
             "best_trace": best_trace,
+            "mip_events": mip_events,
             "total_iterations": int(
                 getattr(metrics, "total_iterations", 0) or 0
             ),
@@ -286,6 +291,7 @@ class RunTrace:
                 "retime_seconds": 0.0,
                 "checker_seconds": 0.0,
                 "exit_reasons": [],
+                "mip_events": [],
             },
         )
         aggregate["invocation_count"] += 1
@@ -293,6 +299,7 @@ class RunTrace:
         for key in ("repair_seconds", "retime_seconds", "checker_seconds"):
             aggregate[key] += record[key]
         aggregate["exit_reasons"].append(record["exit_reason"])
+        aggregate["mip_events"].extend(mip_events)
         for name, values in operators.items():
             totals = self.operator_stats.setdefault(
                 name,
