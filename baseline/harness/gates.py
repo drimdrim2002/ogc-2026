@@ -403,3 +403,159 @@ def evaluate_s3(evidence_root: Path) -> dict[str, Any]:
         "adaptive": False,
         "dirty_trigger": [3, 0.03] if not failures else None,
     }
+
+
+def evaluate_s6(
+    evidence_root: Path,
+    *,
+    requested_commit: str,
+) -> dict[str, Any]:
+    """Evaluate the frozen mandatory package, stress, and rehearsal identity."""
+
+    requirements = (
+        ("stress", {"stage": "s6", "selector": "stress"}),
+        (
+            "submission-rehearsal",
+            {"stage": "s6", "selector": "training,stress", "isolated": True},
+        ),
+    )
+    selected: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for command, match in requirements:
+        found = latest_summary(
+            evidence_root,
+            stage="s6",
+            command=command,
+            match=match,
+        )
+        label = f"{command}:{','.join(f'{key}={value}' for key, value in match.items())}"
+        if found is None:
+            failures.append(f"missing complete evidence for {label}")
+            continue
+        run_dir, summary = found
+        manifest = json.loads((run_dir / "run.json").read_text(encoding="utf-8"))
+        selected.append(
+            {
+                "requirement": label,
+                "run_dir": str(run_dir),
+                "summary": summary,
+                "manifest": manifest,
+            }
+        )
+        if summary.get("status") != "passed":
+            failures.append(f"non-passing evidence for {label}")
+        if manifest.get("commit") != requested_commit:
+            failures.append(
+                f"{command} commit {manifest.get('commit')} does not match {requested_commit}"
+            )
+        if manifest.get("dirty") is not False or manifest.get("dirty_diff_hash") != "clean":
+            failures.append(f"{command} did not run from a clean frozen identity")
+
+    def chosen(command: str) -> dict[str, Any] | None:
+        return next(
+            (
+                item["summary"]
+                for item in selected
+                if item["requirement"].startswith(f"{command}:")
+            ),
+            None,
+        )
+
+    selected_state = {
+        "alns": True,
+        "acceptor": "sa",
+        "adaptive": False,
+        "dirty_trigger": "max(3,.03*n_b)",
+        "assignment_refinement": False,
+        "parallel_portfolio": False,
+        "interlock": False,
+    }
+    stress = chosen("stress")
+    if stress is not None:
+        if stress.get("selected_product_state") != selected_state:
+            failures.append("S6 stress selected product state differs from the qualified S3 identity")
+        if stress.get("record_count") != 62 or stress.get("feasible_count") != 62:
+            failures.append("S6 stress does not contain 62 Stage-5 feasible solver records")
+        if stress.get("structural_case_count") != 48:
+            failures.append("S6 stress structural matrix is incomplete")
+        if stress.get("boundary_fault_case_count") != 10:
+            failures.append("S6 stress incumbent-boundary fault matrix is incomplete")
+        if stress.get("backend_fault_case_count") != 4:
+            failures.append("S6 stress backend fault matrix is incomplete")
+        for key in (
+            "checker_failure_count",
+            "timeout_count",
+            "crash_count",
+            "leak_count",
+            "unverified_return_count",
+        ):
+            if int(stress.get(key, -1)) != 0:
+                failures.append(f"S6 stress {key} is nonzero")
+        if stress.get("package_output_removed") is not True:
+            failures.append("S6 stress package output was not removed")
+
+    rehearsal = chosen("submission-rehearsal")
+    if rehearsal is not None:
+        if rehearsal.get("selected_product_state") != selected_state:
+            failures.append("S6 rehearsal selected product state differs from the qualified S3 identity")
+        if rehearsal.get("training_instance_count") != 40:
+            failures.append("S6 rehearsal does not contain all 40 training inputs")
+        if rehearsal.get("stress_instance_count") != 8:
+            failures.append("S6 rehearsal does not contain all 8 stress inputs")
+        if rehearsal.get("record_count") != 144:
+            failures.append("S6 rehearsal does not contain the complete 48x3 case matrix")
+        if rehearsal.get("feasible_count") != 144 or rehearsal.get("checker_stage5_count") != 144:
+            failures.append("S6 rehearsal contains a non-Stage-5 case")
+        for key in (
+            "parent_dependency_count",
+            "network_guard_failure_count",
+            "timeout_count",
+            "leak_count",
+            "cleanup_failure_count",
+        ):
+            if int(rehearsal.get(key, -1)) != 0:
+                failures.append(f"S6 rehearsal {key} is nonzero")
+        if rehearsal.get("package_output_removed") is not True:
+            failures.append("S6 rehearsal package output was not removed")
+
+    stress_package = stress.get("package", {}) if stress is not None else {}
+    rehearsal_package = rehearsal.get("package", {}) if rehearsal is not None else {}
+    for label, package in (
+        ("stress", stress_package),
+        ("rehearsal", rehearsal_package),
+    ):
+        if not package:
+            failures.append(f"S6 {label} package audit is missing")
+            continue
+        if int(package.get("archive_size_bytes", 15 * 1024 * 1024 + 1)) > 15 * 1024 * 1024:
+            failures.append(f"S6 {label} package exceeds 15 MB")
+        if len(str(package.get("archive_sha256", ""))) != 64:
+            failures.append(f"S6 {label} package SHA-256 is missing")
+        if package.get("import_smoke_passed") is not True or package.get("checker_smoke_stage") != 5:
+            failures.append(f"S6 {label} package import/checker smoke failed")
+        if package.get("path_violations", []) or package.get("prohibited_members", []) or package.get("prohibited_text_hits", []):
+            failures.append(f"S6 {label} package audit contains a path or content violation")
+        protected = package.get("protected_files", {})
+        for path in ("baseline/utils.py", "baseline/baseline_greedy.py"):
+            objects = protected.get(path, {})
+            if not objects or objects.get("worktree_object") != objects.get("head_object"):
+                failures.append(f"S6 {label} protected hash mismatch for {path}")
+    if (
+        stress_package
+        and rehearsal_package
+        and stress_package.get("archive_sha256")
+        != rehearsal_package.get("archive_sha256")
+    ):
+        failures.append("S6 stress and rehearsal package hashes differ")
+
+    return {
+        "stage": "s6",
+        "status": "passed" if not failures else "failed",
+        "decision": "PASS" if not failures else "FAIL",
+        "requested_commit": requested_commit,
+        "selected_evidence": selected,
+        "failures": failures,
+        "selected_product_state": selected_state,
+        "mandatory_delivery": not failures,
+        "optional_interlock_qualified": False,
+    }

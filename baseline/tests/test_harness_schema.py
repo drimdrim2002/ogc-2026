@@ -22,7 +22,7 @@ class HarnessSchemaTests(unittest.TestCase):
             ["ab", "--stage", "s1", "--instances", "training", "--timelimits", "5", "--seeds", "20260710", "--a", "off", "--b", "on"],
             ["gate", "--stage", "s0", "--latest-complete", "--commit", "HEAD"],
             ["report", "--stage", "s0", "--latest-complete"],
-            ["submission-rehearsal", "--instances", "training", "--timelimits", "5", "--seeds", "20260710", "--isolated"],
+            ["submission-rehearsal", "--instances", "training,stress", "--timelimits", "5,60,300", "--seed", "20260710", "--isolated"],
         )
 
         self.assertEqual(

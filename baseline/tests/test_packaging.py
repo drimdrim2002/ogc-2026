@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from harness import package as submission_package
@@ -18,6 +20,47 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class PackagingTests(unittest.TestCase):
+    def test_rehearsal_rejects_parent_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            parent = root / "parent-worktree"
+            parent.mkdir()
+            (parent / "s6_parent_only_dependency.py").write_text(
+                "def algorithm(prob_info, timelimit):\n    return {}\n",
+                encoding="utf-8",
+            )
+            archive_path = root / "parent-dependent.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                info = zipfile.ZipInfo(
+                    "myalgorithm.py",
+                    date_time=submission_package.ZIP_TIMESTAMP,
+                )
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(
+                    info,
+                    "from s6_parent_only_dependency import algorithm\n",
+                )
+
+            with mock.patch.dict(
+                os.environ,
+                {"PYTHONPATH": str(parent), "FABLE_PARENT_SENTINEL": str(parent)},
+            ):
+                record = submission_package.run_isolated_package_case(
+                    archive_path,
+                    checker_path=REPO_ROOT / "baseline" / "utils.py",
+                    prob_info=_rehearsal_problem(),
+                    timelimit=0.5,
+                    seed=20260710,
+                )
+
+            self.assertEqual("rejected", record["status"])
+            self.assertEqual("parent_dependency", record["failure_kind"])
+            self.assertIn("s6_parent_only_dependency", record["stderr"])
+            self.assertNotIn(str(parent), record["environment"])
+            self.assertNotEqual(str(parent), record["cwd"])
+            self.assertFalse(record["group_alive_after_cleanup"])
+            self.assertTrue(record["temporary_paths_cleaned"])
+
     def test_audited_isolated_package(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -69,6 +112,19 @@ class PackagingTests(unittest.TestCase):
                 manifest["protected_files"]["baseline/baseline_greedy.py"]["head_object"],
                 manifest["protected_files"]["baseline/baseline_greedy.py"]["worktree_object"],
             )
+            rehearsal = submission_package.run_isolated_package_case(
+                first.archive_path,
+                checker_path=REPO_ROOT / "baseline" / "utils.py",
+                prob_info=_rehearsal_problem(),
+                timelimit=0.5,
+                seed=20260710,
+            )
+            self.assertEqual("passed", rehearsal["status"])
+            self.assertTrue(rehearsal["checker"]["feasible"])
+            self.assertEqual(5, rehearsal["checker"]["stage"])
+            self.assertTrue(rehearsal["network_guard_active"])
+            self.assertTrue(rehearsal["package_import_isolated"])
+            self.assertTrue(rehearsal["temporary_paths_cleaned"])
 
     def test_s6_stress_corpus_and_fault_worker(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -156,6 +212,25 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual("passed", record["status"])
             self.assertGreater(record["cache"]["misses"], 32)
             self.assertGreater(record["cache"]["evictions"], 0)
+
+
+def _rehearsal_problem():
+    return {
+        "name": "s6-rehearsal-test",
+        "bays": [{"width": 4, "height": 4}],
+        "blocks": [{
+            "release_time": 0,
+            "due_date": 2,
+            "processing_time": 0,
+            "workload": 1,
+            "bay_preferences": [1],
+            "shape": [{
+                "orientation": 0,
+                "layers": [[[0, 0], [1, 0], [1, 1], [0, 1]]],
+            }],
+        }],
+        "weights": {"w1": 1.0, "w2": 1.0, "w3": 1.0},
+    }
 
 
 if __name__ == "__main__":

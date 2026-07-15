@@ -21,8 +21,19 @@ from typing import Any, Iterable, Mapping
 from shapely.affinity import translate
 
 from .compare import latency_summary
-from .gates import evaluate_s0, evaluate_s1, evaluate_s2, evaluate_s3, latest_summary
-from .package import StageUnsupportedError, build_submission_package
+from .gates import (
+    evaluate_s0,
+    evaluate_s1,
+    evaluate_s2,
+    evaluate_s3,
+    evaluate_s6,
+    latest_summary,
+)
+from .package import (
+    StageUnsupportedError,
+    build_submission_package,
+    run_isolated_package_case,
+)
 from .report import render_gate_report
 from .runner import (
     make_escalation_stress_ref,
@@ -147,7 +158,6 @@ def build_parser() -> argparse.ArgumentParser:
     _common(rehearsal)
     rehearsal.add_argument("--instances", required=True)
     rehearsal.add_argument("--timelimits", required=True)
-    rehearsal.add_argument("--seeds", required=True)
     rehearsal.add_argument("--isolated", action="store_true")
     return parser
 
@@ -182,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "ab":
             return _ab(args)
         if args.command == "submission-rehearsal":
-            raise StageUnsupportedError("stage unsupported: submission rehearsal belongs to S6")
+            return _submission_rehearsal(args)
         raise SelectorError(f"unknown command: {args.command}")
     except KeyboardInterrupt:
         return 130
@@ -1790,8 +1800,8 @@ def _stress(args: argparse.Namespace) -> int:
 def _s6_stress(args: argparse.Namespace) -> int:
     if args.instances != "stress":
         raise SelectorError("S6-05 stress requires --instances stress")
-    features = _features(args.feature)
-    required_features = {
+    supplied_features = _features(args.feature)
+    selected_features = {
         "alns": "true",
         "acceptor": "sa",
         "adaptive": "false",
@@ -1800,11 +1810,26 @@ def _s6_stress(args: argparse.Namespace) -> int:
         "interlock": "false",
         "fault": "backend,after_incumbent",
     }
-    if features != required_features:
-        raise SelectorError(
-            "S6-05 stress requires the selected S3 defaults, all optional "
-            "features false, and fault=backend,after_incumbent"
+    required_command_features = {
+        "interlock": "false",
+        "parallel_portfolio": "false",
+        "fault": "backend,after_incumbent",
+    }
+    if (
+        any(
+            selected_features.get(name) != value
+            for name, value in supplied_features.items()
         )
+        or any(
+            supplied_features.get(name) != value
+            for name, value in required_command_features.items()
+        )
+    ):
+        raise SelectorError(
+            "S6 stress requires interlock=false, parallel_portfolio=false, "
+            "fault=backend,after_incumbent, and no selected-default override"
+        )
+    features = dict(selected_features)
     timelimits = _csv_floats(args.timelimits)
     seeds = _csv_ints(args.seeds)
     if timelimits != (0.5, 2.0, 5.0, 12.0, 60.0, 300.0):
@@ -1820,10 +1845,10 @@ def _s6_stress(args: argparse.Namespace) -> int:
         command="stress",
         expected_record_ids=(),
         metadata={
-            "slice": "s6-05",
+            "slice": "s6-06",
             "selector": "stress",
             "features": features,
-            "qualification_tier": "S",
+            "qualification_tier": "Q",
         },
         delayed_expected=True,
     )
@@ -2024,8 +2049,8 @@ def _s6_stress(args: argparse.Namespace) -> int:
     )
     summary = _solver_summary("stress", "stress", solver_records, passed, stage="s6")
     summary.update(
-        slice="s6-05",
-        qualification_tier="S",
+        slice="s6-06",
+        qualification_tier="Q",
         timelimits=timelimits,
         seeds=seeds,
         features=features,
@@ -2071,6 +2096,282 @@ def _s6_stress(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_SEMANTIC
+
+
+def _submission_rehearsal(args: argparse.Namespace) -> int:
+    if args.instances != "training,stress":
+        raise SelectorError(
+            "S6-06 rehearsal requires --instances training,stress"
+        )
+    if not args.isolated:
+        raise SelectorError("S6-06 rehearsal requires --isolated")
+    if args.feature:
+        raise SelectorError(
+            "S6-06 rehearsal records the selected identity and accepts no feature override"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    if timelimits != (5.0, 60.0, 300.0):
+        raise SelectorError(
+            "S6-06 rehearsal requires timelimits=5,60,300"
+        )
+    seed = _single_seed(args.seed)
+    if seed != 20260710:
+        raise SelectorError("S6-06 rehearsal requires seed=20260710")
+    selected_features = {
+        "alns": "true",
+        "acceptor": "sa",
+        "adaptive": "false",
+        "assignment_refinement": "false",
+        "parallel_portfolio": "false",
+        "interlock": "false",
+    }
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s6",
+        command="submission-rehearsal",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s6-06",
+            "selector": "training,stress",
+            "features": selected_features,
+            "qualification_tier": "Q",
+            "isolated": True,
+        },
+        delayed_expected=True,
+    )
+    training_refs = select_instances(
+        "training", fixture_dir=run.run_dir / "fixtures" / "training"
+    )
+    stress_refs = select_s6_stress_instances(
+        fixture_dir=run.run_dir / "fixtures" / "stress"
+    )
+    refs = (*training_refs, *stress_refs)
+    expected = (
+        "package",
+        *(
+            f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|isolated"
+            for ref in refs
+            for timelimit in timelimits
+        ),
+    )
+    _set_expected(run, expected)
+    package_dir = REPO_ROOT / "submission-dist" / run.run_dir.name
+    package_summary: dict[str, Any] = {}
+    try:
+        artifact = build_submission_package(package_dir, source_root=REPO_ROOT)
+        package_manifest = json.loads(
+            artifact.manifest_path.read_text(encoding="utf-8")
+        )
+        (run.run_dir / "package-manifest.json").write_text(
+            json.dumps(package_manifest, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        package_summary = {
+            "archive_sha256": artifact.archive_sha256,
+            "archive_size_bytes": artifact.size_bytes,
+            "entry_count": len(artifact.entries),
+            "members": list(artifact.audit.members),
+            "path_violations": list(artifact.audit.path_violations),
+            "prohibited_members": list(artifact.audit.prohibited_members),
+            "prohibited_text_hits": list(artifact.audit.prohibited_text_hits),
+            "import_smoke_passed": artifact.audit.import_smoke_passed,
+            "checker_smoke_stage": artifact.audit.checker_smoke_stage,
+            "protected_files": package_manifest["protected_files"],
+        }
+        if "package" in run.pending_record_ids:
+            run.append_record({
+                "record_id": "package",
+                "status": "passed",
+                "complete": True,
+                **repository_provenance(),
+                **package_summary,
+                "package_manifest_evidence": str(
+                    run.run_dir / "package-manifest.json"
+                ),
+            })
+        provenance = repository_provenance()
+        for ref in refs:
+            selector = "training" if ref in training_refs else "stress"
+            for timelimit in timelimits:
+                record_id = (
+                    f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|isolated"
+                )
+                if record_id not in run.pending_record_ids:
+                    continue
+                isolated = run_isolated_package_case(
+                    artifact.archive_path,
+                    checker_path=REPO_ROOT / "baseline" / "utils.py",
+                    prob_info=ref.prob_info,
+                    timelimit=timelimit,
+                    seed=seed,
+                )
+                forbidden_text = "\n".join(
+                    (
+                        str(isolated.get("cwd", "")),
+                        str(isolated.get("environment", "")),
+                        str(isolated.get("algorithm_module", "")),
+                        str(isolated.get("checker_module", "")),
+                        *(str(item) for item in isolated.get("sys_path", ())),
+                    )
+                )
+                parent_dependency_absent = not any(
+                    marker in forbidden_text
+                    for marker in (str(REPO_ROOT), str(REPO_ROOT.parent))
+                )
+                passed = (
+                    isolated.get("status") == "passed"
+                    and isolated.get("checker", {}).get("feasible") is True
+                    and isolated.get("checker", {}).get("stage") == 5
+                    and isolated.get("network_guard_active") is True
+                    and isolated.get("package_import_isolated") is True
+                    and isolated.get("temporary_paths_cleaned") is True
+                    and not isolated.get("group_leak_detected")
+                    and not isolated.get("group_alive_after_cleanup")
+                    and parent_dependency_absent
+                    and float(isolated.get("wall_seconds", 999.0))
+                    <= timelimit + 5.0
+                )
+                identity = record_identity(
+                    commit=provenance["commit"],
+                    dirty_diff_hash=provenance["dirty_diff_hash"],
+                    instance_sha=ref.sha256,
+                    solver="packaged-s6-isolated",
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=selected_features,
+                )
+                record = {
+                    "record_id": record_id,
+                    "identity": identity,
+                    "complete": True,
+                    "status": "passed" if passed else "checker_failed",
+                    **provenance,
+                    "instance_id": ref.instance_id,
+                    "instance_sha": ref.sha256,
+                    "selector": selector,
+                    "solver": "packaged-s6-isolated",
+                    "timelimit": timelimit,
+                    "seed": seed,
+                    "features": selected_features,
+                    "parent_dependency_absent": parent_dependency_absent,
+                    "within_timelimit": float(
+                        isolated.get("wall_seconds", 999.0)
+                    ) <= timelimit + 5.0,
+                    **isolated,
+                }
+                record["status"] = "passed" if passed else "checker_failed"
+                run.append_record(
+                    _deduplicate(evidence_root, record, rerun=args.rerun)
+                )
+    finally:
+        if package_dir.exists():
+            shutil.rmtree(package_dir)
+
+    records = _effective_records(run.records)
+    package_records = tuple(
+        record for record in records if record.get("record_id") == "package"
+    )
+    case_records = tuple(
+        record for record in records if record.get("record_id") != "package"
+    )
+    package_removed = not package_dir.exists()
+    passed = (
+        len(records) == len(expected)
+        and len(package_records) == 1
+        and package_records[0].get("status") == "passed"
+        and package_removed
+        and all(record.get("status") in {"passed", "deduplicated"} for record in case_records)
+        and all(record.get("checker", {}).get("feasible") is True for record in case_records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in case_records)
+        and all(record.get("parent_dependency_absent") is True for record in case_records)
+        and all(record.get("network_guard_active") is True for record in case_records)
+        and all(record.get("temporary_paths_cleaned") is True for record in case_records)
+        and all(not record.get("timeout") for record in case_records)
+        and all(not record.get("group_leak_detected") for record in case_records)
+        and all(not record.get("group_alive_after_cleanup") for record in case_records)
+    )
+    summary = _solver_summary(
+        "submission-rehearsal",
+        "training,stress",
+        case_records,
+        passed,
+        stage="s6",
+    )
+    summary.update(
+        slice="s6-06",
+        qualification_tier="Q",
+        isolated=True,
+        timelimits=timelimits,
+        seed=seed,
+        features=selected_features,
+        selected_product_state={
+            "alns": True,
+            "acceptor": "sa",
+            "adaptive": False,
+            "dirty_trigger": "max(3,.03*n_b)",
+            "assignment_refinement": False,
+            "parallel_portfolio": False,
+            "interlock": False,
+        },
+        training_instance_count=len(training_refs),
+        stress_instance_count=len(stress_refs),
+        package=package_summary,
+        package_output_removed=package_removed,
+        checker_stage5_count=sum(
+            record.get("checker", {}).get("stage") == 5
+            and record.get("checker", {}).get("feasible") is True
+            for record in case_records
+        ),
+        parent_dependency_count=sum(
+            record.get("parent_dependency_absent") is not True
+            for record in case_records
+        ),
+        network_guard_failure_count=sum(
+            record.get("network_guard_active") is not True
+            for record in case_records
+        ),
+        timeout_count=sum(bool(record.get("timeout")) for record in case_records),
+        leak_count=sum(
+            bool(record.get("group_leak_detected"))
+            or bool(record.get("group_alive_after_cleanup"))
+            for record in case_records
+        ),
+        cleanup_failure_count=sum(
+            record.get("temporary_paths_cleaned") is not True
+            for record in case_records
+        ),
+    )
+    (run.run_dir / "rehearsal.json").write_text(
+        json.dumps(summary, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    rehearsal_markdown = _render_rehearsal_markdown(summary)
+    (run.run_dir / "rehearsal.md").write_text(
+        rehearsal_markdown,
+        encoding="utf-8",
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_SEMANTIC
+
+
+def _render_rehearsal_markdown(summary: Mapping[str, Any]) -> str:
+    package = summary.get("package", {})
+    return "\n".join(
+        (
+            "# S6 Isolated Submission Rehearsal",
+            "",
+            f"Status: **{str(summary.get('status', 'unknown')).upper()}**",
+            "",
+            f"- Checker Stage 5: {summary.get('checker_stage5_count', 0)}/{summary.get('record_count', 0)}",
+            f"- Package SHA-256: `{package.get('archive_sha256', '')}`",
+            f"- Package bytes: {package.get('archive_size_bytes', 0)}",
+            f"- Parent dependencies: {summary.get('parent_dependency_count', 0)}",
+            f"- Network-guard failures: {summary.get('network_guard_failure_count', 0)}",
+            f"- Timeouts/leaks/cleanup failures: {summary.get('timeout_count', 0)}/{summary.get('leak_count', 0)}/{summary.get('cleanup_failure_count', 0)}",
+            "",
+        )
+    )
 
 
 def _s3_stress(args: argparse.Namespace) -> int:
@@ -3035,7 +3336,7 @@ def _s2_ab(args: argparse.Namespace) -> int:
 
 
 def _gate(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1", "s2", "s3"}:
+    if args.stage not in {"s0", "s1", "s2", "s3", "s6"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} gate requires --latest-complete")
@@ -3046,7 +3347,14 @@ def _gate(args: argparse.Namespace) -> int:
         "s2": evaluate_s2,
         "s3": evaluate_s3,
     }
-    decision = evaluators[args.stage](_evidence_root(args))
+    decision = (
+        evaluate_s6(
+            _evidence_root(args),
+            requested_commit=requested_commit,
+        )
+        if args.stage == "s6"
+        else evaluators[args.stage](_evidence_root(args))
+    )
     decision["requested_commit"] = requested_commit
     record_id = f"{args.stage}-gate"
     if args.stage == "s0":
@@ -3076,7 +3384,7 @@ def _gate(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1", "s2", "s3"}:
+    if args.stage not in {"s0", "s1", "s2", "s3", "s6"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} report requires --latest-complete")

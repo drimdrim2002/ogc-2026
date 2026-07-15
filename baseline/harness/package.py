@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from typing import Iterable
+from typing import Any, Iterable, Mapping
 import zipfile
 
 from .process import run_process
@@ -451,5 +451,236 @@ def _git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
-def submission_rehearsal(*_args, **_kwargs):
-    raise StageUnsupportedError("stage unsupported: submission rehearsal belongs to S6-06")
+def run_isolated_package_case(
+    archive_path: Path | str,
+    *,
+    checker_path: Path | str,
+    prob_info: Mapping[str, Any],
+    timelimit: float,
+    seed: int,
+) -> dict[str, Any]:
+    """Run one packaged solver/checker pair without repository or network access."""
+
+    archive = Path(archive_path).resolve()
+    checker = Path(checker_path).resolve()
+    temporary = Path(tempfile.mkdtemp(prefix="fable-s6-rehearsal-"))
+    extracted = temporary / "submission"
+    runtime = temporary / "official-runtime"
+    home = temporary / "home"
+    scratch = temporary / "tmp"
+    extracted.mkdir()
+    runtime.mkdir()
+    home.mkdir()
+    scratch.mkdir()
+    environment = {
+        "HOME": str(home),
+        "LANG": "C",
+        "LC_ALL": "C",
+        "NO_PROXY": "*",
+        "PATH": os.defpath,
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONHASHSEED": "0",
+        "PYTHONNOUSERSITE": "1",
+        "TMPDIR": str(scratch),
+        "FABLE_REHEARSAL_SEED": str(seed),
+    }
+    result = None
+    payload: dict[str, Any] = {}
+    try:
+        _extract_archive_safely(archive, extracted)
+        (runtime / "utils.py").write_bytes(checker.read_bytes())
+        problem_path = temporary / "problem.json"
+        problem_path.write_text(
+            json.dumps(dict(prob_info), sort_keys=True),
+            encoding="utf-8",
+        )
+        result = run_process(
+            [
+                sys.executable,
+                "-I",
+                "-c",
+                _rehearsal_program(),
+                str(extracted),
+                str(runtime),
+                str(problem_path),
+                f"{timelimit:g}",
+            ],
+            timeout=max(10.0, timelimit + 5.0),
+            terminate_grace=2.0,
+            cwd=str(extracted),
+            env=environment,
+        )
+        payload = _last_json_payload(result.stdout)
+        checker_payload = payload.get("checker", {})
+        passed = (
+            result.exit_code == 0
+            and result.signal is None
+            and not result.timed_out
+            and not result.group_leak_detected
+            and not result.group_alive_after_cleanup
+            and checker_payload.get("feasible") is True
+            and checker_payload.get("stage") == 5
+            and payload.get("network_guard_active") is True
+            and payload.get("package_import_isolated") is True
+        )
+        missing_dependency = "No module named" in result.stderr
+        failure_kind = None if passed else (
+            "parent_dependency" if missing_dependency else "isolated_execution"
+        )
+        record = {
+            "status": "passed" if passed else "rejected",
+            "failure_kind": failure_kind,
+            "checker": checker_payload or None,
+            "solution_sha256": payload.get("solution_sha256"),
+            "network_guard_active": payload.get("network_guard_active", False),
+            "package_import_isolated": payload.get("package_import_isolated", False),
+            "algorithm_module": payload.get("algorithm_module"),
+            "checker_module": payload.get("checker_module"),
+            "sys_path": payload.get("sys_path", ()),
+            "cwd": str(extracted),
+            "environment": json.dumps(environment, sort_keys=True),
+            "subprocess_pid": result.pid,
+            "subprocess_exit": result.exit_code,
+            "signal": result.signal,
+            "wall_seconds": result.wall_seconds,
+            "timeout": result.timed_out,
+            "term_sent": result.term_sent,
+            "kill_sent": result.kill_sent,
+            "group_leak_detected": result.group_leak_detected,
+            "group_alive_after_cleanup": result.group_alive_after_cleanup,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+    finally:
+        shutil.rmtree(temporary, ignore_errors=False)
+    record["temporary_paths_cleaned"] = not temporary.exists()
+    return record
+
+
+def submission_rehearsal(
+    archive_path: Path | str,
+    *,
+    checker_path: Path | str,
+    cases: Iterable[tuple[str, str, Mapping[str, Any]]],
+    timelimits: Iterable[float],
+    seed: int,
+) -> tuple[dict[str, Any], ...]:
+    """Run every requested case in a separately extracted isolated process."""
+
+    records = []
+    for instance_id, instance_sha, prob_info in cases:
+        for timelimit in timelimits:
+            record = run_isolated_package_case(
+                archive_path,
+                checker_path=checker_path,
+                prob_info=prob_info,
+                timelimit=float(timelimit),
+                seed=seed,
+            )
+            records.append(
+                {
+                    "record_id": (
+                        f"{instance_id}|tl={float(timelimit):g}|seed={seed}|isolated"
+                    ),
+                    "instance_id": instance_id,
+                    "instance_sha": instance_sha,
+                    "timelimit": float(timelimit),
+                    "seed": seed,
+                    **record,
+                }
+            )
+    return tuple(records)
+
+
+def _extract_archive_safely(archive_path: Path, destination: Path) -> None:
+    with zipfile.ZipFile(archive_path) as archive:
+        for info in archive.infolist():
+            if not _safe_member_path(info.filename):
+                raise PackageAuditError(
+                    f"unsafe rehearsal archive member: {info.filename}"
+                )
+            mode = (info.external_attr >> 16) & 0o170000
+            if mode == 0o120000:
+                raise PackageAuditError(
+                    f"rehearsal archive contains symlink: {info.filename}"
+                )
+            target = destination.joinpath(*PurePosixPath(info.filename).parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive.read(info))
+
+
+def _last_json_payload(stdout: str) -> dict[str, Any]:
+    for line in reversed(stdout.splitlines()):
+        if not line.lstrip().startswith("{"):
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def _rehearsal_program() -> str:
+    return r"""
+from copy import deepcopy
+import hashlib
+import json
+from pathlib import Path
+import socket
+import sys
+
+extracted = Path(sys.argv[1]).resolve()
+runtime = Path(sys.argv[2]).resolve()
+problem_path = Path(sys.argv[3]).resolve()
+timelimit = float(sys.argv[4])
+system_paths = [item for item in sys.path if item and not Path(item).resolve().is_relative_to(Path.cwd())]
+sys.path[:] = [str(extracted), str(runtime), *system_paths]
+
+class NetworkDisabled(RuntimeError):
+    pass
+
+def deny_network(*args, **kwargs):
+    raise NetworkDisabled("network access disabled during isolated rehearsal")
+
+socket.socket = deny_network
+socket.create_connection = deny_network
+socket.getaddrinfo = deny_network
+network_guard_active = False
+try:
+    socket.create_connection(("127.0.0.1", 9), timeout=0.01)
+except NetworkDisabled:
+    network_guard_active = True
+
+from myalgorithm import algorithm
+from utils import check_feasibility
+
+problem = json.loads(problem_path.read_text(encoding="utf-8"))
+solution = algorithm(problem, timelimit)
+encoded = json.dumps(solution, separators=(",", ":")).encode()
+checked = check_feasibility(problem, deepcopy(solution))
+algorithm_module = str(Path(sys.modules[algorithm.__module__].__file__).resolve())
+checker_module = str(Path(sys.modules[check_feasibility.__module__].__file__).resolve())
+payload = {
+    "algorithm_module": algorithm_module,
+    "checker_module": checker_module,
+    "checker": {
+        "feasible": bool(checked.get("feasible", False)),
+        "stage": int(checked.get("stage", 0)),
+        "violations": list(checked.get("violations", ())),
+        "objective": checked.get("objective"),
+        "z1": checked.get("obj1"),
+        "z2": checked.get("obj2"),
+        "z3": checked.get("obj3"),
+    },
+    "network_guard_active": network_guard_active,
+    "package_import_isolated": (
+        Path(algorithm_module).is_relative_to(extracted)
+        and Path(checker_module).is_relative_to(runtime)
+    ),
+    "solution_sha256": hashlib.sha256(encoded).hexdigest(),
+    "sys_path": list(sys.path),
+}
+print(json.dumps(payload, sort_keys=True))
+""".strip()
