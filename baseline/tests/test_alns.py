@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import random
 import unittest
+from dataclasses import replace
 
 from solver.alns import (
     AlnsConfig,
@@ -95,12 +96,99 @@ class AlnsUnitTests(unittest.TestCase):
                 clock=clock,
             ),
             Budget.start(60.0, clock=clock),
-            AlnsConfig(warmup_iterations=4, segment=8, stall_iterations=8),
+            AlnsConfig(),
         )
 
         self.assertGreater(result.metrics.iterations, 16)
         self.assertEqual("DEADLINE", result.metrics.exit_reason)
         self.assertAlmostEqual(3.0, result.metrics.remaining_seconds, places=6)
+
+    def test_removing_iteration_cap_preserves_legacy_sixteen_iteration_prefix(self):
+        def run(max_iterations):
+            raw = instance(
+                [block(release=0, due=0, processing=1)],
+                weights=(1, 0, 0),
+            )
+            parsed = parse_instance(raw)
+            kernel = GeometryKernel.from_instance(parsed)
+            initial = SolutionSnapshot((Placement(0, 0, 0, 0, 0, 30, 31),))
+            initial = initial.with_objective(compute_objective(parsed, initial))
+            store = IncumbentStore(parsed)
+            operations = serialize(initial, kernel)
+            self.assertTrue(
+                store.install_if_valid(initial, operations, checker(raw, operations))
+            )
+            clock = FakeClock()
+            selections = []
+
+            class RecordingDestroy(FixedDestroy):
+                def __init__(self, name):
+                    super().__init__()
+                    self.name = name
+
+                def select(self, current, k, rng, context):
+                    selections.append(self.name)
+                    return super().select(current, k, rng, context)
+
+            def engine(current, destroyed, context, budget):
+                del context, budget
+                clock.value += 1.0
+                placement = current.placements[0]
+                candidate = SolutionSnapshot(
+                    (replace(placement, entry=placement.entry - 1, exit=placement.exit - 1),)
+                )
+                candidate = candidate.with_objective(
+                    compute_objective(parsed, candidate)
+                )
+                return RepairResult(
+                    candidate,
+                    "FEASIBLE",
+                    destroyed,
+                    frozenset({0}),
+                    1,
+                    candidate.objective.total - current.objective.total,
+                )
+
+            result = run_lns(
+                initial,
+                store,
+                AlnsContext(
+                    parsed,
+                    kernel,
+                    raw,
+                    checker,
+                    destroy_operators=(
+                        RecordingDestroy("left"),
+                        RecordingDestroy("right"),
+                    ),
+                    repair_engines=(engine,),
+                    clock=clock,
+                ),
+                Budget.start(20.0, clock=clock),
+                AlnsConfig(seed=20260710, max_iterations=max_iterations),
+            )
+            return selections, result
+
+        capped_selections, capped = run(16)
+        continued_selections, continued = run(None)
+
+        self.assertEqual("ITERATION_LIMIT", capped.metrics.exit_reason)
+        self.assertEqual(16, capped.metrics.iterations)
+        self.assertEqual("DEADLINE", continued.metrics.exit_reason)
+        self.assertGreater(continued.metrics.iterations, 16)
+        self.assertEqual(capped_selections, continued_selections[:16])
+        self.assertEqual(
+            capped.metrics.accepted_trace,
+            continued.metrics.accepted_trace[: len(capped.metrics.accepted_trace)],
+        )
+        self.assertEqual(
+            capped.metrics.best_trace,
+            continued.metrics.best_trace[: len(capped.metrics.best_trace)],
+        )
+        self.assertLessEqual(
+            continued.snapshot.objective.total,
+            capped.snapshot.objective.total,
+        )
 
     def test_adaptation_activity_is_reported_when_thresholds_are_reached(self):
         raw, parsed, kernel, initial, store = one_block_fixture()

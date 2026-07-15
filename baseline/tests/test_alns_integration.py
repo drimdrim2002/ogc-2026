@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import random
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from solver import entry
@@ -406,7 +407,7 @@ class AlnsIntegrationTests(unittest.TestCase):
                 self.assertEqual(1, metric.feasible)
                 self.assertEqual(1, metric.accepted)
 
-    def test_submission_path_enables_heuristic_lns_after_feature_gate(self):
+    def test_submission_path_uses_legacy_adaptation_with_deadline_led_lns(self):
         raw = instance([block()])
         parsed = parse_instance(raw)
         kernel = GeometryKernel.from_instance(parsed)
@@ -416,11 +417,27 @@ class AlnsIntegrationTests(unittest.TestCase):
             patch("solver.assignment.try_assignment_portfolio", return_value=None),
             patch("solver.construct.construct_portfolio", return_value=()),
             patch("solver.geometry.GeometryKernel.from_instance", return_value=kernel),
+            patch(
+                "solver.alns.run_lns",
+                return_value=SimpleNamespace(state=None),
+            ) as run_lns_mock,
         ):
             phase = entry.load_optional_phase()
             result = phase(parsed, snapshot, Budget.start(12))
+            result.lns_runner(
+                snapshot,
+                object(),
+                raw,
+                checker,
+                Budget.start(60),
+            )
         self.assertTrue(entry.LNS_ENABLED)
         self.assertIsNotNone(result.lns_runner)
+        config = run_lns_mock.call_args.args[4]
+        self.assertIsNone(config.max_iterations)
+        self.assertEqual(32, config.warmup_iterations)
+        self.assertEqual(50, config.segment)
+        self.assertEqual(50, config.stall_iterations)
 
 
 if __name__ == "__main__":

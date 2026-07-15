@@ -168,9 +168,6 @@ def load_optional_phase(
                     AlnsConfig(
                         seed=chosen.seed,
                         max_iterations=lns_iteration_limit(lns_budget.limit),
-                        warmup_iterations=4,
-                        segment=8,
-                        stall_iterations=8,
                         stall_time_fraction=0.0,
                         neighborhood_policy=chosen.neighborhood_policy,
                     ),
