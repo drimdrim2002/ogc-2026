@@ -152,7 +152,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | retained in stable baseline |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; backend `auto`; timebox `5s` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | retained in stable baseline |
 | S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
-| S4 | `IN_PROGRESS` | `S4-02 COMPLETE` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; assignment-v2 remains proof-only | S4-01 commit `87833f48411b26ba0767fb190ec3986b7c4b77dd`; qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e`; optional track | `benchmarks/evidence/s4/stress/20260715T102929Z-s4-02-fallback-stress/` | pending atomic `feat(s4): add safe assignment fallbacks` | —; forced Gurobi fault selected CP-SAT, both faults preserved verified greedy v1, exact-float and overflow safety passed | S4-03 is next eligible; do not start it in the S4-02 task |
+| S4 | `IN_PROGRESS` | `S4-03 COMPLETE` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; assignment-v2 and guarded cross-bay remain proof-only | S4-02 commit `835f6a1119fe5500ae1b19b9cbe67ed9b44988d2`; qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e`; optional track | `benchmarks/evidence/s4/benchmark/20260715T104503Z-2e0952d0/` | pending atomic `feat(s4): add guarded cross-bay refinement` | —; exact ranking, two-bay repair/retime, checker authorization, rollback faults, and 10-case benchmark passed | S4-04 is next eligible in a separate task; entry/defaults remain disabled |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
 | S6 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | S6-05 commit `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | `benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/` | `824b24b0215855a9a233eb53be0b1253a1a2f922` | — | no next mandatory stage; hardened checker-verified submission candidate is selected |
 
@@ -5734,3 +5734,115 @@ Planning audit completed 2026-07-12 Asia/Seoul: **PASS at that historical snapsh
 - Target status contains only this master document and `docs/fable/implementation-steps/`; checker/reference/input documents are unmodified.
 
 Audit commands used read-only checks with `rg`, `wc`, `cmp`, `git status --short --branch`, and a local-link resolver under the explicit project interpreter. PLAN-RESET-01 requires link/status/diff-scope validation after its document edits; this is not a solver or stage gate.
+
+```yaml
+- timestamp: 2026-07-15T19:38:12+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 835f6a1119fe5500ae1b19b9cbe67ed9b44988d2
+  dirty: false at preflight; true only after this required progress update
+  commands:
+    - verify target worktree, branch, clean status, local HEAD, configured upstream, and origin tracking HEAD all identify codex/fable-s4-recovery at 835f6a1119fe5500ae1b19b9cbe67ed9b44988d2
+    - verify S4-01 and S4-02 commits plus qualified S3/S6 ancestors 2a9da5757b451b2a0c2ed4a884145fdcb255d111 and 824b24b0215855a9a233eb53be0b1253a1a2f922
+    - verify preservation manifest COMPLETE with restore rehearsal PASS and preserved S6 worktree local/upstream equality at 3046278c337e2b3cfef7f478a0fa420dda22038e
+    - verify /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python is executable and reports Python 3.12.13
+    - verify exactly one S4-03 heading and inspect historical commit 388db7b27eda189e69140520548fc00362fba3f3 read-only at hunk level
+    - verify baseline/utils.py and baseline/baseline_greedy.py are unchanged with HEAD hashes d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75 and 8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b
+  command_tiers:
+    D: targeted behavioral RED/GREEN, CrossBayTests, test_alns affected regression, syntax checks, and diff checks after each relevant source/test change
+    S: full discovery, synthetic successful move/swap official-checker verification, injected repair/retime/check rollback proof, named high-w23 cross_bay benchmark, protected-file checks, and process/resource cleanup
+    Q: none; S4 entry integration, A/B, promotion gate, and default decisions remain owned by S4-04 and will not run
+  red_evidence: planned benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/red.txt
+  green_evidence: planned benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/green-targeted.txt and full-regression.txt
+  checker_result: NOT_RUN
+  benchmark_or_stress_evidence: planned benchmarks/evidence/s4/benchmark/<run_id>/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; assignment_refinement=false; cross_bay=false; parallel_portfolio=false; interlock=false
+  run_identity: incoming_s4_02_head=835f6a1119fe5500ae1b19b9cbe67ed9b44988d2; historical_reference=388db7b27eda189e69140520548fc00362fba3f3; target_worktree=/Users/brown/workspace/ogc/fable-native-s4-recovery; target_branch=codex/fable-s4-recovery
+  next_action: add CrossBayTests.test_move_swap_undo_and_float_delta first and demonstrate the intended missing CrossBayRegistry RED
+```
+
+```yaml
+- timestamp: 2026-07-15T19:40:48+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 835f6a1119fe5500ae1b19b9cbe67ed9b44988d2
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta -v
+    - repeat the same Tier-D selector under evidence attempt 02 with shell pipefail after the first tee pipeline masked the child exit code
+  red_evidence: benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/red-attempt02.txt
+  green_evidence: null
+  checker_result: valid RED; exit 1 solely because solver.alns does not export CrossBayRegistry, before the absent rank/run APIs are reached
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the first durable RED file retained the identical intended ImportError but its tee pipeline reported exit 0; no source changed and attempt 02 retained the intended nonzero result with pipefail
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S3 OperatorRegistry remains unchanged
+  run_identity: red_attempt01_pipeline_exit_code=0; red_attempt01_child_result=FAILED; red_attempt02_exit_code=1; red_attempt02_evidence=complete
+  next_action: implement the minimum S4-only cross-bay registry, exact-float ranking, two-bay repair/retime transaction, checker-gated incumbent update, and exact rollback
+```
+
+```yaml
+- timestamp: 2026-07-15T19:44:29+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 835f6a1119fe5500ae1b19b9cbe67ed9b44988d2
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests.test_move_swap_undo_and_float_delta -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.CrossBayTests -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_alns -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - create unreferenced snapshot commit 33787949937c25ba95cddf23cc476446fd844e64 from the exact tracked S4-03 tree, materialize it detached in /tmp, copy ignored qualified training fixtures, and repeat full discovery from the clean source identity
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m py_compile baseline/solver/alns.py baseline/harness/runner.py baseline/harness/cli.py baseline/tests/test_assignment_refinement.py
+  red_evidence: benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/red-attempt02.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/cross-bay-tests.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/test-alns-regression.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/assignment-refinement-module.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/full-discovery-clean-snapshot.txt
+  checker_result: PASS; successful synthetic move and swap reached official checker Stage 5, and injected repair, retime, and full-check faults restored exact state/RNG and preserved the pre-candidate incumbent SHA
+  benchmark_or_stress_evidence: pending named high-w23 cross_bay benchmark
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: dirty full discovery passed 93 behavioral tests and failed only the intentional clean-source package audit; clean detached snapshot passed 94/94. The first local py_compile attempt was denied only while writing __pycache__, and the identical escalated syntax check passed
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S3 registry remains d1-d5 intra-bay only and all S4 behavior remains disconnected from entry
+  run_identity: targeted_green=1/1; cross_bay_tests=3/3; test_alns=12/12; assignment_refinement=9/9; dirty_full_discovery_behavioral_passes=93; clean_snapshot=33787949937c25ba95cddf23cc476446fd844e64; clean_full_discovery=94/94
+  next_action: run the exact named high-w23 cross_bay benchmark and require move/swap attempt and accepted counters plus 10/10 official-checker Stage 5 feasibility
+```
+
+```yaml
+- timestamp: 2026-07-15T19:47:43+09:00
+  stage: S4
+  slice: S4-03
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  slice_decision: COMPLETE
+  branch: codex/fable-s4-recovery
+  commit: pending atomic feat(s4): add guarded cross-bay refinement
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component cross_bay --instances high-w23 --timelimits 60 --seeds 20260710 --feature cross_bay=true
+    - audit benchmark COMPLETE, summary.json, records.jsonl, failures.jsonl, move/swap/D6/retime counters, official-checker feasibility, wall limits, and evidence hashes
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - inspect the process table for baseline harness, assignment-refinement tests, Gurobi, OR-Tools, and temporary validation processes
+    - remove the temporary detached validation worktree and generated Python bytecode/cache directories
+  red_evidence: benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/red-attempt02.txt
+  green_evidence: benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/green-targeted.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/cross-bay-tests.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/test-alns-regression.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/assignment-refinement-module.txt; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/full-discovery-clean-snapshot.txt
+  checker_result: PASS; successful synthetic move and swap reached official checker Stage 5; repair, retime, and full-check fault injection preserved exact pre-candidate state/RNG and incumbent SHA; all 10 benchmark records reached Stage 5
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260715T104503Z-2e0952d0/; benchmarks/evidence/s4/s4-03/20260715T103812Z-s4-03-recovery/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; S4-03 COMPLETE as a guarded proof/search component, while S4-04 exclusively owns entry integration, A/B, promotion gate, and default decisions
+  run_identity: benchmark_exit_code=0; records=10; stage5=10; move_attempts=10; move_accepted=9; swap_attempts=10; swap_accepted=9; d6_attempts=20; retime_backend_attempts=40; checker_failures=0; unverified_returns=0; max_wall_seconds=15.396150124986889; summary_sha256=389da4d33188fc2a4a39c8be56578d922fe28cca671f8010ae80d91b009d2bd8
+  protected_files: baseline/utils.py=d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75=HEAD; baseline/baseline_greedy.py=8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b=HEAD
+  cleanup: exact models/environments disposed by adapters; no stale harness/test/Gurobi/OR-Tools process; temporary validation worktree and Python caches removed; generated evidence and training inputs remain ignored and untracked
+  next_action: stage only the five audited S4-03 tracked files, commit feat(s4): add guarded cross-bay refinement, push, verify clean upstream equality, then stop without starting S4-04
+```

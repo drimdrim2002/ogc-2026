@@ -4,10 +4,20 @@ from __future__ import annotations
 
 import math
 from dataclasses import replace
+import hashlib
+import json
 import unittest
+
+from numpy.random import Generator, PCG64
 
 from harness import cli as harness_cli
 from harness import runner as harness_runner
+from solver.alns import (
+    CrossBayRegistry,
+    OperatorRegistry,
+    rank_cross_bay_candidates,
+    run_cross_bay_candidate,
+)
 from solver.assign import (
     AssignmentVerification,
     AssignmentV1,
@@ -30,9 +40,253 @@ from solver.exact import (
     SOLUTION_STATUSES,
 )
 from solver.gurobi_backend import build_gurobi_assignment_spec
+from solver.incumbent import VerifiedIncumbent
 from solver.instance import ProblemInstance
 from solver.serialize import serialize_non_interlock
+from solver.state import Placement, SolutionState
 from tests.fixtures import block, instance
+
+
+class CrossBayTests(unittest.TestCase):
+    def _fixture(self):
+        prob_info = instance(
+            [
+                block(workload=0.10, preferences=(0, 10)),
+                block(workload=0.20, preferences=(10, 0)),
+                block(workload=0.30, preferences=(10, 0)),
+                block(workload=0.40, preferences=(0, 10)),
+            ],
+            bays=((4, 4), (4, 4)),
+            weights={"w1": 1.0, "w2": 2.5, "w3": 7.25},
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        state = SolutionState(parsed)
+        for placement in (
+            Placement(0, 0, 0, 0, 0, 0, 1),
+            Placement(1, 0, 0, 0, 0, 1, 2),
+            Placement(2, 1, 0, 0, 0, 0, 1),
+            Placement(3, 1, 0, 0, 0, 1, 2),
+        ):
+            state.place(placement)
+        state.assert_invariants()
+        incumbent = VerifiedIncumbent(parsed)
+        incumbent.register_initial(state)
+        return prob_info, state, incumbent
+
+    @staticmethod
+    def _solution_sha(solution):
+        payload = json.dumps(solution, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _copy_state(state):
+        copied = SolutionState(
+            state.instance,
+            geom=state.geom,
+            shape_catalog=state.shape_catalog,
+        )
+        for placement in state.placements.values():
+            copied.place(placement)
+        return copied
+
+    @staticmethod
+    def _expected_assignment_delta(state, candidate):
+        loads = list(state.objective_diagnostics.bay_loads)
+        z3 = state.z3
+        for block_id, source_bay, target_bay in zip(
+            candidate.block_ids,
+            candidate.source_bays,
+            candidate.target_bays,
+            strict=True,
+        ):
+            block_info = state.instance.blocks[block_id]
+            loads[source_bay] -= block_info.workload
+            loads[target_bay] += block_info.workload
+            preference_best = max(block_info.bay_preferences)
+            z3 += (
+                preference_best
+                - block_info.bay_preferences[target_bay]
+                - (preference_best - block_info.bay_preferences[source_bay])
+            )
+        average_area = sum(bay.area for bay in state.instance.bays) / len(
+            state.instance.bays
+        )
+        normalized = tuple(
+            average_area / bay.area * load
+            for bay, load in zip(state.instance.bays, loads, strict=True)
+        )
+        z2 = 0.0 if len(normalized) < 2 else max(normalized) - min(normalized)
+        return z2 - state.z2, z3 - state.z3
+
+    def test_move_swap_undo_and_float_delta(self):
+        _prob_info, state, _incumbent = self._fixture()
+        s3_registry = OperatorRegistry()
+        registry = CrossBayRegistry()
+        self.assertEqual(("d1", "d2", "d3", "d4", "d5"), s3_registry.destroy_names)
+        self.assertEqual(("move", "swap", "d6"), registry.operator_names)
+        self.assertTrue(
+            all(operator.changes_assignment for operator in registry.operators.values())
+        )
+
+        candidates = rank_cross_bay_candidates(state, registry=registry)
+        self.assertTrue(candidates)
+        by_kind = {
+            kind: next(candidate for candidate in candidates if candidate.kind == kind)
+            for kind in ("move", "swap")
+        }
+        self.assertEqual(
+            tuple(candidate.priority for candidate in candidates),
+            tuple(sorted(candidate.priority for candidate in candidates)),
+        )
+        for candidate in by_kind.values():
+            expected_z2, expected_z3 = self._expected_assignment_delta(
+                state, candidate
+            )
+            self.assertTrue(
+                math.isclose(candidate.delta_z2, expected_z2, rel_tol=1e-12, abs_tol=1e-12)
+            )
+            self.assertTrue(
+                math.isclose(candidate.delta_z3, expected_z3, rel_tol=1e-12, abs_tol=1e-12)
+            )
+            self.assertTrue(
+                math.isclose(
+                    candidate.exact_weighted_delta,
+                    state.instance.weights[1] * expected_z2
+                    + state.instance.weights[2] * expected_z3,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            )
+
+        for fault in ("repair", "retime", "full_check"):
+            prob_info, state, incumbent = self._fixture()
+            before = state.capture_undo_token()
+            before_sha = self._solution_sha(incumbent.solution)
+            candidate = next(
+                item
+                for item in rank_cross_bay_candidates(state, registry=registry)
+                if item.kind == "swap"
+            )
+
+            def inject(point, *, selected=fault):
+                if point == selected:
+                    raise RuntimeError(f"injected {selected} fault")
+
+            result = run_cross_bay_candidate(
+                state,
+                incumbent,
+                candidate,
+                Generator(PCG64(20260710)),
+                retime=lambda current, _bay_id, _budget: self._copy_state(current),
+                fault_hook=inject,
+            )
+
+            self.assertFalse(result.committed)
+            self.assertEqual(f"fault:{fault}", result.reason)
+            self.assertEqual(before, state.capture_undo_token())
+            self.assertEqual(before_sha, result.incumbent_sha256)
+            self.assertEqual(before_sha, self._solution_sha(incumbent.solution))
+            checked = official_check(
+                prob_info, serialize_non_interlock(state.placements.values())
+            )
+            self.assertTrue(checked.feasible, checked.violations)
+            self.assertEqual(5, checked.stage)
+
+    def test_successful_move_and_swap_are_fully_checked(self):
+        for kind in ("move", "swap"):
+            prob_info, state, incumbent = self._fixture()
+            before = state.capture_undo_token()
+            before_sha = self._solution_sha(incumbent.solution)
+            candidate = next(
+                item
+                for item in rank_cross_bay_candidates(state)
+                if item.kind == kind and item.exact_weighted_delta < 0.0
+            )
+            retimed_bays = []
+
+            def retime(current, bay_id, _budget):
+                retimed_bays.append(bay_id)
+                return self._copy_state(current)
+
+            result = run_cross_bay_candidate(
+                state,
+                incumbent,
+                candidate,
+                Generator(PCG64(20260710)),
+                retime=retime,
+            )
+
+            self.assertTrue(result.committed, (kind, result.reason))
+            self.assertEqual((0, 1), result.affected_bays)
+            self.assertEqual([0, 1], retimed_bays)
+            self.assertTrue(result.checker_feasible)
+            self.assertEqual(5, result.checker_stage)
+            self.assertNotEqual(before.bay_members, state.bay_members)
+            self.assertTrue(
+                math.isclose(
+                    state.z2 - before.z2,
+                    candidate.delta_z2,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            )
+            self.assertTrue(
+                math.isclose(
+                    state.z3 - before.z3,
+                    candidate.delta_z3,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            )
+            self.assertNotEqual(before_sha, result.incumbent_sha256)
+            self.assertEqual(
+                result.incumbent_sha256, self._solution_sha(incumbent.solution)
+            )
+            checked = official_check(
+                prob_info, serialize_non_interlock(state.placements.values())
+            )
+            self.assertTrue(checked.feasible, checked.violations)
+            self.assertEqual(5, checked.stage)
+
+    def test_cross_bay_summary_requires_move_swap_counters(self):
+        record = {
+            "status": "passed",
+            "checker": {"feasible": True, "stage": 5},
+            "prior_checker": {"feasible": True, "stage": 5},
+            "move_attempts": 1,
+            "move_accepted": 0,
+            "swap_attempts": 1,
+            "swap_accepted": 1,
+            "cross_bay_attempts": 2,
+            "d6_attempts": 2,
+            "retime_backend_attempts": 4,
+            "unverified_return_count": 0,
+            "wall_seconds": 1.0,
+            "timelimit": 60.0,
+        }
+        summary, exit_code = harness_cli._cross_bay_summary(
+            [record],
+            expected_record_count=1,
+            selector="high-w23",
+            timelimits=(60.0,),
+            seeds=(20260710,),
+            features={"cross_bay": "true"},
+        )
+        self.assertEqual(harness_cli.EXIT_PASS, exit_code)
+        self.assertEqual(1, summary["move_attempts"])
+        self.assertEqual(1, summary["swap_attempts"])
+
+        missing = dict(record)
+        del missing["swap_attempts"]
+        _summary, failed_exit = harness_cli._cross_bay_summary(
+            [missing],
+            expected_record_count=1,
+            selector="high-w23",
+            timelimits=(60.0,),
+            seeds=(20260710,),
+            features={"cross_bay": "true"},
+        )
+        self.assertEqual(harness_cli.EXIT_CHECKER_FAILURE, failed_exit)
 
 
 class AssignmentV2Tests(unittest.TestCase):
