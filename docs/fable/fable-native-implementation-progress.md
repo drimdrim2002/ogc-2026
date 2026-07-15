@@ -5084,6 +5084,128 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   next_action: create a verified preservation manifest for the legacy dirty experiment, then create a separate codex/fable-s3-stabilization worktree from c0da4a7971c57b85066f2610ead9b68d6305fe65; do not resume solver work in the legacy worktree
 ```
 
+```yaml
+- timestamp: 2026-07-15T12:05:41+09:00
+  stage: S3
+  slice: S3-STABILIZATION-01
+  old_status: COMPLETE with dirty historical evidence
+  new_status: IN_PROGRESS
+  branch: codex/fable-s3-stabilization
+  commit: 077ae531046e33d85e64e6e29c2074eb81734cc2
+  dirty: true
+  commands:
+    - verify dedicated worktree, branch, c0da4a7971c57b85066f2610ead9b68d6305fe65 ancestry, docs-only commit, clean baseline diff, and empty staged/worktree state
+    - verify preservation manifest COMPLETE, restore rehearsal PASS, and unchanged legacy branch/HEAD/full and baseline dirty hashes
+    - copy only prob_1..prob_20 from legacy data/train 2 and prob_21..prob_40 from legacy data/train into identical ignored stabilization paths
+    - verify 40/40 unique training IDs and SHA-256 values against benchmarks/manifests/training.json
+    - audit existing S3 transaction/operator/acceptor/weight/stagnation/prefix/entry implementation and assignment-neutrality guards
+  red_evidence: null
+  green_evidence: null
+  checker_result: NOT_RUN
+  benchmark_or_stress_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/audit.txt
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: candidate alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); S4=false; S5=false; interlock=false
+  preservation_manifest: /Users/brown/workspace/ogc/fable-native-implementation/benchmarks/evidence/plan/plan-reset-01/20260715T024016Z-3388c93e/manifest.json
+  production_tree: 40f26c7dcf2690a8e07574ddde1081a951f34d31; identical to c0da4a7971c57b85066f2610ead9b68d6305fe65:baseline
+  next_action: add the permanent default-selection regression and run Tier-D RED
+```
+
+```yaml
+- timestamp: 2026-07-15T12:08:00+09:00
+  stage: S3
+  slice: S3-STABILIZATION-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s3-stabilization
+  commit: 077ae531046e33d85e64e6e29c2074eb81734cc2
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_budget_entry.EntryArmorTests.test_selected_s3_default_runs_alns_without_override
+  red_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/red.txt
+  green_evidence: null
+  checker_result: test fixture completed solve and failed only at missing ALNS telemetry before checker assertions
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: valid RED; omitting _alns selected DEFAULT_CONFIG.alns=false, so ALNS did not run and telemetry had no alns_metrics key
+  feature_default_decision: candidate alns=true remains unimplemented; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b)
+  next_action: change only SolverConfig.alns from false to true, then run targeted GREEN
+```
+
+```yaml
+- timestamp: 2026-07-15T12:12:00+09:00
+  stage: S3
+  slice: S3-STABILIZATION-01
+  old_status: IN_PROGRESS
+  new_status: BLOCKED
+  branch: codex/fable-s3-stabilization
+  commit: 077ae531046e33d85e64e6e29c2074eb81734cc2
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_budget_entry.EntryArmorTests.test_selected_s3_default_runs_alns_without_override
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_budget_entry
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_alns
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v tests.test_retime tests.test_exact_backends tests.test_budget_entry tests.test_alns
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --instances smoke-3 --timelimits 12 --seeds 20260710 --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T030541Z-s-default-smoke
+  red_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/red.txt
+  green_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/green-targeted.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/entry-armor.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/alns-regression.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/affected-regression.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/full-discovery.txt
+  checker_result: Tier-D PASS 1/1, 9/9, 12/12, and 29/29; Tier-S full discovery PASS 80/80; smoke solver/checker NOT_RUN because CLI rejected the selector before run creation
+  benchmark_or_stress_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/tier-s-smoke-failure.txt
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: prescribed selected-default smoke command exited 4 with S3-05 benchmark requires training or dev-10; committed _s3_integrated_benchmark also requires explicit alns=true, conflicting with the prescribed smoke-3/no-feature command; harness modification and any tracked file outside the three-file candidate allowlist are prohibited
+  feature_default_decision: uncommitted candidate alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); S4=false; S5=false; interlock=false; not qualified or promoted
+  next_action: amend the stabilization contract or explicitly authorize a narrowly scoped harness path that can run smoke-3 through DEFAULT_CONFIG.alns=true, then restart Tier D/S under a new development attempt identity; do not reuse 20260715T030541Z-s-default-smoke
+```
+
+```yaml
+- timestamp: 2026-07-15T12:25:38+09:00
+  stage: S3
+  slice: S3-STABILIZATION-01-RECOVERY-01
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: codex/fable-s3-stabilization
+  commit: 077ae531046e33d85e64e6e29c2074eb81734cc2
+  dirty: true
+  commands:
+    - verify the complete recovery preflight against branch, HEAD, the exact three-path tracked diff, prior Tier-D/Tier-S results, 40/40 training hashes, and the preservation manifest
+    - create an ignored one-shot selected-default smoke runner without modifying tracked harness code
+  red_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/red.txt
+  green_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/green-targeted.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/entry-armor.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/alns-regression.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/affected-regression.txt; benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/full-discovery.txt
+  checker_result: prior selected-default smoke failure was a committed harness contract mismatch before solver execution, not a solver, performance, or checker failure
+  benchmark_or_stress_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T032538Z-s3-stabilization01-recovery01/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: resolved by the explicitly authorized ignored selected-default runner; tracked harness remains unchanged and the failed 20260715T030541Z-s-default-smoke identity remains immutable
+  feature_default_decision: candidate alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); S4=false; S5=false; interlock=false; not yet qualified or promoted
+  run_identity: recovery_attempt_id=20260715T032538Z-s3-stabilization01-recovery01; source_head=077ae531046e33d85e64e6e29c2074eb81734cc2; pre_recovery_dirty_diff_hash=909290d3f946ef37ecc304c97a1fb8a048f951df06502f3583b30a17ad786e2f
+  next_action: run the ignored selected-default smoke runner exactly once and require all three smoke-3 records plus COMPLETE
+```
+
+```yaml
+- timestamp: 2026-07-15T12:29:57+09:00
+  stage: S3
+  slice: S3-STABILIZATION-01-RECOVERY-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s3-stabilization
+  commit: 077ae531046e33d85e64e6e29c2074eb81734cc2
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s3-stabilization-01/development/20260715T032538Z-s3-stabilization01-recovery01/selected_default_smoke.py
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python benchmarks/evidence/s3-stabilization-01/development/20260715T032800Z-s3-stabilization01-recovery01/selected_default_smoke.py
+    - verify selected-default smoke JSONL, summary.json, atomic COMPLETE, exact three-path candidate allowlist, protected-file hashes, empty staged area, and ignored evidence status
+  red_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/red.txt
+  green_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T032800Z-s3-stabilization01-recovery01/records.jsonl
+  checker_result: PASS; prob_21, prob_32, and prob_9 were 3/3 official-checker Stage 5 feasible through solver.entry.solve without an _alns override; ALNS iterations were positive 3/3, prefix consistency 3/3, acceptor sa 3/3, adaptive false 3/3, and accepted candidates totaled 100
+  benchmark_or_stress_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T032800Z-s3-stabilization01-recovery01/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the first runner attempt failed before solver execution with ModuleNotFoundError for the repository import root and was not rerun; the permitted runner-only correction used a new attempt identity and passed
+  feature_default_decision: candidate alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); S4=false; S5=false; interlock=false; candidate is ready to freeze and commit but not yet qualified
+  run_identity: passed_attempt_id=20260715T032800Z-s3-stabilization01-recovery01; superseded_runner_attempt=20260715T032538Z-s3-stabilization01-recovery01; source_head=077ae531046e33d85e64e6e29c2074eb81734cc2; source_dirty_diff_hash=871fc75e54ac85ccea1b7a9ef148efe8a3e08227c711e499c75cdc60a3a2443e; pre_tier_s_pass_append_diff_hash=13e70e294a2c608e15cbc78b652cbd498b04f09c7f9263fb88da1de97e7d9cc4
+  safety_summary: checker_mismatch=0; checker_rejection=0; assignment_mismatch=0; z2_mismatch=0; z3_mismatch=0; unverified_return=0; timeout=0; leak=0; max_wall_seconds=9.063980083999922; COMPLETE=true
+  next_action: record the post-PASS pre-stage diff hash, stage exactly config.py, test_budget_entry.py, and the master progress document, then create fix(s3): establish verified default baseline
+```
+
 ## 11. Planning quality audit
 
 Planning audit completed 2026-07-12 Asia/Seoul: **PASS at that historical snapshot**. It is superseded for execution topology and current status by PLAN-RESET-01. This remains a document-quality result only, not an implementation gate.

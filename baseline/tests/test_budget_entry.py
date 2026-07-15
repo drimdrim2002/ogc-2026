@@ -29,6 +29,32 @@ class BudgetTests(unittest.TestCase):
 
 
 class EntryArmorTests(unittest.TestCase):
+    def test_selected_s3_default_runs_alns_without_override(self):
+        prob_info = instance(
+            [
+                block(release=0, due=2, processing=2),
+                block(release=0, due=3, processing=2),
+                block(release=1, due=4, processing=1),
+                block(release=2, due=5, processing=1),
+            ]
+        )
+        telemetry = {}
+
+        solution = solve(
+            prob_info,
+            12.0,
+            _retime=False,
+            _telemetry=telemetry,
+        )
+
+        checked = official_check(prob_info, solution)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+        self.assertGreater(telemetry["alns_metrics"]["iterations"], 0)
+        self.assertTrue(telemetry["alns_prefix_consistent"])
+        self.assertEqual("sa", telemetry["alns_acceptor"])
+        self.assertFalse(telemetry["alns_adaptive"])
+
     def test_alns_entry_and_failure_keep_verified_s2_incumbent(self):
         prob_info = instance(
             [
