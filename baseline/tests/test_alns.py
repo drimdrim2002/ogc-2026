@@ -41,6 +41,14 @@ class FakeRandom:
         return self.value
 
 
+class FakeClock:
+    def __init__(self) -> None:
+        self.value = 0.0
+
+    def __call__(self) -> float:
+        return self.value
+
+
 def one_block_fixture():
     raw = instance([block(release=0, due=0, processing=1)], weights=(1, 0, 0))
     parsed = parse_instance(raw)
@@ -55,6 +63,165 @@ def one_block_fixture():
 
 
 class AlnsUnitTests(unittest.TestCase):
+    def test_deadline_led_search_uses_sixty_second_window_past_sixteen_iterations(self):
+        raw, parsed, kernel, initial, store = one_block_fixture()
+        clock = FakeClock()
+
+        def engine(current, destroyed, context, budget):
+            del context, budget
+            clock.value += 1.0
+            return RepairResult(
+                current,
+                "FEASIBLE",
+                destroyed,
+                frozenset(),
+                1,
+                0.0,
+            )
+
+        result = run_lns(
+            initial,
+            store,
+            AlnsContext(
+                parsed,
+                kernel,
+                raw,
+                checker,
+                destroy_operators=(FixedDestroy(),),
+                repair_engines=(engine,),
+                clock=clock,
+            ),
+            Budget.start(60.0, clock=clock),
+            AlnsConfig(warmup_iterations=4, segment=8, stall_iterations=8),
+        )
+
+        self.assertGreater(result.metrics.iterations, 16)
+        self.assertEqual("DEADLINE", result.metrics.exit_reason)
+        self.assertAlmostEqual(3.0, result.metrics.remaining_seconds, places=6)
+
+    def test_adaptation_activity_is_reported_when_thresholds_are_reached(self):
+        raw, parsed, kernel, initial, store = one_block_fixture()
+
+        def engine(current, destroyed, context, budget):
+            del context, budget
+            return RepairResult(
+                current,
+                "FEASIBLE",
+                destroyed,
+                frozenset(),
+                1,
+                0.0,
+            )
+
+        result = run_lns(
+            initial,
+            store,
+            AlnsContext(
+                parsed,
+                kernel,
+                raw,
+                checker,
+                destroy_operators=(FixedDestroy(),),
+                repair_engines=(engine,),
+            ),
+            Budget.start(5.0),
+            AlnsConfig(
+                warmup_iterations=2,
+                segment=2,
+                stall_iterations=2,
+                stall_time_fraction=0.0,
+                max_iterations=4,
+            ),
+        )
+
+        self.assertTrue(result.metrics.warmup_completed)
+        self.assertEqual(2, result.metrics.weight_updates)
+        self.assertEqual(2, result.metrics.stall_events)
+
+    def test_split_search_reuses_rng_adaptation_and_current_state(self):
+        def run(split: bool):
+            raw, parsed, kernel, initial, store = one_block_fixture()
+            entries = iter((4, 3, 4, 2, 3, 1))
+
+            def engine(current, destroyed, context, budget):
+                del context, budget
+                entry = next(entries)
+                candidate = SolutionSnapshot(
+                    (Placement(0, 0, 0, 0, 0, entry, entry + 1),)
+                )
+                candidate = candidate.with_objective(
+                    compute_objective(parsed, candidate)
+                )
+                return RepairResult(
+                    candidate,
+                    "FEASIBLE",
+                    destroyed,
+                    frozenset({0}),
+                    1,
+                    candidate.objective.total - current.objective.total,
+                )
+
+            context = AlnsContext(
+                parsed,
+                kernel,
+                raw,
+                checker,
+                destroy_operators=(FixedDestroy(),),
+                repair_engines=(engine,),
+            )
+            if not split:
+                return run_lns(
+                    initial,
+                    store,
+                    context,
+                    Budget.start(5.0),
+                    AlnsConfig(
+                        seed=77,
+                        warmup_iterations=2,
+                        segment=2,
+                        stall_iterations=3,
+                        stall_time_fraction=0.0,
+                        max_iterations=6,
+                    ),
+                )
+            first = run_lns(
+                initial,
+                store,
+                context,
+                Budget.start(5.0),
+                AlnsConfig(
+                    seed=77,
+                    warmup_iterations=2,
+                    segment=2,
+                    stall_iterations=3,
+                    stall_time_fraction=0.0,
+                    max_iterations=3,
+                ),
+            )
+            return run_lns(
+                first.snapshot,
+                store,
+                context,
+                Budget.start(5.0),
+                AlnsConfig(
+                    seed=77,
+                    warmup_iterations=2,
+                    segment=2,
+                    stall_iterations=3,
+                    stall_time_fraction=0.0,
+                    max_iterations=3,
+                ),
+                state=first.state,
+            )
+
+        continuous = run(False)
+        split = run(True)
+
+        self.assertEqual(continuous.current, split.current)
+        self.assertEqual(continuous.state, split.state)
+        self.assertEqual(6, split.state.total_iterations)
+        self.assertIsNotNone(split.state.temperature)
+
     def test_acceptance_uses_weighted_delta_and_exact_probability_boundary(self):
         self.assertTrue(accept_candidate(-1.0, None, FakeRandom(1.0)))
         self.assertTrue(accept_candidate(0.0, None, FakeRandom(1.0)))

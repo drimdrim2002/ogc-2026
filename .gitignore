@@ -15,3 +15,4 @@ artifacts/ogc_sage/step9/*/
 !artifacts/ogc_sage/step9/.gitkeep
 artifacts/ogc_sage/performance/phase0/*/
 !artifacts/ogc_sage/performance/phase0/.gitkeep
+artifacts/ogc_sage/performance/phase1/*/

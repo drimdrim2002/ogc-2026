@@ -26,7 +26,6 @@ VARIANTS = (
 
 LONG_BUDGET_ANCHOR_SECONDS = 60.0
 LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES = 50_000
-LONG_BUDGET_ANCHOR_LNS_ITERATIONS = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,14 +111,8 @@ def constructor_candidate_limit(limit: float) -> int | None:
 
 
 def lns_iteration_limit(limit: float) -> int | None:
-    """Bound the common anchor prefix; extension search remains deadline-led."""
-    if math.isclose(
-        float(limit),
-        LONG_BUDGET_ANCHOR_SECONDS,
-        rel_tol=0.0,
-        abs_tol=1e-9,
-    ):
-        return LONG_BUDGET_ANCHOR_LNS_ITERATIONS
+    """Retained compatibility hook; ALNS is always deadline-led."""
+    del limit
     return None
 
 
@@ -256,6 +249,22 @@ class RunTrace:
             ),
             "operator_stats": operators,
             "best_trace": best_trace,
+            "total_iterations": int(
+                getattr(metrics, "total_iterations", 0) or 0
+            ),
+            "warmup_completed": bool(
+                getattr(metrics, "warmup_completed", False)
+            ),
+            "weight_updates": int(
+                getattr(metrics, "weight_updates", 0) or 0
+            ),
+            "stall_events": int(getattr(metrics, "stall_events", 0) or 0),
+            "remaining_seconds": float(
+                getattr(metrics, "remaining_seconds", 0.0) or 0.0
+            ),
+            "budget_utilization": float(
+                getattr(metrics, "budget_utilization", 0.0) or 0.0
+            ),
         }
         self._append(self.lns_invocations, record)
         for name, duration in phase_times.items():
@@ -308,7 +317,6 @@ class RunTrace:
 
 __all__ = [
     "LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES",
-    "LONG_BUDGET_ANCHOR_LNS_ITERATIONS",
     "LONG_BUDGET_ANCHOR_SECONDS",
     "RunTrace",
     "SubmissionConfig",

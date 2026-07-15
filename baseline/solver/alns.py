@@ -8,7 +8,7 @@ import random
 import statistics
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from .budget import Budget
@@ -153,6 +153,12 @@ class AlnsMetrics:
     destroy_size: int
     retime_triggers: int
     exit_reason: str
+    total_iterations: int = 0
+    warmup_completed: bool = False
+    weight_updates: int = 0
+    stall_events: int = 0
+    remaining_seconds: float = field(default=0.0, compare=False)
+    budget_utilization: float = field(default=0.0, compare=False)
     repair_engines: tuple[tuple[str, int, int, int, float], ...] = ()
     densify_triggers: int = 0
     densify_attempts: int = 0
@@ -168,11 +174,32 @@ class _ValidationEvidence:
 
 
 @dataclass(frozen=True, slots=True)
+class AlnsSearchState:
+    """Continuation payload shared by anchor and extension invocations."""
+
+    current: SolutionSnapshot
+    rng_state: object
+    weights: tuple[float, ...]
+    segment_uses: tuple[int, ...]
+    segment_scores: tuple[float, ...]
+    improving_samples: tuple[float, ...]
+    temperature: float | None
+    destroy_size: int
+    iterations_since_best: int
+    invariant_errors: int
+    pending_retime: frozenset[int]
+    stalled_engine_pending: bool
+    densify_attempted: bool
+    total_iterations: int
+
+
+@dataclass(frozen=True, slots=True)
 class AlnsResult:
     snapshot: SolutionSnapshot
     current: SolutionSnapshot
     serialized_operations: Mapping[str, Any]
     metrics: AlnsMetrics
+    state: AlnsSearchState
 
 
 def initial_destroy_size(n: int) -> int:
@@ -254,31 +281,58 @@ def run_lns(
     config: AlnsConfig | None = None,
     retime_hook: Callable[..., Any] | None = None,
     densify_hook: Callable[..., Any] | None = None,
+    state: AlnsSearchState | None = None,
 ) -> AlnsResult:
     """Run bounded ALNS and always return the already validated best payload."""
     config = config or AlnsConfig()
     rng = random.Random(config.seed)
-    current = _objective(initial, context.instance)
+    current = _objective(
+        state.current if state is not None else initial,
+        context.instance,
+    )
     best = _objective(best_store.snapshot, context.instance)
     if not locally_feasible(current, context.neighborhood):
         raise ValueError("initial LNS state is not locally feasible")
     operators = context.destroy_operators
-    weights = tuple(1.0 for _ in operators)
-    segment_uses = [0 for _ in operators]
-    segment_scores = [0.0 for _ in operators]
+    if state is not None:
+        if not (
+            len(state.weights)
+            == len(state.segment_uses)
+            == len(state.segment_scores)
+            == len(operators)
+        ):
+            raise ValueError("ALNS continuation state does not match operator portfolio")
+        rng.setstate(state.rng_state)
+    weights = (
+        state.weights if state is not None else tuple(1.0 for _ in operators)
+    )
+    segment_uses = list(
+        state.segment_uses
+        if state is not None
+        else tuple(0 for _ in operators)
+    )
+    segment_scores = list(
+        state.segment_scores
+        if state is not None
+        else tuple(0.0 for _ in operators)
+    )
     counters = [_MutableOperatorMetrics() for _ in operators]
     best_trace = [best.objective.total]
     accepted_trace = [current.objective.total]
-    improving_samples: list[float] = []
-    temperature: float | None = None
+    improving_samples = list(state.improving_samples) if state is not None else []
+    temperature = state.temperature if state is not None else None
     cooling = math.exp(math.log(0.001) / config.cooling_iterations)
-    destroy_size = initial_destroy_size(len(current.placements))
-    iterations_since_best = 0
-    invariant_errors = 0
+    destroy_size = (
+        state.destroy_size
+        if state is not None
+        else initial_destroy_size(len(current.placements))
+    )
+    iterations_since_best = state.iterations_since_best if state is not None else 0
+    invariant_errors = state.invariant_errors if state is not None else 0
     retime_triggers = 0
-    pending_retime: set[int] = set()
-    stalled_engine_pending = False
-    densify_attempted = False
+    pending_retime = set(state.pending_retime) if state is not None else set()
+    stalled_engine_pending = state.stalled_engine_pending if state is not None else False
+    densify_attempted = state.densify_attempted if state is not None else False
     densify_triggers = 0
     densify_attempts = 0
     densify_improvements = 0
@@ -289,6 +343,9 @@ def run_lns(
     cache_before = context.kernel.cache_info()
     started = context.clock()
     iterations = 0
+    total_iterations = state.total_iterations if state is not None else 0
+    weight_updates = 0
+    stall_events = 0
     exit_reason = "DEADLINE"
 
     def engine_name(engine: RepairEngine) -> str:
@@ -541,10 +598,10 @@ def run_lns(
                     engine_stats[selected_engine_name][1] += 1
                     delta = candidate.objective.total - current.objective.total
                     metric.delta_sum += delta
-                    warmup = iterations < config.warmup_iterations
+                    warmup = total_iterations < config.warmup_iterations
                     if delta < 0.0 and warmup:
                         improving_samples.append(-delta)
-                    if iterations + 1 == config.warmup_iterations:
+                    if total_iterations + 1 == config.warmup_iterations:
                         if improving_samples:
                             temperature = statistics.median(improving_samples) / math.log(2.0)
                     accepted = accept_candidate(
@@ -582,9 +639,10 @@ def run_lns(
             metric.time_s += max(0.0, context.clock() - iteration_started)
 
         iterations += 1
-        if temperature is not None and iterations >= config.warmup_iterations:
+        total_iterations += 1
+        if temperature is not None and total_iterations >= config.warmup_iterations:
             temperature = max(temperature * cooling, 1e-300)
-        if iterations % config.segment == 0:
+        if total_iterations % config.segment == 0:
             weights = update_weights(
                 weights,
                 tuple(segment_uses),
@@ -594,6 +652,7 @@ def run_lns(
             )
             segment_uses = [0 for _ in operators]
             segment_scores = [0.0 for _ in operators]
+            weight_updates += 1
 
         stalled = (
             iterations_since_best >= config.stall_iterations
@@ -601,6 +660,7 @@ def run_lns(
             >= config.stall_time_fraction * max(0.0, budget.limit)
         )
         if stalled:
+            stall_events += 1
             destroy_size = grow_destroy_size(destroy_size, len(current.placements))
             if len(context.repair_engines) > 1:
                 stalled_engine_pending = True
@@ -653,6 +713,12 @@ def run_lns(
         exit_reason = "DEADLINE"
 
     cache_after = context.kernel.cache_info()
+    remaining_seconds = budget.remaining()
+    budget_utilization = (
+        min(1.0, max(0.0, (budget.limit - remaining_seconds) / budget.limit))
+        if budget.limit > 0.0
+        else 1.0
+    )
     metrics = AlnsMetrics(
         per_operator=tuple(
             (operator.name, metric.freeze())
@@ -667,6 +733,12 @@ def run_lns(
         temperature=temperature,
         destroy_size=destroy_size,
         retime_triggers=retime_triggers,
+        total_iterations=total_iterations,
+        warmup_completed=total_iterations >= config.warmup_iterations,
+        weight_updates=weight_updates,
+        stall_events=stall_events,
+        remaining_seconds=remaining_seconds,
+        budget_utilization=budget_utilization,
         repair_engines=tuple(
             (
                 name,
@@ -689,6 +761,22 @@ def run_lns(
         current=current,
         serialized_operations=best_store.operations,
         metrics=metrics,
+        state=AlnsSearchState(
+            current=current,
+            rng_state=rng.getstate(),
+            weights=weights,
+            segment_uses=tuple(segment_uses),
+            segment_scores=tuple(segment_scores),
+            improving_samples=tuple(improving_samples),
+            temperature=temperature,
+            destroy_size=destroy_size,
+            iterations_since_best=iterations_since_best,
+            invariant_errors=invariant_errors,
+            pending_retime=frozenset(pending_retime),
+            stalled_engine_pending=stalled_engine_pending,
+            densify_attempted=densify_attempted,
+            total_iterations=total_iterations,
+        ),
     )
 
 
@@ -697,6 +785,7 @@ __all__ = [
     "AlnsContext",
     "AlnsMetrics",
     "AlnsResult",
+    "AlnsSearchState",
     "OperatorMetrics",
     "RepairEngine",
     "accept_candidate",

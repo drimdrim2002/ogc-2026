@@ -10,7 +10,6 @@ from solver.geometry import GeometryKernel
 from solver.instance import parse_instance
 from solver.runtime import (
     LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES,
-    LONG_BUDGET_ANCHOR_LNS_ITERATIONS,
     constructor_candidate_limit,
     lns_iteration_limit,
 )
@@ -43,15 +42,12 @@ class LongBudgetAnchorTests(unittest.TestCase):
         self.assertEqual(short_anchor.remaining(), long_anchor.remaining())
         self.assertEqual(short_anchor.reserve, long_anchor.reserve)
 
-    def test_official_anchor_uses_deterministic_constructor_and_lns_quotas(self):
+    def test_official_anchor_keeps_constructor_quota_but_lns_is_deadline_led(self):
         self.assertEqual(
             LONG_BUDGET_ANCHOR_CONSTRUCTOR_CANDIDATES,
             constructor_candidate_limit(60.0),
         )
-        self.assertEqual(
-            LONG_BUDGET_ANCHOR_LNS_ITERATIONS,
-            lns_iteration_limit(60.0),
-        )
+        self.assertIsNone(lns_iteration_limit(60.0))
         self.assertIsNone(lns_iteration_limit(180.0))
 
     def test_constructor_stops_at_candidate_quota_before_wall_clock_deadline(self):

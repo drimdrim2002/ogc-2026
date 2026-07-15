@@ -148,7 +148,10 @@ def load_optional_phase(
                         retime_hook,
                     )
 
+            search_state = None
+
             def lns_runner(initial, store, raw, checker, lns_budget):
+                nonlocal search_state
                 context = AlnsContext(
                     instance=instance,
                     kernel=geometry,
@@ -164,6 +167,9 @@ def load_optional_phase(
                     AlnsConfig(
                         seed=chosen.seed,
                         max_iterations=lns_iteration_limit(lns_budget.limit),
+                        warmup_iterations=4,
+                        segment=8,
+                        stall_iterations=8,
                         stall_time_fraction=0.0,
                     ),
                     retime_hook=(
@@ -176,7 +182,9 @@ def load_optional_phase(
                         else None
                     ),
                     densify_hook=densify_hook,
+                    state=search_state,
                 )
+                search_state = result.state
                 return result
 
         return OptionalPhaseResult(
