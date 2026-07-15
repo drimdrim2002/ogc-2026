@@ -6,9 +6,9 @@ Planning baseline: `78ef82ece960ac686a6f5c41497a13c2217ffab5`
 
 Preservation-only legacy branch/worktree: `fable-native-implementation` at `/Users/brown/workspace/ogc/fable-native-implementation`
 
-Planned stabilization target: `codex/fable-s3-stabilization` in a separate sibling worktree; not yet created
+Stabilization target: `codex/fable-s3-stabilization` in `/Users/brown/workspace/ogc/fable-native-s3-stabilization`
 
-Planning status: `PLAN-RESET-01 READY`; implementation status: reset execution `NOT_STARTED`, S4 optional track `BLOCKED`
+Planning status: `PLAN-RESET-01 IN_PROGRESS`; implementation status: S3 clean stabilization `COMPLETE`, S4 optional track `BLOCKED`, mandatory S6-05 eligible
 
 ## 1. Objective, non-objectives, and submission-ready definition
 
@@ -151,7 +151,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S0 | `COMPLETE` | — | `PASS` | `native_solver=true`; `pipeline=t0` | S0-01…S0-06 and 40-input preflight | `benchmarks/evidence/s0/gate/20260712T125013Z-a893ae15/` | `3564a25a3915a9b19569c568d19a52e073add3c9` | — | retained in stable baseline |
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | retained in stable baseline |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; backend `auto`; timebox `5s` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | retained in stable baseline |
-| S3 | `COMPLETE` | `PLAN-RESET-01 stabilization` | `PASS` evidence; clean requalification pending | intended `alns=true`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3/gate/20260713T070249Z-d2f04b29/` | `c0da4a7971c57b85066f2610ead9b68d6305fe65` | gate ran on a dirty identity and the committed config still has `alns=false` | preserve legacy diff; create and qualify clean stabilization worktree |
+| S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
 | S4 | `BLOCKED` | `S4-04-RECOVERY-08` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; dirty candidate is unselected | clean S3 baseline; optional track | `benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/` | none for current recovery; legacy HEAD `388db7b27eda189e69140520548fc00362fba3f3` | focused 8/8; affected regression 66/67; 25% cap skipped work and omitted `assignment_seed_attempts` | preserve experiment; do not resume before stable baseline; mandatory path continues |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
 | S6 | `NOT_STARTED` | `S6-05 eligible after reset execution` | `NOT_RUN` | `interlock=false`; portfolio false unless promoted | clean qualified S3 or promoted lower tier | — | — | optional interlock failure keeps mandatory package | after S3 stabilization, execute S6-05 then S6-06 |
@@ -5204,6 +5204,37 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   run_identity: passed_attempt_id=20260715T032800Z-s3-stabilization01-recovery01; superseded_runner_attempt=20260715T032538Z-s3-stabilization01-recovery01; source_head=077ae531046e33d85e64e6e29c2074eb81734cc2; source_dirty_diff_hash=871fc75e54ac85ccea1b7a9ef148efe8a3e08227c711e499c75cdc60a3a2443e; pre_tier_s_pass_append_diff_hash=13e70e294a2c608e15cbc78b652cbd498b04f09c7f9263fb88da1de97e7d9cc4
   safety_summary: checker_mismatch=0; checker_rejection=0; assignment_mismatch=0; z2_mismatch=0; z3_mismatch=0; unverified_return=0; timeout=0; leak=0; max_wall_seconds=9.063980083999922; COMPLETE=true
   next_action: record the post-PASS pre-stage diff hash, stage exactly config.py, test_budget_entry.py, and the master progress document, then create fix(s3): establish verified default baseline
+```
+
+```yaml
+- timestamp: 2026-07-15T13:59:43+09:00
+  stage: S3
+  slice: S3-STABILIZATION-01-RECOVERY-01
+  old_status: IN_PROGRESS
+  new_status: COMPLETE
+  branch: codex/fable-s3-stabilization
+  commit: 2a9da5757b451b2a0c2ed4a884145fdcb255d111
+  dirty: true
+  commands:
+    - Q1 cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - Q2 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --instances training --timelimits 60 --seeds 20260710 --feature alns=true --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q2-training
+    - Q3 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --instances dev-10 --timelimits 60,300 --seeds 20260710 --feature alns=true --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q3-dev
+    - Q4 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s3 --instances dev-10 --timelimits 60 --seed 20260710,20260711,20260712 --feature acceptor --a strict --b rrt,sa --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q4-acceptor-ab
+    - Q5 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli ab --stage s3 --instances dev-10 --timelimits 60 --seed 20260710,20260711,20260712 --feature alns_adaptive --a false --b true --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q5-adaptive-ab
+    - Q6 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s3 --component controls --instances dev-10 --timelimits 60 --seeds 20260710,20260711,20260712 --feature alns=true --feature acceptor=sa --feature adaptive=false --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q6-controls
+    - Q7 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli stress --stage s3 --instances stress --timelimits 5,12,60 --seeds 20260710 --feature alns=true --feature fault=repair,accept,retime,full_check --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q7-stress
+    - Q8 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli gate --stage s3 --latest-complete --commit HEAD --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q8-gate
+    - Q9 /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli report --stage s3 --latest-complete --evidence-root benchmarks/evidence/s3-stabilization-01 --run-id 20260715T033128Z-s3-stabilization01-qualification01-q9-report
+  red_evidence: benchmarks/evidence/s3-stabilization-01/development/20260715T030541Z-s3-stabilization01/red.txt
+  green_evidence: Q1 PASS 80/80; selected-default smoke PASS 3/3
+  checker_result: PASS; Q2 training 40/40, Q3 dev 20/20, Q4 acceptor 180/180, Q5 adaptive 120/120, Q6 controls 90/90, and Q7 stress 36/36 were Stage 5 feasible; Q8 gate and Q9 report exited zero
+  benchmark_or_stress_evidence: benchmarks/evidence/s3-stabilization-01/qualification/20260715T033128Z-s3-stabilization01-qualification01/manifest.json; benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/; benchmarks/evidence/s3-stabilization-01/s3/report/20260715T033128Z-s3-stabilization01-qualification01-q9-report/
+  gate_decision: PASS
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); assignment_refinement=false; parallel_portfolio=false; interlock=false
+  run_identity: qualification_id=20260715T033128Z-s3-stabilization01-qualification01; candidate_commit=2a9da5757b451b2a0c2ed4a884145fdcb255d111; candidate_production_tree=9b0d005d4e8c019c1efca87d7183c0055820da97; post_qualification_baseline_diff=empty
+  safety_summary: prefix_regression=0; longer_regression=0; checker_mismatch=0; assignment_mismatch=0; rollback_failure=0; fault_miss=0; leak=0; unverified_return=0; selected_acceptor=sa; selected_adaptive=false; selected_dirty=[3,0.03]
+  next_action: create the docs(progress): record clean s3 qualification closeout commit from exactly the master progress and S3 stage documents, push codex/fable-s3-stabilization, verify upstream equality, and stop
 ```
 
 ## 11. Planning quality audit

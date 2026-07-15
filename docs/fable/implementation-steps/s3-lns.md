@@ -2,7 +2,7 @@
 
 Parent: [`../fable-native-implementation-progress.md`](../fable-native-implementation-progress.md)
 
-Status: `COMPLETE`; gate: `PASS`; clean selected-default stabilization required by [`plan-reset-01.md`](plan-reset-01.md); planned slices: 5
+Status: `COMPLETE`; gate: `PASS (clean selected-default requalification)` under [`plan-reset-01.md`](plan-reset-01.md); planned slices: 5
 
 ## Goal, ownership, and dependencies
 
@@ -108,5 +108,11 @@ $PY -m baseline.harness.cli report --stage s3 --latest-complete
 PASS: all outputs Stage 5 feasible; incumbent trace strictly monotonic/nonincreasing with no unverified entry; for every dev-10 instance, checker objective at 300 seconds ≤ its paired 60-second objective; aggregate 60-second S3 median objective is strictly lower than paired S2 and at least 5/10 improve, with none worse than S2; iterations >0 on all cases with ≥1 second of LNS allocation, total accepted >0 over the set, each applicable operator attempted, and full-check safety samples mismatch zero; selected acceptor/adaptive defaults follow the preregistered rule; assignment/Z2/Z3 stay unchanged within S3; gate exits 0.
 
 Any infeasibility, undo mismatch, assignment change, 300>60 regression, no actual search, or checker mismatch blocks S4. Feature/default after PASS: `alns=true`; acceptor/adaptive/dirty settings exactly as evidence selects. S4 consumes the transaction/operator interfaces but is solely responsible for permitting assignment changes.
+
+## Clean selected-default stabilization qualification
+
+`S3-STABILIZATION-01-RECOVERY-01` established the selected default at candidate commit `2a9da5757b451b2a0c2ed4a884145fdcb255d111` without changing the tracked harness. Its ignored one-shot public-entry smoke evidence is under `benchmarks/evidence/s3-stabilization-01/development/20260715T032800Z-s3-stabilization01-recovery01/`: `smoke-3` was 3/3 Stage 5 feasible with positive ALNS iterations, prefix consistency, acceptor `sa`, adaptive false, accepted candidates, and zero checker, assignment, Z2, Z3, unverified-return, timeout, or leak failures.
+
+Frozen qualification `20260715T033128Z-s3-stabilization01-qualification01` then passed Q1-Q9 from that clean candidate: full unittest 80/80; training 40/40; dev-10 20/20; acceptor A/B 180/180; adaptive A/B 120/120; selected controls 90/90; stress 36/36; gate `PASS`; and report exit 0. Q3 improved 7/10 60-second cases, retained a lower median than S2, and had zero prefix, longer-run, checker, assignment, or incumbent regression. The gate retained `alns=true`, acceptor `sa`, adaptive false, and dirty trigger `max(3,.03*n_b)`. The post-qualification diff from the candidate across `baseline/` is empty; S4, S5, and interlock remain disabled and independently gated.
 
 Known risks and deferred decisions: time-based search can lose prefix consistency, repair may be too slow to produce accepted candidates, and SA/adaptation may add no value. Fake-clock prefix tests, structural counters, and the preregistered A/B rules decide these without relaxing safety. S4 entry requires S3 `COMPLETE`, clean status, gate exit 0, and selected control flags recorded.
