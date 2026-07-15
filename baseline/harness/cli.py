@@ -7,6 +7,7 @@ from dataclasses import asdict
 from datetime import datetime
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -39,6 +40,7 @@ from .runner import (
     make_escalation_stress_ref,
     repository_provenance,
     run_assignment_case,
+    run_assignment_v2_case,
     run_cap_calibration_case,
     run_constructor_case,
     run_entry_case,
@@ -482,6 +484,8 @@ def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
 
 
 def _benchmark(args: argparse.Namespace) -> int:
+    if args.stage == "s4":
+        return _s4_assignment_benchmark(args)
     if args.stage == "s3":
         if args.component == "controls":
             return _s3_control_benchmark(args)
@@ -1196,6 +1200,157 @@ def _s2_entry_benchmark(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _s4_assignment_benchmark(args: argparse.Namespace) -> int:
+    if args.component != "assignment_v2":
+        raise StageUnsupportedError(
+            "S4-01 benchmark only supports --component assignment_v2"
+        )
+    if args.metric != "solver" or args.instances != "high-w23":
+        raise SelectorError(
+            "S4-01 assignment benchmark requires the default metric and high-w23"
+        )
+    features = _features(args.feature)
+    if features != {"assignment_backend": "gurobi"}:
+        raise SelectorError(
+            "S4-01 benchmark requires --feature assignment_backend=gurobi"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (60.0,) or seeds != (20260710,):
+        raise SelectorError(
+            "S4-01 benchmark requires timelimits=60 and seeds=20260710"
+        )
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s4",
+        command="benchmark",
+        expected_record_ids=(),
+        metadata={"component": "assignment_v2", "selector": args.instances},
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        _case_id(ref.instance_id, timelimit, seed, "none")
+        for ref in refs
+        for timelimit in timelimits
+        for seed in seeds
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                record_id = _case_id(ref.instance_id, timelimit, seed, "none")
+                if record_id not in run.pending_record_ids:
+                    continue
+                record = run_assignment_v2_case(
+                    ref,
+                    selector=args.instances,
+                    timelimit=timelimit,
+                    seed=seed,
+                    features=features,
+                )
+                run.append_record(_deduplicate(evidence_root, record, rerun=args.rerun))
+    records = _effective_records(run.records)
+    summary, exit_code = _assignment_v2_summary(
+        records,
+        expected_record_count=len(expected),
+        selector=args.instances,
+        timelimits=timelimits,
+        seeds=seeds,
+        features=features,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return exit_code
+
+
+def _assignment_v2_summary(
+    records: Iterable[Mapping[str, Any]],
+    *,
+    expected_record_count: int,
+    selector: str,
+    timelimits: tuple[float, ...],
+    seeds: tuple[int, ...],
+    features: Mapping[str, str],
+) -> tuple[dict[str, Any], int]:
+    """Aggregate S4-01 records without hiding or crashing on checker failure."""
+
+    rows = tuple(records)
+    passed = len(rows) == expected_record_count and all(
+        record.get("status") in {"passed", "deduplicated"}
+        and record.get("checker", {}).get("feasible") is True
+        and record.get("checker", {}).get("stage") == 5
+        and record.get("v1_checker", {}).get("feasible") is True
+        and record.get("v1_checker", {}).get("stage") == 5
+        and record.get("backend", {}).get("name") == "gurobi"
+        and record.get("backend", {}).get("status") in {"optimal", "feasible"}
+        and record.get("assigned") == record.get("block_count")
+        and record.get("v1_membership_preserved") is True
+        and record.get("v2_membership_preserved") is True
+        and _optional_float_at_most(record, "v1_float_z2_relative_error", 1e-6)
+        and _optional_float_at_most(record, "v1_float_z3_relative_error", 1e-6)
+        and _optional_float_at_most(record, "v2_float_z2_relative_error", 1e-6)
+        and _optional_float_at_most(record, "v2_float_z3_relative_error", 1e-6)
+        and _optional_float_at_most(
+            record,
+            "wall_seconds",
+            _finite_float(record.get("timelimit")) or 60.0,
+        )
+        for record in rows
+    )
+    summary = _solver_summary("benchmark", selector, rows, passed, stage="s4")
+    summary.update(
+        slice="s4-01",
+        component="assignment_v2",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        expected_record_count=expected_record_count,
+        assigned=sum(int(record.get("assigned", 0)) for record in rows),
+        max_v1_float_z2_relative_error=_optional_max(
+            rows, "v1_float_z2_relative_error"
+        ),
+        max_v2_float_z2_relative_error=_optional_max(
+            rows, "v2_float_z2_relative_error"
+        ),
+        backend_statuses=sorted(
+            {str(record.get("backend", {}).get("status")) for record in rows}
+        ),
+    )
+    return summary, EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+def _optional_max(
+    records: Iterable[Mapping[str, Any]],
+    key: str,
+) -> float | None:
+    values = tuple(
+        value
+        for record in records
+        if (value := _finite_float(record.get(key))) is not None
+    )
+    return max(values) if values else None
+
+
+def _optional_float_at_most(
+    record: Mapping[str, Any],
+    key: str,
+    limit: float,
+) -> bool:
+    value = _finite_float(record.get(key))
+    return value is not None and value <= limit
+
+
+def _finite_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return numeric if math.isfinite(numeric) else None
 
 
 def _assignment_benchmark(args: argparse.Namespace) -> int:

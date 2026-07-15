@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from collections.abc import Sequence
+from statistics import median
 
+from .config import DEFAULT_CONFIG, SolverConfig
+from .exact import (
+    AssignmentRequest,
+    AssignmentResult as ExactAssignmentResult,
+    AssignmentSolution,
+    SOLUTION_STATUSES,
+    assign as exact_assign,
+)
 from .geometry import ShapeInfo
+from .gurobi_backend import assign_gurobi
 from .instance import ProblemInstance
 
 
@@ -61,6 +71,17 @@ class AssignmentResult:
     z2: float
     z3: float
     metrics: AssignmentMetrics
+
+
+@dataclass(frozen=True, slots=True)
+class AssignmentEvaluation:
+    """Exact checker-float assignment terms recomputed outside a backend."""
+
+    bay_workloads: tuple[float, ...]
+    z2: float
+    z3: float
+    overload: float
+    objective: float
 
 
 def assignment_cost(
@@ -234,6 +255,279 @@ class AssignmentV1:
                 horizon=self.horizon,
             ),
         )
+
+
+def assignment_request(
+    instance: ProblemInstance,
+    starting_assignment: AssignmentResult,
+    *,
+    config: SolverConfig = DEFAULT_CONFIG,
+) -> AssignmentRequest:
+    """Build the immutable exact-float S4 request from a v1 MIP start."""
+
+    if config.assignment_backend != "gurobi":
+        raise ValueError("S4-01 supports only the Gurobi assignment backend")
+    if not 0.0 < float(config.assignment_congestion_cap_fraction) <= 1.0:
+        raise ValueError("assignment congestion cap fraction must be in (0, 1]")
+    if float(config.assignment_congestion_weight_multiplier) < 0.0:
+        raise ValueError("assignment congestion weight multiplier must be non-negative")
+    instance.assert_solvable_fit()
+    block_ids = tuple(range(len(instance.blocks)))
+    bay_ids = tuple(bay.bay_id for bay in instance.bays)
+    if set(starting_assignment.assignments) != set(block_ids):
+        raise ValueError("starting assignment must contain every block exactly once")
+
+    shape_areas = tuple(
+        tuple(
+            ShapeInfo.from_orientation(orientation).area
+            for orientation in block.orientations
+        )
+        for block in instance.blocks
+    )
+    fit_pairs = tuple(
+        (block_id, bay_id)
+        for block_id in block_ids
+        for bay_id in bay_ids
+        if instance.fitting_orientations(block_id, bay_id)
+    )
+    preference_penalties = tuple(
+        (
+            block_id,
+            bay_id,
+            float(
+                max(instance.blocks[block_id].bay_preferences)
+                - instance.blocks[block_id].bay_preferences[bay_id]
+            ),
+        )
+        for block_id, bay_id in fit_pairs
+    )
+    congestion_demands = tuple(
+        (
+            block_id,
+            bay_id,
+            float(
+                min(
+                    shape_areas[block_id][orient_idx]
+                    for orient_idx in instance.fitting_orientations(block_id, bay_id)
+                )
+                * instance.blocks[block_id].dwell
+            ),
+        )
+        for block_id, bay_id in fit_pairs
+    )
+    average_area = sum(bay.area for bay in instance.bays) / len(instance.bays)
+    horizon = _instance_horizon(instance)
+    representative_areas = tuple(
+        min(areas) for areas in shape_areas
+    )
+    w1, w2, w3 = instance.weights
+    congestion_weight = (
+        max(0.0, float(w1))
+        / max(1.0, float(median(representative_areas or (1.0,))))
+        * float(config.assignment_congestion_weight_multiplier)
+    )
+    return AssignmentRequest(
+        block_ids=block_ids,
+        bay_ids=bay_ids,
+        fit_pairs=fit_pairs,
+        workloads=tuple(
+            (block.block_id, float(block.workload)) for block in instance.blocks
+        ),
+        preference_penalties=preference_penalties,
+        load_factors=tuple(
+            (bay.bay_id, float(average_area / bay.area)) for bay in instance.bays
+        ),
+        congestion_demands=congestion_demands,
+        congestion_capacities=tuple(
+            (
+                bay.bay_id,
+                float(
+                    config.assignment_congestion_cap_fraction
+                    * bay.area
+                    * horizon
+                ),
+            )
+            for bay in instance.bays
+        ),
+        current_assignment=tuple(
+            (
+                block_id,
+                starting_assignment.assignments[block_id].bay_id,
+            )
+            for block_id in block_ids
+        ),
+        weights=(float(w2), float(w3)),
+        congestion_weight=float(congestion_weight),
+        seed=config.constructor_seed,
+        threads=config.assignment_threads,
+    )
+
+
+def evaluate_assignment_solution(
+    request: AssignmentRequest,
+    solution: AssignmentSolution,
+) -> AssignmentEvaluation:
+    """Recompute exact-float Z2/Z3 and soft overload from pure assignments."""
+
+    if not isinstance(solution, tuple):
+        raise TypeError("assignment solution must be a tuple")
+    selected = dict(solution)
+    if len(selected) != len(solution) or set(selected) != set(request.block_ids):
+        raise ValueError("assignment solution must contain every block exactly once")
+    feasible = set(request.fit_pairs)
+    if any(pair not in feasible for pair in solution):
+        raise ValueError("assignment solution contains a non-fitting pair")
+    workloads = dict(request.workloads)
+    factors = dict(request.load_factors)
+    penalties = {
+        (block_id, bay_id): value
+        for block_id, bay_id, value in request.preference_penalties
+    }
+    demands = {
+        (block_id, bay_id): value
+        for block_id, bay_id, value in request.congestion_demands
+    }
+    capacities = dict(request.congestion_capacities)
+    bay_workloads = {bay_id: 0.0 for bay_id in request.bay_ids}
+    bay_demands = {bay_id: 0.0 for bay_id in request.bay_ids}
+    z3 = 0.0
+    for block_id, bay_id in solution:
+        bay_workloads[bay_id] += workloads[block_id]
+        bay_demands[bay_id] += demands[(block_id, bay_id)]
+        z3 += penalties[(block_id, bay_id)]
+    weighted_loads = tuple(
+        factors[bay_id] * bay_workloads[bay_id] for bay_id in request.bay_ids
+    )
+    z2 = (
+        max(weighted_loads) - min(weighted_loads)
+        if len(weighted_loads) >= 2
+        else 0.0
+    )
+    overload = sum(
+        max(0.0, bay_demands[bay_id] - capacities[bay_id])
+        for bay_id in request.bay_ids
+    )
+    w2, w3 = request.weights
+    return AssignmentEvaluation(
+        bay_workloads=tuple(bay_workloads[bay_id] for bay_id in request.bay_ids),
+        z2=float(z2),
+        z3=float(z3),
+        overload=float(overload),
+        objective=float(
+            w2 * z2 + w3 * z3 + request.congestion_weight * overload
+        ),
+    )
+
+
+def assignment_from_solution(
+    instance: ProblemInstance,
+    solution: AssignmentSolution,
+    *,
+    order: Sequence[int] | None = None,
+) -> AssignmentResult:
+    """Convert a pure assignment into the constructor's exact v1-compatible plan."""
+
+    if not isinstance(solution, tuple):
+        raise TypeError("assignment solution must be a tuple")
+    selected_bays = dict(solution)
+    expected = set(range(len(instance.blocks)))
+    if len(selected_bays) != len(solution) or set(selected_bays) != expected:
+        raise ValueError("assignment solution must contain every block exactly once")
+    selected_order = tuple(range(len(instance.blocks))) if order is None else tuple(order)
+    if len(selected_order) != len(expected) or set(selected_order) != expected:
+        raise ValueError("assignment order must contain every block exactly once")
+
+    workloads = [0.0 for _ in instance.bays]
+    area_time = [0.0 for _ in instance.bays]
+    assignments: dict[int, BlockAssignment] = {}
+    for block_id in selected_order:
+        bay_id = selected_bays[block_id]
+        fitting = instance.fitting_orientations(block_id, bay_id)
+        if not fitting:
+            raise ValueError(f"assignment pair {(block_id, bay_id)} does not fit")
+        orient_idx = min(
+            fitting,
+            key=lambda candidate: (
+                ShapeInfo.from_orientation(
+                    instance.blocks[block_id].orientations[candidate]
+                ).area,
+                candidate,
+            ),
+        )
+        block_spec = instance.blocks[block_id]
+        area = ShapeInfo.from_orientation(
+            block_spec.orientations[orient_idx]
+        ).area
+        workloads[bay_id] += block_spec.workload
+        area_time[bay_id] += area * block_spec.dwell
+        preference_loss = (
+            max(block_spec.bay_preferences) - block_spec.bay_preferences[bay_id]
+        )
+        assignments[block_id] = BlockAssignment(
+            block_id=block_id,
+            bay_id=bay_id,
+            orient_idx=orient_idx,
+            regret=0.0,
+            weighted_cost=float(instance.weights[2] * preference_loss),
+            z2_after=0.0,
+            preference_loss=float(preference_loss),
+            congestion_ratio=float(
+                area_time[bay_id]
+                / (instance.bays[bay_id].area * _instance_horizon(instance))
+            ),
+        )
+    z2 = _load_range(instance, workloads)
+    assignments = {
+        block_id: replace(item, z2_after=z2)
+        for block_id, item in assignments.items()
+    }
+    return AssignmentResult(
+        assignments=assignments,
+        order=selected_order,
+        bay_workloads=tuple(workloads),
+        bay_area_time=tuple(area_time),
+        z2=float(z2),
+        z3=float(sum(item.preference_loss for item in assignments.values())),
+        metrics=AssignmentMetrics(
+            assigned=len(assignments),
+            fallback=0,
+            fit_failures=0,
+            candidate_evaluations=sum(
+                1
+                for block_id in expected
+                for bay_id in range(len(instance.bays))
+                if instance.fitting_orientations(block_id, bay_id)
+            ),
+            horizon=_instance_horizon(instance),
+        ),
+    )
+
+
+def assignment_v2(
+    instance: ProblemInstance,
+    starting_assignment: AssignmentResult,
+    *,
+    config: SolverConfig = DEFAULT_CONFIG,
+) -> ExactAssignmentResult:
+    """Run only the isolated S4-01 Gurobi assignment proposal."""
+
+    request = assignment_request(instance, starting_assignment, config=config)
+    raw = exact_assign(
+        "gurobi",
+        request,
+        assign_gurobi,
+        timebox=config.assignment_timebox_seconds,
+    )
+    if raw.status not in SOLUTION_STATUSES or raw.solution is None:
+        return raw
+    evaluated = evaluate_assignment_solution(request, raw.solution)
+    return replace(
+        raw,
+        objective=evaluated.objective,
+        z2=evaluated.z2,
+        z3=evaluated.z3,
+        overload=evaluated.overload,
+    )
 
 
 def _candidate_key(candidate: AssignmentCost) -> tuple[float, float, int, int]:

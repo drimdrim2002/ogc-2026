@@ -152,7 +152,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | retained in stable baseline |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; backend `auto`; timebox `5s` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | retained in stable baseline |
 | S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
-| S4 | `BLOCKED` | `S4-04-RECOVERY-08` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; dirty candidate is unselected | clean S3 baseline; optional track | `benchmarks/evidence/s4/s4-04-recovery/20260714T185647Z-s4-04-recovery08/` | none for current recovery; legacy HEAD `388db7b27eda189e69140520548fc00362fba3f3` | focused 8/8; affected regression 66/67; 25% cap skipped work and omitted `assignment_seed_attempts` | preserve experiment; do not resume before stable baseline; mandatory path continues |
+| S4 | `IN_PROGRESS` | `S4-01 COMPLETE` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; assignment-v2 remains proof-only | qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e`; optional track | `benchmarks/evidence/s4/benchmark/20260715T100844Z-7735f424/` | pending atomic `feat(s4): add exact-float Gurobi assignment v2` | —; 10/10 high-w23 Stage 5, exact float parity 0.0 | commit and push S4-01 only; S4-02 is next eligible but must not start in this task |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
 | S6 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | S6-05 commit `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | `benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/` | `824b24b0215855a9a233eb53be0b1253a1a2f922` | — | no next mandatory stage; hardened checker-verified submission candidate is selected |
 
@@ -5472,6 +5472,141 @@ No implementation history entries exist yet. S0-S6 remain `NOT_STARTED`; every i
   safety_summary: stress_structural=48; stress_boundary_fault=10; stress_backend_fault=4; rehearsal_training=40x3; rehearsal_stress=8x3; checker_failure=0; timeout=0; crash=0; leak=0; unverified_return=0; parent_dependency=0; network_guard_failure=0; cleanup_failure=0
   cleanup: generated submission packages removed; all fable-s6-package and fable-s6-rehearsal temporary directories removed; no S6 harness/worker process remains; generated evidence and reports remain ignored
   next_action: stage only this progress closeout, create a docs-only closeout commit, push codex/fable-s6-rehearsal, verify local/upstream equality and clean status, then stop; there is no next mandatory slice
+```
+
+```yaml
+- timestamp: 2026-07-15T18:55:28+09:00
+  stage: S4
+  slice: S4-01
+  old_status: BLOCKED
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 3046278c337e2b3cfef7f478a0fa420dda22038e
+  dirty: false
+  commands:
+    - verify qualified base worktree /Users/brown/workspace/ogc/fable-native-s3-stabilization is on codex/fable-s6-rehearsal, clean, and local HEAD, configured upstream, and origin tracking HEAD all equal 3046278c337e2b3cfef7f478a0fa420dda22038e
+    - verify codex/fable-s4-recovery and /Users/brown/workspace/ogc/fable-native-s4-recovery are absent
+    - git worktree add -b codex/fable-s4-recovery /Users/brown/workspace/ogc/fable-native-s4-recovery 3046278c337e2b3cfef7f478a0fa420dda22038e
+    - verify the new worktree is clean at the exact base and contains exactly one S4-01 heading
+    - verify clean selected S3 commit 2a9da5757b451b2a0c2ed4a884145fdcb255d111 and qualified S6 commit 824b24b0215855a9a233eb53be0b1253a1a2f922 are ancestors
+    - inspect historical commit 23598f19ca7af26402475dc72beffb9e7c1aeec6 with read-only Git commands for hunk-level reference only
+  command_tiers:
+    D: targeted behavioral RED/GREEN, model-builder tests, focused regressions, syntax, and diff checks
+    S: full discovery, official-checker float parity, assignment-v2 high-w23 benchmark, and cleanup audit
+    Q: none; S4 promotion A/B and gate remain owned by S4-04 and will not run
+  red_evidence: planned benchmarks/evidence/s4/s4-01/<run_id>/red.txt
+  green_evidence: planned benchmarks/evidence/s4/s4-01/<run_id>/green-targeted.txt and full-discovery.txt
+  checker_result: NOT_RUN
+  benchmark_or_stress_evidence: planned benchmarks/evidence/s4/benchmark/<run_id>/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); assignment_refinement=false; cross_bay=false; parallel_portfolio=false; interlock=false
+  run_identity: qualified_base=3046278c337e2b3cfef7f478a0fa420dda22038e; historical_reference=23598f19ca7af26402475dc72beffb9e7c1aeec6; target_worktree=/Users/brown/workspace/ogc/fable-native-s4-recovery; target_branch=codex/fable-s4-recovery
+  next_action: add the S4-01 behavioral test first and demonstrate the intended missing AssignmentRequest/Gurobi assignment-model RED
+```
+
+```yaml
+- timestamp: 2026-07-15T18:57:39+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 3046278c337e2b3cfef7f478a0fa420dda22038e
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker -v
+    - repeat the same Tier-D command under evidence attempt 02 after the first tee write was denied by the managed filesystem
+  red_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/red-attempt02.txt
+  green_evidence: null
+  checker_result: valid RED; exit 1 solely because solver.assign does not yet export assignment_from_solution, assignment_request, or assignment_v2, before the absent AssignmentRequest/model-builder imports are reached
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: first RED attempt also exited 1 for the intended missing API but its tee evidence write was denied; no source changed and the repeatable Tier-D attempt 02 retained the same failure in durable ignored evidence
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; assignment_refinement=false; cross_bay=false; parallel_portfolio=false; interlock=false
+  run_identity: red_attempt01_exit_code=1; red_attempt01_evidence_write=denied; red_attempt02_exit_code=1; red_attempt02_evidence=complete
+  next_action: implement the minimum immutable assignment contract, exact-float evaluator, Gurobi model/adapter, and v1-started assignment_v2 component without entry integration
+```
+
+```yaml
+- timestamp: 2026-07-15T19:05:32+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 3046278c337e2b3cfef7f478a0fa420dda22038e
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement.AssignmentV2Tests.test_gurobi_float_z2_matches_checker -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - create temporary detached clean validation snapshot 62b779a997c74d2d18e4b40fcd5d0638def48638 from the exact nine-path dirty tree without changing the branch index or refs
+    - copy the qualified ignored training inputs into /tmp/fable-s4-validation and rerun the exact full discovery command from that clean snapshot
+    - remove the temporary detached validation worktree and temporary index
+  red_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/red-attempt02.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/green-targeted-final.txt; benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/assignment-refinement-module.txt; benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/full-discovery-clean-snapshot.txt
+  checker_result: targeted GREEN PASS 1/1 with licensed Gurobi solve and official-checker Stage 5 exact-float Z2/Z3 parity; focused module PASS 3/3; clean-snapshot full discovery PASS 88/88
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: the first dirty-worktree full discovery passed 87 tests and correctly failed only test_audited_isolated_package because packaged production sources differed from HEAD; the exact same source/test tree then passed 88/88 from a clean detached snapshot, preserving rather than weakening the S6 package audit
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; assignment_refinement=false; cross_bay=false; parallel_portfolio=false; interlock=false; S4 remains disconnected from entry
+  run_identity: targeted_green_exit_code=0; focused_tests=3; dirty_full_discovery_exit_code=1; dirty_full_discovery_behavioral_passes=87; clean_snapshot=62b779a997c74d2d18e4b40fcd5d0638def48638; clean_full_discovery_exit_code=0; clean_full_discovery_tests=88
+  next_action: run the exact high-w23 assignment-v2 benchmark once under a fresh named Tier-S identity and require 10/10 Stage 5 checker feasibility with relative Z2/Z3 error at most 1e-6
+```
+
+```yaml
+- timestamp: 2026-07-15T19:06:28+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 3046278c337e2b3cfef7f478a0fa420dda22038e
+  dirty: true
+  commands:
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component assignment_v2 --instances high-w23 --timelimits 60 --seeds 20260710 --feature assignment_backend=gurobi
+  red_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/red-attempt02.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/green-targeted-final.txt; benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/full-discovery-clean-snapshot.txt
+  checker_result: underlying records PASS; 10/10 terminal records are status passed and official-checker Stage 5 feasible with zero failures and maximum v2 Z2 relative error 0.0
+  benchmark_or_stress_evidence: incomplete benchmarks/evidence/s4/benchmark/20260715T100604Z-ee8bf899/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: Tier-S benchmark command exited 5 after all records because _finite_float referenced math without importing it in the current S6 CLI; summary.json and COMPLETE were not written, and this incomplete attempt will not be resumed or overwritten
+  feature_default_decision: unchanged; assignment_refinement=false and S4 remains disconnected from entry
+  run_identity: benchmark_attempt01_exit_code=5; records=10; failures=0; stage5=10; aggregation_error=NameError math is not defined
+  next_action: add the missing CLI math import, rerun targeted and full regression for the new source identity, then run the exact benchmark under a fresh run id
+```
+
+```yaml
+- timestamp: 2026-07-15T19:10:23+09:00
+  stage: S4
+  slice: S4-01
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  slice_decision: COMPLETE
+  branch: codex/fable-s4-recovery
+  commit: pending atomic feat(s4): add exact-float Gurobi assignment v2
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement -v
+    - run post-fix full discovery from clean detached validation snapshot 26eed66c82f82febf73c73258c40706f799f994e and remove that snapshot afterward
+    - /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli benchmark --stage s4 --component assignment_v2 --instances high-w23 --timelimits 60 --seeds 20260710 --feature assignment_backend=gurobi
+    - parse and audit benchmark COMPLETE, summary.json, records.jsonl, and failures.jsonl
+    - git diff --check
+    - git diff --quiet -- baseline/utils.py baseline/baseline_greedy.py
+    - ps aux filtered for stale baseline.harness, assignment-refinement test, Gurobi, and temporary validation processes
+    - remove temporary validation worktrees, temporary indexes, Python caches, and package outputs
+  red_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/red-attempt02.txt
+  green_evidence: benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/green-targeted-final.txt; benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/post-benchmark-fix-module.txt; benchmarks/evidence/s4/s4-01/20260715T095528Z-s4-01-recovery/full-discovery-post-fix-clean-snapshot.txt
+  checker_result: PASS; targeted model/solve/checker test passed, focused module passed 3/3, full discovery passed 88/88, and all 10 high-w23 v1/v2 fixed-membership proof states reached official checker Stage 5 with maximum relative Z2 and Z3 error 0.0
+  benchmark_or_stress_evidence: benchmarks/evidence/s4/benchmark/20260715T100844Z-7735f424/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null; incomplete benchmark attempt 20260715T100604Z-ee8bf899 remains retained as failed Tier-S evidence and was not resumed or overwritten
+  feature_default_decision: alns=true; acceptor=sa; adaptive=false; dirty=max(3,.03*n_b); assignment_refinement=false; cross_bay=false; parallel_portfolio=false; interlock=false; no S4 entry path or optional promotion was enabled
+  run_identity: benchmark_exit_code=0; records=10; expected_records=10; assigned=1600; backend_statuses=optimal; checker_stage5=10; v1_checker_stage5=10; max_v1_z2_relative_error=0.0; max_v2_z2_relative_error=0.0; max_v1_z3_relative_error=0.0; max_v2_z3_relative_error=0.0; max_wall_seconds=1.1359274580026977; summary_sha256=c122b9e481165542e16ffb52284b27d421143a72e6379afc0a53fd9155887d8d
+  protected_files: baseline/utils.py unchanged; baseline/baseline_greedy.py unchanged
+  cleanup: Gurobi models/environments disposed by adapter; no stale harness/test/Gurobi process; temporary validation worktrees/indexes and Python caches removed; no package output; generated evidence and training inputs remain ignored and untracked
+  next_action: audit the exact nine-path allowlist, record pre-stage and staged diff hashes, create and push the single atomic S4-01 commit, verify local/upstream equality and clean status, then stop without starting S4-02
 ```
 
 ## 11. Planning quality audit
