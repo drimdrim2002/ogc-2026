@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from fractions import Fraction
 import importlib
 import math
 import time
@@ -58,6 +59,8 @@ class CpSatAssignmentPairSpec:
 @dataclass(frozen=True, slots=True)
 class CpSatAssignmentModelSpec:
     scale: int
+    coefficient_scale: int
+    objective_normalizer: float
     pairs: tuple[CpSatAssignmentPairSpec, ...]
     congestion_capacities: tuple[tuple[int, int], ...]
     bay_load_upper_bounds: tuple[tuple[int, int], ...]
@@ -72,6 +75,14 @@ class CpSatAssignmentModelSpec:
     seed: int
     time_limit: float
     log_search_progress: bool
+
+    @property
+    def objective_unscale_factor(self) -> float:
+        """Convert the integer backend objective into checker-float units."""
+
+        return self.objective_normalizer / float(
+            self.scale * self.coefficient_scale
+        )
 
 
 def build_cpsat_model_spec(
@@ -204,15 +215,7 @@ def build_cpsat_assignment_spec(
         (value for _bay_id, value in load_upper_bounds),
         default=0,
     )
-    w2 = _scaled(request.weights[0])
-    w3 = _scaled(request.weights[1])
-    congestion_weight = _scaled(request.congestion_weight)
-    objective_upper_bound = (
-        w2 * max_load_upper_bound
-        + w3 * z3_upper_bound
-        + congestion_weight * overload_upper_bound
-    )
-    guarded = (
+    data_guarded = (
         *(pair.weighted_load for pair in pairs),
         *(pair.preference_penalty for pair in pairs),
         *(pair.congestion_demand for pair in pairs),
@@ -221,6 +224,35 @@ def build_cpsat_assignment_spec(
         *(value for _bay_id, value in demand_upper_bounds),
         z3_upper_bound,
         overload_upper_bound,
+    )
+    if any(
+        value < 0 or value > _CP_SAT_SAFE_INTEGER
+        for value in data_guarded
+    ):
+        raise OverflowError(
+            "unsafe CP-SAT assignment scaling exceeds the signed int64 safety bound"
+        )
+
+    raw_objective_weights = (
+        float(request.weights[0]),
+        float(request.weights[1]),
+        float(request.congestion_weight),
+    )
+    (
+        objective_normalizer,
+        coefficient_scale,
+        scaled_weights,
+        objective_upper_bound,
+    ) = _select_assignment_objective_scale(
+        raw_objective_weights,
+        (
+            max_load_upper_bound,
+            z3_upper_bound,
+            overload_upper_bound,
+        ),
+    )
+    w2, w3, congestion_weight = scaled_weights
+    guarded = (
         w2,
         w3,
         congestion_weight,
@@ -232,6 +264,8 @@ def build_cpsat_assignment_spec(
         )
     return CpSatAssignmentModelSpec(
         scale=ASSIGNMENT_SCALE,
+        coefficient_scale=coefficient_scale,
+        objective_normalizer=objective_normalizer,
         pairs=pairs,
         congestion_capacities=capacities,
         bay_load_upper_bounds=load_upper_bounds,
@@ -330,7 +364,7 @@ def assign_cpsat(request: AssignmentRequest, timebox: float) -> AssignmentResult
                 f"CP-SAT assignment finished without a solution (status={solver.status_name(status_code)})",
                 bound=(
                     float(solver.best_objective_bound)
-                    / float(spec.scale * spec.scale)
+                    * spec.objective_unscale_factor
                 ),
                 build_s=build_s,
                 solve_s=solve_s,
@@ -350,9 +384,14 @@ def assign_cpsat(request: AssignmentRequest, timebox: float) -> AssignmentResult
                 )
                 for block_id in request.block_ids
             )
-            scale_squared = float(spec.scale * spec.scale)
-            objective = float(solver.objective_value) / scale_squared
-            bound = float(solver.best_objective_bound) / scale_squared
+            objective = (
+                float(solver.objective_value)
+                * spec.objective_unscale_factor
+            )
+            bound = (
+                float(solver.best_objective_bound)
+                * spec.objective_unscale_factor
+            )
             z2 = float(
                 solver.value(variables["maximum_load"])
                 - solver.value(variables["minimum_load"])
@@ -721,7 +760,11 @@ def _finite_value(value: object) -> float | None:
 
 def _scaled(value: float) -> int:
     numeric = float(value)
-    if not math.isfinite(numeric) or numeric < 0.0:
+    if not math.isfinite(numeric):
+        raise OverflowError(
+            "unsafe CP-SAT assignment scaling produced a non-finite data value"
+        )
+    if numeric < 0.0:
         raise ValueError("scaled CP-SAT assignment values must be finite and non-negative")
     scaled = int(round(numeric * ASSIGNMENT_SCALE))
     if scaled > _CP_SAT_SAFE_INTEGER:
@@ -729,6 +772,77 @@ def _scaled(value: float) -> int:
             "unsafe CP-SAT assignment scaling exceeds the signed int64 safety bound"
         )
     return scaled
+
+
+def _select_assignment_objective_scale(
+    raw_coefficients: tuple[float, float, float],
+    term_upper_bounds: tuple[int, int, int],
+) -> tuple[float, int, tuple[int, int, int], int]:
+    """Select one deterministic common coefficient scale or reject it."""
+
+    positives = tuple(value for value in raw_coefficients if value > 0.0)
+    normalizer = max(positives) if positives else 1.0
+    normalizer_fraction = Fraction.from_float(normalizer)
+    ratios = tuple(
+        Fraction(0, 1)
+        if value == 0.0
+        else Fraction.from_float(value) / normalizer_fraction
+        for value in raw_coefficients
+    )
+    minimum_scale = max(
+        (_minimum_positive_coefficient_scale(ratio) for ratio in ratios if ratio > 0),
+        default=1,
+    )
+    candidate_scales: list[int] = []
+    if ASSIGNMENT_SCALE >= minimum_scale:
+        candidate_scales.append(ASSIGNMENT_SCALE)
+    if minimum_scale not in candidate_scales:
+        candidate_scales.append(minimum_scale)
+
+    for coefficient_scale in candidate_scales:
+        coefficients = tuple(
+            int(round(ratio * coefficient_scale)) for ratio in ratios
+        )
+        if any(
+            raw > 0.0 and coefficient <= 0
+            for raw, coefficient in zip(
+                raw_coefficients,
+                coefficients,
+                strict=True,
+            )
+        ):
+            continue
+        objective_upper_bound = sum(
+            coefficient * upper_bound
+            for coefficient, upper_bound in zip(
+                coefficients,
+                term_upper_bounds,
+                strict=True,
+            )
+        )
+        guarded = (*coefficients, objective_upper_bound)
+        if all(
+            0 <= value <= _CP_SAT_SAFE_INTEGER
+            for value in guarded
+        ):
+            return (
+                normalizer,
+                coefficient_scale,
+                coefficients,
+                objective_upper_bound,
+            )
+
+    raise OverflowError(
+        "unsafe CP-SAT assignment objective coefficients are unrepresentable "
+        "within the signed int64 safety bound"
+    )
+
+
+def _minimum_positive_coefficient_scale(ratio: Fraction) -> int:
+    """Return the smallest K for which Python round(K * ratio) is positive."""
+
+    threshold = Fraction(1, 2) / ratio
+    return threshold.numerator // threshold.denominator + 1
 
 
 def _timebox(value: float) -> float:

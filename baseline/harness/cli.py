@@ -27,6 +27,7 @@ from .gates import (
     evaluate_s1,
     evaluate_s2,
     evaluate_s3,
+    evaluate_s4,
     evaluate_s6,
     latest_summary,
 )
@@ -41,6 +42,7 @@ from .runner import (
     repository_provenance,
     run_assignment_case,
     run_assignment_fallback_case,
+    run_assignment_objective_parity_case,
     run_assignment_v2_case,
     run_cap_calibration_case,
     run_constructor_case,
@@ -53,6 +55,8 @@ from .runner import (
     run_s3_operator_case,
     run_s3_control_case,
     run_s3_integrated_case,
+    run_s4_integrated_case,
+    run_s4_integrated_pair,
     s3_prefix_record,
     run_s2_entry_case,
     run_s2_matrix_records,
@@ -76,6 +80,7 @@ if BASELINE_ROOT not in sys.path:
     sys.path.insert(0, BASELINE_ROOT)
 
 try:
+    from baseline.solver.budget import deadline_reserve
     from baseline.solver.config import (
         CAP_CALIBRATION_MATRIX,
         ALNS_DIRTY_TRIGGER_MATRIX,
@@ -86,6 +91,7 @@ try:
     from baseline.solver.geometry import GeomKernel, ShapeInfo
     from baseline.solver.instance import ProblemInstance
 except ModuleNotFoundError:
+    from solver.budget import deadline_reserve
     from solver.config import (
         CAP_CALIBRATION_MATRIX,
         ALNS_DIRTY_TRIGGER_MATRIX,
@@ -331,6 +337,8 @@ def _parity(args: argparse.Namespace) -> int:
             f"{args.kind} parity requires exactly {expected_cases[args.kind]} cases"
         )
     features = _features(args.feature)
+    if features == {"component": "assignment"}:
+        return _s4_assignment_objective_parity(args, features)
     if args.kind == "backend":
         if args.instances != "synthetic" or features != {"timebox": "2"}:
             raise SelectorError(
@@ -446,6 +454,95 @@ def _parity(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_SEMANTIC
+
+
+def _s4_assignment_objective_parity(
+    args: argparse.Namespace,
+    features: Mapping[str, str],
+) -> int:
+    if args.kind != "objective" or args.cases != 100:
+        raise SelectorError("S4 assignment parity requires objective and 100 cases")
+    if args.instances != "high-w23":
+        raise SelectorError("S4 assignment parity requires --instances high-w23")
+    seed = _single_seed(args.seed)
+    if seed != 20260710:
+        raise SelectorError("S4 assignment parity requires seed 20260710")
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s4",
+        command="parity",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s4-04",
+            "kind": "objective",
+            "cases": 100,
+            "selector": "high-w23",
+            "component": "assignment",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("high-w23", fixture_dir=run.run_dir / "fixtures")
+    if not refs or args.cases % len(refs) != 0:
+        raise SelectorError("S4 parity cases must divide the high-w23 selector")
+    cases_per_instance = args.cases // len(refs)
+    expected = tuple(
+        f"{ref.instance_id}|case={case_index}|seed={seed}"
+        for ref in refs
+        for case_index in range(cases_per_instance)
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for case_index in range(cases_per_instance):
+            record_id = f"{ref.instance_id}|case={case_index}|seed={seed}"
+            if record_id not in run.pending_record_ids:
+                continue
+            record = run_assignment_objective_parity_case(
+                ref,
+                selector="high-w23",
+                case_index=case_index,
+                seed=seed,
+                features=features,
+            )
+            run.append_record(
+                _deduplicate(evidence_root, record, rerun=args.rerun)
+            )
+    records = _effective_records(run.records)
+    max_z2_error = max(
+        (float(record.get("z2_relative_error", float("inf"))) for record in records),
+        default=float("inf"),
+    )
+    max_z3_error = max(
+        (float(record.get("z3_relative_error", float("inf"))) for record in records),
+        default=float("inf"),
+    )
+    passed = (
+        len(records) == len(expected) == 100
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in records)
+        and max_z2_error <= 1e-6
+        and max_z3_error <= 1e-6
+    )
+    summary = _solver_summary(
+        "parity", "high-w23", records, passed, stage="s4"
+    )
+    summary.update(
+        slice="s4-04",
+        kind="objective",
+        cases=100,
+        component="assignment",
+        features=dict(features),
+        mismatch_count=sum(
+            record.get("status") not in {"passed", "deduplicated"}
+            for record in records
+        ),
+        max_z2_relative_error=max_z2_error,
+        max_z3_relative_error=max_z3_error,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_SEMANTIC
+
 
 
 def _geometry_parity_record(cases: int, seed: int) -> dict[str, Any]:
@@ -2014,6 +2111,8 @@ def _stress(args: argparse.Namespace) -> int:
     if args.stage == "s6":
         return _s6_stress(args)
     if args.stage == "s4":
+        if args.instances == "smoke-3":
+            return _s4_integrated_stress(args)
         return _s4_assignment_fallback_stress(args)
     if args.stage == "s3":
         return _s3_stress(args)
@@ -2784,6 +2883,100 @@ def _s4_assignment_fallback_stress(args: argparse.Namespace) -> int:
     return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
 
 
+def _s4_integrated_stress(args: argparse.Namespace) -> int:
+    features = _features(args.feature)
+    faults = tuple(features.get("backend_fault", "").split(","))
+    if features.get("assignment_refinement") != "true" or faults != (
+        "gurobi",
+        "cp_sat",
+        "both",
+    ):
+        raise SelectorError(
+            "S4-04 stress requires assignment_refinement=true and "
+            "backend_fault=gurobi,cp_sat,both"
+        )
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _csv_ints(args.seeds)
+    if timelimits != (60.0,) or seeds != (20260710,):
+        raise SelectorError("S4-04 stress requires timelimits=60 and seeds=20260710")
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s4",
+        command="stress",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s4-04",
+            "selector": "smoke-3",
+            "features": dict(features),
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances("smoke-3", fixture_dir=run.run_dir / "fixtures")
+    expected = tuple(
+        f"{ref.instance_id}|tl=60|seed=20260710|arm=true|order=stress|fault={fault}"
+        for ref in refs
+        for fault in faults
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for fault in faults:
+            record_id = (
+                f"{ref.instance_id}|tl=60|seed=20260710|arm=true|"
+                f"order=stress|fault={fault}"
+            )
+            if record_id not in run.pending_record_ids:
+                continue
+            record = run_s4_integrated_case(
+                ref,
+                selector="smoke-3",
+                timelimit=60.0,
+                seed=20260710,
+                features=features,
+                enabled=True,
+                run_label="stress",
+                backend_fault=fault,
+            )
+            run.append_record(
+                _deduplicate(evidence_root, record, rerun=args.rerun)
+            )
+    records = _effective_records(run.records)
+    passed = (
+        len(records) == len(expected) == 9
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            for record in records
+        )
+        and all(record.get("checker", {}).get("feasible") is True for record in records)
+        and all(record.get("checker", {}).get("stage") == 5 for record in records)
+        and all(record.get("s3_checker", {}).get("feasible") is True for record in records)
+        and all(record.get("never_worse") is True for record in records)
+        and all(record.get("z2_nonregression") is True for record in records)
+        and all(record.get("fault_exercised") is True for record in records)
+        and all(record.get("unverified_return_count") == 0 for record in records)
+        and all(record.get("timeout") is False for record in records)
+        and all(record.get("crash") is False for record in records)
+    )
+    summary = _solver_summary("stress", "smoke-3", records, passed, stage="s4")
+    summary.update(
+        slice="s4-04",
+        timelimits=timelimits,
+        seeds=seeds,
+        features=dict(features),
+        faults=faults,
+        fault_miss_count=sum(record.get("fault_exercised") is not True for record in records),
+        never_worse_failure_count=sum(record.get("never_worse") is not True for record in records),
+        z2_regression_count=sum(record.get("z2_nonregression") is not True for record in records),
+        unverified_return_count=sum(int(record.get("unverified_return_count", 0)) for record in records),
+        timeout_count=sum(record.get("timeout") is not False for record in records),
+        crash_count=sum(record.get("crash") is not False for record in records),
+        leak_count=0,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return EXIT_PASS if passed else EXIT_CHECKER_FAILURE
+
+
+
 def _s3_stress(args: argparse.Namespace) -> int:
     if args.instances != "stress":
         raise SelectorError("S3-05 stress requires --instances stress")
@@ -3269,6 +3462,8 @@ def _constructor_entry_stress(
 
 
 def _ab(args: argparse.Namespace) -> int:
+    if args.stage == "s4":
+        return _s4_ab(args)
     if args.stage == "s3":
         return _s3_ab(args)
     if args.stage == "s2":
@@ -3385,6 +3580,323 @@ def _ab(args: argparse.Namespace) -> int:
     run.finalize(summary)
     _announce(run, summary)
     return EXIT_PASS if passed else EXIT_GATE_FAILURE
+
+
+def _s4_ab(args: argparse.Namespace) -> int:
+    if args.instances not in {"high-w23", "training"}:
+        raise SelectorError("S4-04 A/B requires high-w23 or training")
+    if tuple(args.feature) != ("assignment_refinement",):
+        raise SelectorError("S4-04 A/B requires --feature assignment_refinement")
+    if args.a != "false" or args.b != "true":
+        raise SelectorError("S4-04 A/B requires --a false --b true")
+    timelimits = _csv_floats(args.timelimits)
+    seeds = _seed_values(args)
+    required_limits = (60.0, 300.0) if args.instances == "high-w23" else (60.0,)
+    required_seeds = (
+        (20260710, 20260711)
+        if args.instances == "high-w23"
+        else (20260710,)
+    )
+    if timelimits != required_limits or seeds != required_seeds:
+        raise SelectorError(
+            f"S4-04 {args.instances} A/B requires timelimits="
+            f"{','.join(f'{value:g}' for value in required_limits)} and seeds="
+            f"{','.join(str(value) for value in required_seeds)}"
+        )
+    features = {"feature": "assignment_refinement", "a": "false", "b": "true"}
+    run, evidence_root = _start_stage_run(
+        args,
+        stage="s4",
+        command="ab",
+        expected_record_ids=(),
+        metadata={
+            "slice": "s4-04",
+            "selector": args.instances,
+            "feature": "assignment_refinement",
+        },
+        delayed_expected=True,
+    )
+    refs = select_instances(args.instances, fixture_dir=run.run_dir / "fixtures")
+    orderings = (
+        ("forward", (False, True)),
+        ("reverse", (True, False)),
+    )
+    expected = tuple(
+        f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|"
+        f"arm={str(enabled).lower()}|order={order_label}|fault=none"
+        for ref in refs
+        for timelimit in timelimits
+        for seed in seeds
+        for order_label, arms in orderings
+        for enabled in arms
+    )
+    _set_expected(run, expected)
+    for ref in refs:
+        for timelimit in timelimits:
+            for seed in seeds:
+                for order_label, arms in orderings:
+                    pending = {
+                        (
+                            f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|"
+                            f"arm={str(enabled).lower()}|order={order_label}|fault=none"
+                        )
+                        for enabled in arms
+                    } & set(run.pending_record_ids)
+                    if not pending:
+                        continue
+                    paired_records = run_s4_integrated_pair(
+                        ref,
+                        selector=args.instances,
+                        timelimit=timelimit,
+                        seed=seed,
+                        features=features,
+                        run_label=order_label,
+                        arm_order=arms,
+                    )
+                    for record in sorted(
+                        paired_records,
+                        key=lambda item: item["record_id"] in pending,
+                    ):
+                        run.append_record(record)
+    records = _effective_records(run.records)
+    summary, exit_code = _s4_ab_summary(
+        records,
+        selector=args.instances,
+        expected_record_count=len(expected),
+        timelimits=timelimits,
+        seeds=seeds,
+    )
+    run.finalize(summary)
+    _announce(run, summary)
+    return exit_code
+
+
+def _s4_ab_summary(
+    records: Iterable[Mapping[str, Any]],
+    *,
+    selector: str,
+    expected_record_count: int,
+    timelimits: tuple[float, ...],
+    seeds: tuple[int, ...],
+) -> tuple[dict[str, Any], int]:
+    rows = tuple(records)
+    paired: dict[tuple[str, float, int, str], dict[bool, Mapping[str, Any]]] = {}
+    by_instance: dict[str, dict[bool, list[float]]] = {}
+    real_s4_by_instance: dict[str, dict[str, list[float]]] = {}
+    for record in rows:
+        enabled = bool(record.get("arm_enabled"))
+        key = (
+            str(record.get("instance_id")),
+            float(record.get("timelimit", 0.0)),
+            int(record.get("seed", 0)),
+            str(record.get("run_label")),
+        )
+        paired.setdefault(key, {})[enabled] = record
+        objective = record.get("checker", {}).get("objective")
+        if objective is not None:
+            by_instance.setdefault(key[0], {}).setdefault(enabled, []).append(
+                float(objective)
+            )
+        if enabled:
+            final_objective = record.get("final_objective")
+            s3_objective = record.get("s3_objective")
+            if final_objective is not None and s3_objective is not None:
+                real = real_s4_by_instance.setdefault(
+                    key[0],
+                    {"s3": [], "final": []},
+                )
+                real["s3"].append(float(s3_objective))
+                real["final"].append(float(final_objective))
+    pair_regressions = 0
+    z2_regressions = 0
+    s3_floor_mismatches = 0
+    shared_budget_violations = 0
+    complete_pairs = 0
+    for key, arms in paired.items():
+        if set(arms) != {False, True}:
+            continue
+        complete_pairs += 1
+        baseline = arms[False].get("checker", {})
+        refined = arms[True].get("checker", {})
+        a_obj = float(baseline.get("objective", float("-inf")))
+        b_obj = float(refined.get("objective", float("inf")))
+        pair_regressions += b_obj > a_obj + 1e-9 * max(1.0, abs(a_obj))
+        a_z2 = float(baseline.get("z2", float("-inf")))
+        b_z2 = float(refined.get("z2", float("inf")))
+        z2_regressions += b_z2 > a_z2 + 1e-9 * max(1.0, abs(a_z2))
+        a_s3_sha = arms[False].get("s3_solution_sha256")
+        b_s3_sha = arms[True].get("s3_solution_sha256")
+        a_s3_checker = arms[False].get("s3_checker", {})
+        b_s3_checker = arms[True].get("s3_checker", {})
+        s3_floor_mismatches += (
+            not isinstance(a_s3_sha, str)
+            or not a_s3_sha
+            or a_s3_sha != b_s3_sha
+            or a_s3_checker.get("feasible") is not True
+            or b_s3_checker.get("feasible") is not True
+            or a_s3_checker.get("stage") != 5
+            or b_s3_checker.get("stage") != 5
+            or a_s3_checker.get("objective") is None
+            or a_s3_checker.get("objective")
+            != b_s3_checker.get("objective")
+            or a_s3_checker.get("z2") is None
+            or a_s3_checker.get("z2") != b_s3_checker.get("z2")
+        )
+        a_shared = _finite_float(arms[False].get("shared_s3_elapsed"))
+        b_shared = _finite_float(arms[True].get("shared_s3_elapsed"))
+        a_remaining = _finite_float(
+            arms[False].get("s4_remaining_timelimit")
+        )
+        b_remaining = _finite_float(
+            arms[True].get("s4_remaining_timelimit")
+        )
+        a_allocated = _finite_float(
+            arms[False].get("s4_allocated_timelimit")
+        )
+        b_allocated = _finite_float(
+            arms[True].get("s4_allocated_timelimit")
+        )
+        a_reserve = _finite_float(arms[False].get("s4_resume_reserve"))
+        b_reserve = _finite_float(arms[True].get("s4_resume_reserve"))
+        a_branch = _finite_float(arms[False].get("s4_branch_elapsed"))
+        b_branch = _finite_float(arms[True].get("s4_branch_elapsed"))
+        a_wall = _finite_float(arms[False].get("wall_seconds"))
+        b_wall = _finite_float(arms[True].get("wall_seconds"))
+        pair_id = arms[False].get("pair_execution_id")
+        expected_remaining = (
+            None
+            if a_shared is None
+            else max(0.0, key[1] - a_shared)
+        )
+        expected_reserve = (
+            None
+            if expected_remaining is None
+            else min(deadline_reserve(key[1]), expected_remaining)
+        )
+        budget_tolerance = 1e-9 * max(1.0, key[1])
+        shared_budget_violations += (
+            not isinstance(pair_id, str)
+            or not pair_id
+            or pair_id != arms[True].get("pair_execution_id")
+            or arms[False].get("s3_shared_across_arms") is not True
+            or arms[True].get("s3_shared_across_arms") is not True
+            or a_shared is None
+            or b_shared is None
+            or abs(a_shared - b_shared) > budget_tolerance
+            or expected_remaining is None
+            or a_remaining is None
+            or b_remaining is None
+            or abs(a_remaining - expected_remaining) > budget_tolerance
+            or abs(b_remaining - expected_remaining) > budget_tolerance
+            or a_allocated != 0.0
+            or b_allocated is None
+            or abs(b_allocated - expected_remaining) > budget_tolerance
+            or a_reserve != 0.0
+            or b_reserve is None
+            or expected_reserve is None
+            or abs(b_reserve - expected_reserve) > budget_tolerance
+            or a_branch != 0.0
+            or b_branch is None
+            or b_branch < 0.0
+            or a_wall is None
+            or abs(a_wall - a_shared) > budget_tolerance
+            or b_wall is None
+            or abs(b_wall - (a_shared + b_branch)) > budget_tolerance
+            or a_shared + b_branch > key[1] + 0.25
+        )
+    comparisons = []
+    for instance_id, arms in sorted(by_instance.items()):
+        if set(arms) != {False, True}:
+            continue
+        a_obj = statistics.median(arms[False])
+        b_obj = statistics.median(arms[True])
+        comparisons.append(
+            {
+                "instance_id": instance_id,
+                "a_objective": a_obj,
+                "b_objective": b_obj,
+                "improved": b_obj < a_obj - 1e-9 * max(1.0, abs(a_obj)),
+                "regressed": b_obj > a_obj + 1e-9 * max(1.0, abs(a_obj)),
+            }
+        )
+    improved_count = sum(item["improved"] for item in comparisons)
+    real_s4_comparisons = []
+    for instance_id, values in sorted(real_s4_by_instance.items()):
+        median_s3 = statistics.median(values["s3"])
+        median_final = statistics.median(values["final"])
+        real_s4_comparisons.append(
+            {
+                "instance_id": instance_id,
+                "s3_objective": median_s3,
+                "final_objective": median_final,
+                "improved": median_final
+                < median_s3 - 1e-9 * max(1.0, abs(median_s3)),
+            }
+        )
+    real_s4_improved_count = sum(
+        item["improved"] for item in real_s4_comparisons
+    )
+    median_a = statistics.median(item["a_objective"] for item in comparisons) if comparisons else float("inf")
+    median_b = statistics.median(item["b_objective"] for item in comparisons) if comparisons else float("inf")
+    cross_bay_accepted = sum(
+        int(record.get("cross_bay_move_accepted", 0))
+        + int(record.get("cross_bay_swap_accepted", 0))
+        for record in rows
+        if record.get("arm_enabled") is True
+    )
+    all_safe = (
+        len(rows) == expected_record_count
+        and complete_pairs * 2 == expected_record_count
+        and all(record.get("checker", {}).get("feasible") is True for record in rows)
+        and all(record.get("checker", {}).get("stage") == 5 for record in rows)
+        and all(
+            record.get("status") in {"passed", "deduplicated"}
+            for record in rows
+        )
+        and all(record.get("never_worse") is True for record in rows)
+        and all(record.get("z2_nonregression") is True for record in rows)
+        and all(record.get("unverified_return_count") == 0 for record in rows)
+        and all(record.get("timeout") is False for record in rows)
+        and all(record.get("crash") is False for record in rows)
+        and pair_regressions == 0
+        and z2_regressions == 0
+        and s3_floor_mismatches == 0
+        and shared_budget_violations == 0
+    )
+    gain = (
+        median_b < median_a
+        and improved_count * 2 >= len(comparisons)
+        and cross_bay_accepted > 0
+    ) if selector == "high-w23" else True
+    summary = _solver_summary("ab", selector, list(rows), all_safe, stage="s4")
+    summary.update(
+        slice="s4-04",
+        feature="assignment_refinement",
+        a=False,
+        b=True,
+        timelimits=timelimits,
+        seeds=seeds,
+        orderings=["forward", "reverse"],
+        expected_record_count=expected_record_count,
+        comparison_count=len(comparisons),
+        comparisons=comparisons,
+        improved_count=improved_count,
+        real_s4_comparisons=real_s4_comparisons,
+        real_s4_improved_count=real_s4_improved_count,
+        regression_count=pair_regressions,
+        z2_regression_count=z2_regressions,
+        s3_floor_mismatch_count=s3_floor_mismatches,
+        shared_budget_violation_count=shared_budget_violations,
+        median_a_objective=median_a,
+        median_b_objective=median_b,
+        cross_bay_accepted=cross_bay_accepted,
+        all_feasible=all_safe,
+        safety_pass=all_safe,
+        promotion_gain_pass=gain,
+        selected_assignment_refinement=all_safe and gain,
+    )
+    return summary, EXIT_PASS if all_safe else EXIT_GATE_FAILURE
+
 
 
 def _s3_ab(args: argparse.Namespace) -> int:
@@ -3746,16 +4258,18 @@ def _s2_ab(args: argparse.Namespace) -> int:
 
 
 def _gate(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1", "s2", "s3", "s6"}:
+    if args.stage not in {"s0", "s1", "s2", "s3", "s4", "s6"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} gate requires --latest-complete")
-    requested_commit = repository_provenance()["commit"] if args.commit == "HEAD" else args.commit
+    gate_provenance = repository_provenance()
+    requested_commit = gate_provenance["commit"] if args.commit == "HEAD" else args.commit
     evaluators = {
         "s0": evaluate_s0,
         "s1": evaluate_s1,
         "s2": evaluate_s2,
         "s3": evaluate_s3,
+        "s4": evaluate_s4,
     }
     decision = (
         evaluate_s6(
@@ -3766,6 +4280,45 @@ def _gate(args: argparse.Namespace) -> int:
         else evaluators[args.stage](_evidence_root(args))
     )
     decision["requested_commit"] = requested_commit
+    decision["gate_identity"] = {
+        "commit": gate_provenance["commit"],
+        "dirty_diff_hash": gate_provenance["dirty_diff_hash"],
+    }
+    if args.stage == "s4":
+        if decision.get("code_identity") != decision["gate_identity"]:
+            decision["failures"].append(
+                "S4 gate invocation does not match the frozen integrated evidence identity"
+            )
+        if requested_commit != gate_provenance["commit"]:
+            decision["failures"].append(
+                "S4 requested commit does not match the gate invocation commit"
+            )
+        if decision["failures"] and decision.get("safety_pass") is True:
+            identity_failures = [
+                failure
+                for failure in decision["failures"]
+                if "identity" in failure or "requested commit" in failure
+            ]
+            if identity_failures:
+                decision.update(
+                    outcome="BLOCKED",
+                    safety_pass=False,
+                    promotion_pass=False,
+                    safety_failures=[
+                        *decision.get("safety_failures", []),
+                        *identity_failures,
+                    ],
+                )
+        if decision["failures"]:
+            decision.update(
+                status="failed",
+                decision="FAIL",
+                assignment_refinement=False,
+                assignment_v2=False,
+                cross_bay=False,
+                assignment_backend=None,
+                fallback_order=None,
+            )
     record_id = f"{args.stage}-gate"
     if args.stage == "s0":
         run, _ = _start_run(
@@ -3794,7 +4347,7 @@ def _gate(args: argparse.Namespace) -> int:
 
 
 def _report(args: argparse.Namespace) -> int:
-    if args.stage not in {"s0", "s1", "s2", "s3", "s6"}:
+    if args.stage not in {"s0", "s1", "s2", "s3", "s4", "s6"}:
         raise StageUnsupportedError(f"stage unsupported: {args.stage}")
     if not args.latest_complete:
         raise SelectorError(f"{args.stage.upper()} report requires --latest-complete")
@@ -3826,11 +4379,26 @@ def _report(args: argparse.Namespace) -> int:
     markdown = render_gate_report(gate)
     (run.run_dir / "report.md").write_text(markdown, encoding="utf-8")
     (run.run_dir / "report.json").write_text(json.dumps(gate, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    passed = gate.get("decision") == "PASS"
+    report_provenance = repository_provenance()
+    identity_matches = (
+        args.stage != "s4"
+        or gate.get("code_identity")
+        == {
+            "commit": report_provenance["commit"],
+            "dirty_diff_hash": report_provenance["dirty_diff_hash"],
+        }
+    )
+    passed = gate.get("decision") == "PASS" and identity_matches
     run.append_record({"record_id": record_id, "status": "passed" if passed else "failed", "complete": True})
     summary = {
         "command": "report", "stage": args.stage, "status": "passed" if passed else "failed",
         "gate_run": str(gate_dir), "decision": gate.get("decision"),
+        "outcome": gate.get("outcome"),
+        "code_identity": gate.get("code_identity"),
+        "report_identity": {
+            "commit": report_provenance["commit"],
+            "dirty_diff_hash": report_provenance["dirty_diff_hash"],
+        },
     }
     run.finalize(summary)
     print(markdown)
@@ -4018,7 +4586,21 @@ def _solver_summary(
     *,
     stage: str = "s0",
 ) -> dict[str, Any]:
-    return {
+    commits = sorted(
+        {
+            str(record["commit"])
+            for record in records
+            if record.get("commit") is not None
+        }
+    )
+    dirty_diff_hashes = sorted(
+        {
+            str(record["dirty_diff_hash"])
+            for record in records
+            if record.get("dirty_diff_hash") is not None
+        }
+    )
+    summary = {
         "command": command,
         "stage": stage,
         "selector": selector,
@@ -4028,7 +4610,14 @@ def _solver_summary(
         "max_wall_seconds": max((float(record.get("wall_seconds", 0.0)) for record in records), default=0.0),
         "max_incumbent_verification_count": max((int(record.get("incumbent_verification_count", 0)) for record in records), default=0),
         "unverified_return_count": sum(int(record.get("unverified_return_count", 0)) for record in records),
+        "commits": commits,
+        "dirty_diff_hashes": dirty_diff_hashes,
     }
+    if len(commits) == 1:
+        summary["commit"] = commits[0]
+    if len(dirty_diff_hashes) == 1:
+        summary["dirty_diff_hash"] = dirty_diff_hashes[0]
+    return summary
 
 
 def _evidence_root(args: argparse.Namespace) -> Path:

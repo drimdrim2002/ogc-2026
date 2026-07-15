@@ -835,6 +835,7 @@ def rank_cross_bay_candidates(
     *,
     registry: CrossBayRegistry | None = None,
     limit: int | None = None,
+    budget: Budget | None = None,
 ) -> tuple[CrossBayCandidate, ...]:
     """Enumerate fit-safe moves/swaps with checker-float Z2/Z3 deltas.
 
@@ -860,6 +861,7 @@ def rank_cross_bay_candidates(
             for target_bay in range(len(state.instance.bays)):
                 if target_bay == placement.bay_id:
                     continue
+                _checkpoint(budget, "S4 cross-bay move ranking")
                 orient = _preferred_target_orientation(
                     state, placement.block_id, target_bay, placement.orient_idx
                 )
@@ -881,6 +883,7 @@ def rank_cross_bay_candidates(
             for right in placements[index + 1 :]:
                 if left.bay_id == right.bay_id:
                     continue
+                _checkpoint(budget, "S4 cross-bay swap ranking")
                 left_orient = _preferred_target_orientation(
                     state, left.block_id, right.bay_id, left.orient_idx
                 )
@@ -959,7 +962,7 @@ def run_cross_bay_candidate(
                     original.block_id,
                     bays_try=(target_bay,),
                     preferred_orient_idx=target_orient,
-                    time_cap=None,
+                    time_cap=4 * DEFAULT_CONFIG.constructor_time_cap,
                     anchor_cap=ESCALATED_ANCHOR_CAP,
                 )
                 if inserted is None or inserted.placement.bay_id != target_bay:
@@ -994,6 +997,7 @@ def run_cross_bay_candidate(
                 _checkpoint(budget, f"S4 cross-bay retime bay {bay_id}")
                 before_callback = state.capture_undo_token()
                 retimed = retime(state, bay_id, budget)
+                _checkpoint(budget, f"S4 cross-bay retime returned for bay {bay_id}")
                 if state.capture_undo_token() != before_callback:
                     state.restore_undo_token(before_callback)
                     raise AssertionError("cross-bay retime callback mutated current state")
@@ -1008,6 +1012,7 @@ def run_cross_bay_candidate(
                     )
                 _validate_cross_bay_retime(before_callback, retimed, bay_id)
                 _install_state_copy(state, retimed, transaction)
+                _checkpoint(budget, f"S4 cross-bay retime installed for bay {bay_id}")
                 retimed_bays.append(bay_id)
             _assert_cross_bay_float_delta(transaction.undo_token, state, candidate)
             _inject_run_fault(fault_hook, "retime")
@@ -1017,6 +1022,7 @@ def run_cross_bay_candidate(
             _inject_run_fault(fault_hook, "full_check")
             updated = incumbent.try_update(state)
             checked = incumbent.last_checker_result
+            _checkpoint(budget, "S4 cross-bay full check returned")
             if not updated:
                 reason = "checker_rejected" if not checked.feasible else "not_improving"
                 return _cross_bay_failure(

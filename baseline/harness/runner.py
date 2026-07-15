@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 import random
 import resource
+import secrets
 import subprocess
 import sys
 import time
@@ -44,11 +45,13 @@ try:
         AssignmentVerification,
         AssignmentV1,
         assignment_from_solution,
+        assignment_request,
         assignment_v2,
         choose_assignment_candidate,
+        evaluate_assignment_solution,
     )
     from baseline.solver.budget import Budget, BudgetExpired, deadline_reserve
-    from baseline.solver.checker_adapter import official_check
+    from baseline.solver.checker_adapter import CheckerResult, official_check
     from baseline.solver.config import DEFAULT_CONFIG
     from baseline.solver.construct import (
         construct_multistart,
@@ -70,9 +73,9 @@ try:
         build_gurobi_model_spec,
         retime_gurobi,
     )
-    from baseline.solver.incumbent import VerifiedIncumbent
+    from baseline.solver.incumbent import VerifiedCheckpoint, VerifiedIncumbent
     from baseline.solver.geometry import GeomKernel, ShapeInfo
-    from baseline.solver.entry import solve
+    from baseline.solver.entry import refine_s4_checkpoint, solve, solve_to_s3_checkpoint
     from baseline.solver.instance import ProblemInstance
     from baseline.solver.retime import retime_bay, retime_sweep
     from baseline.solver.serialize import serialize_non_interlock
@@ -98,11 +101,13 @@ except ModuleNotFoundError:
         AssignmentVerification,
         AssignmentV1,
         assignment_from_solution,
+        assignment_request,
         assignment_v2,
         choose_assignment_candidate,
+        evaluate_assignment_solution,
     )
     from solver.budget import Budget, BudgetExpired, deadline_reserve
-    from solver.checker_adapter import official_check
+    from solver.checker_adapter import CheckerResult, official_check
     from solver.config import DEFAULT_CONFIG
     from solver.construct import construct_multistart, construct_profile, escalate_insert
     from solver.exact import (
@@ -117,8 +122,8 @@ except ModuleNotFoundError:
     from solver.cpsat_backend import assign_cpsat, retime_cpsat
     from solver.gurobi_backend import assign_gurobi, build_gurobi_model_spec, retime_gurobi
     from solver.geometry import GeomKernel, ShapeInfo
-    from solver.incumbent import VerifiedIncumbent
-    from solver.entry import solve
+    from solver.incumbent import VerifiedCheckpoint, VerifiedIncumbent
+    from solver.entry import refine_s4_checkpoint, solve, solve_to_s3_checkpoint
     from solver.instance import ProblemInstance
     from solver.retime import retime_bay, retime_sweep
     from solver.serialize import serialize_non_interlock
@@ -997,6 +1002,470 @@ def run_assignment_v2_case(
         "fallback_tier": None,
         "fallback_reason": None,
     }
+
+
+def run_assignment_objective_parity_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    case_index: int,
+    seed: int,
+    features: Mapping[str, str],
+) -> dict[str, Any]:
+    """Recompute one pure assignment and compare exact Z2/Z3 to the checker."""
+
+    provenance = repository_provenance()
+    parsed = ProblemInstance.parse(ref.prob_info)
+    v1 = AssignmentV1(parsed).assign()
+    solution = list(
+        (block_id, item.bay_id)
+        for block_id, item in sorted(v1.assignments.items())
+    )
+    block_count = len(parsed.blocks)
+    for offset in range(block_count):
+        block_id = (case_index + offset) % block_count
+        fitting_bays = tuple(
+            bay.bay_id
+            for bay in parsed.bays
+            if parsed.fitting_orientations(block_id, bay.bay_id)
+        )
+        if len(fitting_bays) < 2:
+            continue
+        current_bay = dict(solution)[block_id]
+        alternate = next(
+            bay_id
+            for bay_id in fitting_bays[case_index % len(fitting_bays) :] + fitting_bays[: case_index % len(fitting_bays)]
+            if bay_id != current_bay
+        )
+        solution[block_id] = (block_id, alternate)
+        break
+    assignment = assignment_from_solution(
+        parsed,
+        tuple(solution),
+        order=v1.order,
+    )
+    request = assignment_request(parsed, v1)
+    evaluated = evaluate_assignment_solution(request, tuple(solution))
+    state = construct_fixed_assignment(parsed, assignment)
+    checked = official_check(
+        ref.prob_info,
+        serialize_non_interlock(state.placements.values()),
+    )
+    z2_error = _relative_error(checked.obj2, evaluated.z2)
+    z3_error = _relative_error(checked.obj3, evaluated.z3)
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and z2_error is not None
+        and z2_error <= 1e-6
+        and z3_error is not None
+        and z3_error <= 1e-6
+    )
+    record_id = f"{ref.instance_id}|case={case_index}|seed={seed}"
+    return {
+        "record_id": record_id,
+        "identity": record_identity(
+            commit=provenance["commit"],
+            dirty_diff_hash=provenance["dirty_diff_hash"],
+            instance_sha=ref.sha256,
+            solver="assignment-objective-parity",
+            timelimit=0.0,
+            seed=seed + case_index,
+            features=features,
+        ),
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "assignment-objective-parity",
+        "seed": seed,
+        "case_index": case_index,
+        "features": dict(sorted(features.items())),
+        "checker": checker_payload(checked),
+        "internal_z2": evaluated.z2,
+        "internal_z3": evaluated.z3,
+        "z2_relative_error": z2_error,
+        "z3_relative_error": z3_error,
+        "unverified_return_count": 0,
+    }
+
+
+def run_s4_integrated_pair(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    run_label: str,
+    arm_order: tuple[bool, ...],
+    backend_fault: str | None = None,
+    _clock: Any = time.monotonic,
+) -> tuple[dict[str, Any], ...]:
+    """Run one verified S3 floor and isolate every requested S4 arm from it."""
+
+    if not arm_order or any(type(enabled) is not bool for enabled in arm_order):
+        raise ValueError("S4 arm order must contain boolean arms")
+    if len(set(arm_order)) != len(arm_order):
+        raise ValueError("S4 arm order must not repeat an arm")
+
+    provenance = repository_provenance()
+    started = _clock()
+    shared_telemetry: dict[str, Any] = {}
+    s4_hard_floor = (
+        2.0 * DEFAULT_CONFIG.assignment_timebox_seconds
+        + 0.25
+        + 2.5
+        + 0.5
+    )
+    checkpoint = solve_to_s3_checkpoint(
+        ref.prob_info,
+        max(0.0, timelimit - s4_hard_floor),
+        seed=seed,
+        telemetry=shared_telemetry,
+    )
+    shared_s3_elapsed = max(0.0, _clock() - started)
+    remaining_timelimit = max(0.0, timelimit - shared_s3_elapsed)
+    pair_execution_id = secrets.token_hex(16)
+    arm_results: dict[bool, tuple[dict[str, Any], dict[str, Any]]] = {}
+    for enabled in arm_order:
+        telemetry: dict[str, Any] = {}
+        if enabled:
+            solution = refine_s4_checkpoint(
+                ref.prob_info,
+                checkpoint,
+                remaining_timelimit=remaining_timelimit,
+                original_timelimit=timelimit,
+                seed=seed,
+                backend_fault=backend_fault,
+                telemetry=telemetry,
+            )
+        else:
+            solution = checkpoint.solution_copy()
+        arm_results[enabled] = (solution, telemetry)
+
+    return tuple(
+        _s4_integrated_record(
+            ref,
+            selector=selector,
+            timelimit=timelimit,
+            seed=seed,
+            features=features,
+            enabled=enabled,
+            run_label=run_label,
+            backend_fault=backend_fault,
+            checkpoint=checkpoint,
+            solution=arm_results[enabled][0],
+            telemetry=arm_results[enabled][1],
+            shared_telemetry=shared_telemetry,
+            shared_s3_elapsed=shared_s3_elapsed,
+            remaining_timelimit=remaining_timelimit,
+            pair_execution_id=pair_execution_id,
+            paired_arm_count=len(arm_order),
+            pair_started=started,
+            clock=_clock,
+            provenance=provenance,
+        )
+        for enabled in arm_order
+    )
+
+
+def run_s4_integrated_case(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    enabled: bool,
+    run_label: str,
+    backend_fault: str | None = None,
+) -> dict[str, Any]:
+    """Compatibility wrapper for a single isolated arm (used by fault stress)."""
+
+    return run_s4_integrated_pair(
+        ref,
+        selector=selector,
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+        run_label=run_label,
+        arm_order=(enabled,),
+        backend_fault=backend_fault,
+    )[0]
+
+
+def _s4_integrated_record(
+    ref: InstanceRef,
+    *,
+    selector: str,
+    timelimit: float,
+    seed: int,
+    features: Mapping[str, str],
+    enabled: bool,
+    run_label: str,
+    backend_fault: str | None,
+    checkpoint: VerifiedCheckpoint,
+    solution: dict[str, Any],
+    telemetry: Mapping[str, Any],
+    shared_telemetry: Mapping[str, Any],
+    shared_s3_elapsed: float,
+    remaining_timelimit: float,
+    pair_execution_id: str,
+    paired_arm_count: int,
+    pair_started: float,
+    clock: Any,
+    provenance: Mapping[str, Any],
+) -> dict[str, Any]:
+    s3_solution = checkpoint.solution_copy()
+    s3_solution_sha256 = _solution_sha(s3_solution)
+    if s3_solution_sha256 != checkpoint.solution_sha256:
+        raise AssertionError("materialized S3 checkpoint hash changed")
+    s3_checked = checkpoint.checker_result
+    final_solution_sha256 = _solution_sha(solution)
+    checked = (
+        s3_checked
+        if not enabled
+        else _s4_verified_checker_from_telemetry(
+            telemetry,
+            final_solution_sha256=final_solution_sha256,
+        )
+    )
+    wall_seconds = (
+        max(0.0, clock() - pair_started) if enabled else shared_s3_elapsed
+    )
+    s4_branch_elapsed = (
+        max(0.0, wall_seconds - shared_s3_elapsed) if enabled else 0.0
+    )
+    tolerance = 1e-9 * max(1.0, abs(float(s3_checked.objective or 0.0)))
+    z2_tolerance = 1e-9 * max(1.0, abs(float(s3_checked.obj2 or 0.0)))
+    never_worse = (
+        checked.objective is not None
+        and s3_checked.objective is not None
+        and checked.objective <= s3_checked.objective + tolerance
+    )
+    z2_nonregression = (
+        checked.obj2 is not None
+        and s3_checked.obj2 is not None
+        and checked.obj2 <= s3_checked.obj2 + z2_tolerance
+    )
+    attempts = list(telemetry.get("assignment_seed_attempts", ()))
+    fault_exercised = backend_fault is None or any(
+        attempt.get("backend")
+        == ("cpsat" if backend_fault == "cp_sat" else backend_fault)
+        and attempt.get("status") == "error"
+        for attempt in attempts
+    )
+    if backend_fault == "both":
+        fault_exercised = sum(
+            attempt.get("status") == "error" for attempt in attempts
+        ) == 2
+    unchanged_a = (
+        enabled
+        or (
+            final_solution_sha256 == s3_solution_sha256
+            and checked.objective == s3_checked.objective
+            and checked.obj2 == s3_checked.obj2
+        )
+    )
+    passed = (
+        checked.feasible
+        and checked.stage == 5
+        and s3_checked.feasible
+        and s3_checked.stage == 5
+        and never_worse
+        and z2_nonregression
+        and wall_seconds <= timelimit + 0.25
+        and fault_exercised
+        and unchanged_a
+        and (
+            not enabled
+            or telemetry.get("s4_worker_group_clean") is True
+        )
+    )
+    run_features = {
+        **features,
+        "assignment_refinement": str(enabled).lower(),
+        "backend_fault": "none" if backend_fault is None else backend_fault,
+        "run": run_label,
+    }
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-s4-entry" if enabled else "native-s3-entry",
+        timelimit=timelimit,
+        seed=seed,
+        features=run_features,
+    )
+    return {
+        "record_id": (
+            f"{ref.instance_id}|tl={timelimit:g}|seed={seed}|"
+            f"arm={str(enabled).lower()}|order={run_label}|"
+            f"fault={'none' if backend_fault is None else backend_fault}"
+        ),
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else "checker_failed",
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": [sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        "cwd": str(Path.cwd()),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "selector": selector,
+        "solver": "native-s4-entry" if enabled else "native-s3-entry",
+        "timelimit": timelimit,
+        "seed": seed,
+        "features": dict(sorted(run_features.items())),
+        "arm_enabled": enabled,
+        "run_label": run_label,
+        "backend_fault": backend_fault,
+        "wall_seconds": wall_seconds,
+        "shared_s3_elapsed": shared_s3_elapsed,
+        "s4_remaining_timelimit": remaining_timelimit,
+        "s4_allocated_timelimit": remaining_timelimit if enabled else 0.0,
+        "s4_resume_reserve": (
+            float(telemetry.get("s4_resume_reserve", 0.0)) if enabled else 0.0
+        ),
+        "s4_branch_elapsed": s4_branch_elapsed,
+        "pair_execution_id": pair_execution_id,
+        "checker": checker_payload(checked),
+        "s3_checker": checker_payload(s3_checked),
+        "s3_solution_sha256": s3_solution_sha256,
+        "final_solution_sha256": final_solution_sha256,
+        "s3_objective": s3_checked.objective,
+        "final_objective": checked.objective,
+        "s4_improved_over_s3": (
+            checked.objective is not None
+            and s3_checked.objective is not None
+            and checked.objective < s3_checked.objective - tolerance
+        ),
+        "never_worse": never_worse,
+        "z2_nonregression": z2_nonregression,
+        "assignment_changed": _solution_membership(solution)
+        != _solution_membership(s3_solution),
+        "s3_checkpoint_immutable": True,
+        "s3_shared_across_arms": paired_arm_count > 1,
+        "s3_stage_telemetry": {
+            "incumbent_verification_count": shared_telemetry.get(
+                "incumbent_verification_count", 0
+            ),
+            "alns_epoch_count": shared_telemetry.get("alns_epoch_count", 0),
+            "s4_input_solution_present": "s4_input_solution" in shared_telemetry,
+        },
+        "assignment_seed_backend": telemetry.get("assignment_seed_backend"),
+        "assignment_seed_attempts": attempts,
+        "assignment_seed_updated": telemetry.get("assignment_seed_updated", False),
+        "assignment_seed_fallback_reason": telemetry.get(
+            "assignment_seed_fallback_reason"
+        ),
+        "cross_bay_move_attempts": telemetry.get("cross_bay_move_attempts", 0),
+        "cross_bay_move_accepted": telemetry.get("cross_bay_move_accepted", 0),
+        "cross_bay_swap_attempts": telemetry.get("cross_bay_swap_attempts", 0),
+        "cross_bay_swap_accepted": telemetry.get("cross_bay_swap_accepted", 0),
+        "cross_bay_retime_attempts": telemetry.get("cross_bay_retime_attempts", 0),
+        "s4_worker_status": telemetry.get("s4_worker_status") if enabled else None,
+        "s4_worker_wall_seconds": (
+            telemetry.get("s4_worker_wall_seconds", 0.0) if enabled else 0.0
+        ),
+        "s4_worker_exit_code": (
+            telemetry.get("s4_worker_exit_code") if enabled else None
+        ),
+        "s4_worker_signal": telemetry.get("s4_worker_signal") if enabled else None,
+        "s4_worker_term_sent": (
+            bool(telemetry.get("s4_worker_term_sent", False)) if enabled else False
+        ),
+        "s4_worker_kill_sent": (
+            bool(telemetry.get("s4_worker_kill_sent", False)) if enabled else False
+        ),
+        "s4_worker_group_clean": (
+            bool(telemetry.get("s4_worker_group_clean", False)) if enabled else True
+        ),
+        "s4_hard_timeout_fallback": (
+            bool(telemetry.get("s4_hard_timeout_fallback", False))
+            if enabled
+            else False
+        ),
+        "s4_worker_fallback_reason": (
+            telemetry.get("s4_worker_fallback_reason") if enabled else None
+        ),
+        "fault_exercised": fault_exercised,
+        "fallback_reason": telemetry.get("assignment_refinement_fallback_reason")
+        or telemetry.get("assignment_seed_fallback_reason")
+        or telemetry.get("cross_bay_fallback_reason"),
+        "incumbent_verification_count": (
+            telemetry.get("incumbent_verification_count", 0)
+            if enabled
+            else shared_telemetry.get("incumbent_verification_count", 0)
+        ),
+        "unverified_return_count": 0,
+        "timeout": wall_seconds > timelimit + 0.25,
+        "crash": False,
+        "exception": None,
+    }
+
+
+def _s4_verified_checker_from_telemetry(
+    telemetry: Mapping[str, Any],
+    *,
+    final_solution_sha256: str,
+) -> CheckerResult:
+    if telemetry.get("s4_verified_solution_sha256") != final_solution_sha256:
+        raise ValueError("S4 parent-verified solution SHA is missing or mismatched")
+    payload = telemetry.get("s4_verified_checker")
+    keys = {
+        "feasible",
+        "stage",
+        "violations",
+        "objective",
+        "obj1",
+        "obj2",
+        "obj3",
+    }
+    if not isinstance(payload, Mapping) or set(payload) != keys:
+        raise ValueError("S4 parent-verified checker payload is missing or malformed")
+    violations = payload["violations"]
+    if (
+        not isinstance(violations, (list, tuple))
+        or any(not isinstance(item, str) for item in violations)
+    ):
+        raise ValueError("S4 parent-verified checker violations are malformed")
+    if type(payload["feasible"]) is not bool:
+        raise ValueError("S4 parent-verified feasible must be bool")
+    if type(payload["stage"]) is not int:
+        raise ValueError("S4 parent-verified stage must be int")
+
+    def optional_number(key: str) -> float | None:
+        value = payload[key]
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"S4 parent-verified {key} must be numeric or null")
+        result = float(value)
+        if not math.isfinite(result):
+            raise ValueError(f"S4 parent-verified {key} must be finite")
+        return result
+
+    return CheckerResult(
+        feasible=payload["feasible"],
+        stage=payload["stage"],
+        violations=tuple(violations),
+        objective=optional_number("objective"),
+        obj1=optional_number("obj1"),
+        obj2=optional_number("obj2"),
+        obj3=optional_number("obj3"),
+    )
+
 
 
 def run_assignment_fallback_case(

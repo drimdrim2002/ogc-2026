@@ -152,7 +152,7 @@ optional:  chosen stable lower tier -> S6-01..04 interlock
 | S1 | `COMPLETE` | — | `PASS` | `constructor=true`; `T=16`; `K=48`; profiles `PF3` | S0 mandatory gate | `benchmarks/evidence/s1/gate/20260712T141624Z-cfd31885/` | `3c4b2584d2b8ddd06555dd2512184b1138418e38` | — | retained in stable baseline |
 | S2 | `COMPLETE` | — | `PASS` | `exact_retime=true`; backend `auto`; timebox `5s` | S1 mandatory gate | `benchmarks/evidence/s2/gate/20260712T191858Z-a8b8f288/` | `ee9dc322770d6f0cd882797a94b59ad4d98e5e35` | — | retained in stable baseline |
 | S3 | `COMPLETE` | `S3-STABILIZATION-01-RECOVERY-01` | `PASS (clean requalification)` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; S4/S5/interlock false | S2 mandatory gate | `benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/` | `2a9da5757b451b2a0c2ed4a884145fdcb255d111` | —; clean selected-default source and Q1-Q9 evidence | execute mandatory S6-05 from the stable baseline; optional tracks remain independent |
-| S4 | `IN_PROGRESS` | `S4-03 COMPLETE` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; assignment-v2 and guarded cross-bay remain proof-only | S4-02 commit `835f6a1119fe5500ae1b19b9cbe67ed9b44988d2`; qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e`; optional track | `benchmarks/evidence/s4/benchmark/20260715T104503Z-2e0952d0/` | pending atomic `feat(s4): add guarded cross-bay refinement` | —; exact ranking, two-bay repair/retime, checker authorization, rollback faults, and 10-case benchmark passed | S4-04 is next eligible in a separate task; entry/defaults remain disabled |
+| S4 | `IN_PROGRESS` | `S4-04-RECOVERY-09` | `NOT_RUN` | selected `assignment_refinement=false`; `cross_bay=false`; assignment-v2 and guarded cross-bay remain proof-only | S4-03 commit `942b60730873501975285361fa8b7f5aeb86d542`; qualified S6/S3 product identity `3046278c337e2b3cfef7f478a0fa420dda22038e`; optional track | `benchmarks/evidence/s4/benchmark/20260715T104503Z-2e0952d0/` | `942b60730873501975285361fa8b7f5aeb86d542` | RECOVERY-08 insufficient/sufficient timing contracts are being separated on a fresh clean identity | execute only S4-04 safety and frozen promotion decision; keep both flags false until the gate passes |
 | S5 | `NOT_STARTED` | — | `NOT_RUN` | `parallel_portfolio=false` | any clean qualified lower tier; optional | — | — | disabled/blocked S5 keeps the lower tier | does not block S6-05/06 |
 | S6 | `COMPLETE` | — | `PASS` | `alns=true`; acceptor `sa`; adaptive false; dirty `max(3,.03*n_b)`; assignment refinement, portfolio, and interlock false | S6-05 commit `9e8a3382e3124c602e7182abed08a3ea72b8e6a0` | `benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/` | `824b24b0215855a9a233eb53be0b1253a1a2f922` | — | no next mandatory stage; hardened checker-verified submission candidate is selected |
 
@@ -5845,4 +5845,108 @@ Audit commands used read-only checks with `rg`, `wc`, `cmp`, `git status --short
   protected_files: baseline/utils.py=d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75=HEAD; baseline/baseline_greedy.py=8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b=HEAD
   cleanup: exact models/environments disposed by adapters; no stale harness/test/Gurobi/OR-Tools process; temporary validation worktree and Python caches removed; generated evidence and training inputs remain ignored and untracked
   next_action: stage only the five audited S4-03 tracked files, commit feat(s4): add guarded cross-bay refinement, push, verify clean upstream equality, then stop without starting S4-04
+```
+
+```yaml
+- timestamp: 2026-07-15T20:09:50+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-09
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 942b60730873501975285361fa8b7f5aeb86d542
+  dirty: false at preflight; true only after this required progress update
+  commands:
+    - verify target worktree, branch, clean status, local HEAD, configured upstream, and origin tracking HEAD all identify codex/fable-s4-recovery at 942b60730873501975285361fa8b7f5aeb86d542
+    - verify S4-01 through S4-03 commits and qualified S3/S6 ancestors 2a9da5757b451b2a0c2ed4a884145fdcb255d111 and 824b24b0215855a9a233eb53be0b1253a1a2f922
+    - verify preservation manifest COMPLETE with restore rehearsal PASS and preserved S6 worktree local/upstream equality at 3046278c337e2b3cfef7f478a0fa420dda22038e
+    - verify /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python is executable and reports Python 3.12.13
+    - verify exactly one S4-04 heading and inspect only relevant RECOVERY-08 entry, test, harness, and timing-policy hunks read-only
+    - verify baseline/utils.py and baseline/baseline_greedy.py equal HEAD hashes d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75 and 8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b
+  command_tiers:
+    D: RECOVERY-08 timing measurement, deliberately-insufficient and sufficient-work RED/GREEN tests, the named assignment-refinement failure target, affected S4/S3 regressions, syntax, and diff checks after relevant changes
+    S: full discovery, official-checker sentinels, invalid-output/deadline/process-group cleanup stress, backend fallback safety, protected-file checks, and resource cleanup
+    Q: one immutable clean-commit chain consisting of the exact objective parity, high-w23 A/B, training A/B, backend-fault stress, S4 gate, and report commands; no Q command is rerun for that identity
+  red_evidence: planned benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-insufficient.txt and red-sufficient.txt
+  green_evidence: planned benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/green-timing-contracts.txt and full-discovery.txt
+  checker_result: NOT_RUN
+  benchmark_or_stress_evidence: planned benchmarks/evidence/s4/{parity,ab,stress,gate,report}/<frozen-run-id>/
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: RECOVERY-08 is preserved and not resumed; its 25-percent cap incorrectly skipped about 8.92 seconds of useful work allowance and conflated safe skip telemetry with sufficient-work attempt telemetry
+  feature_default_decision: assignment_refinement=false; cross_bay=false until the frozen S4 promotion gate passes
+  run_identity: incoming_s4_03_head=942b60730873501975285361fa8b7f5aeb86d542; recovery_predecessor=S4-04-RECOVERY-08; measured_minimum_useful_work_seconds=4.25; retained_publish_process_kill_margin_seconds=2.5; parent_return_tail_seconds=0.5; launch_floor_seconds=7.25
+  next_action: add separate insufficient-work skip and sufficient-work assignment-attempt tests first, then demonstrate both intended behavioral REDs
+```
+
+```yaml
+- timestamp: 2026-07-15T20:14:00+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-09
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 942b60730873501975285361fa8b7f5aeb86d542
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_insufficient_work_skips_explicitly -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_sufficient_work_launches_and_attempts -v
+  red_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-insufficient.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-sufficient.json
+  green_evidence: null
+  checker_result: valid RED for both timing contracts; each ran one discovered test and exited 1 solely because solve has no _assignment_refinement entry branch
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: null
+  feature_default_decision: assignment_refinement=false; cross_bay=false; no S4 entry integration exists yet
+  run_identity: insufficient_red_exit_code=1; sufficient_red_exit_code=1; recovery_predecessor_not_resumed=true
+  next_action: implement the minimum measured, hard-isolated S4 entry path with explicit insufficient-work skip telemetry and sufficient-work attempt telemetry
+```
+
+```yaml
+- timestamp: 2026-07-15T20:35:00+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-09
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 942b60730873501975285361fa8b7f5aeb86d542
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_insufficient_work_skips_explicitly tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_sufficient_work_launches_and_attempts -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_budget_entry.EntryArmorTests.test_assignment_refinement_failure_keeps_s3 -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest -v seven RECOVERY-08 deadline/publication/cleanup sentinels plus both timing contracts and the named fallback target
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest tests.test_assignment_refinement tests.test_harness_process tests.test_harness_schema tests.test_budget_entry tests.test_exact_backends tests.test_alns -v
+  red_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-insufficient.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-sufficient.json
+  green_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/green-timing-contracts.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/targeted-green.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/affected-regression.json
+  checker_result: timing GREEN 2/2; named targeted GREEN 1/1; deadline/publication/cleanup focus GREEN 10/10; affected regression GREEN 67/67
+  benchmark_or_stress_evidence: null
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: first affected attempt exposed two missing CP-SAT adaptive-scaling sentinels, one A/B exit-code mismatch, and an unrelated S3 ALNS carryover; all were corrected without weakening criteria, and the superseded 63/67 attempt remains in session history
+  feature_default_decision: assignment_refinement=false; assignment_v2=false; cross_bay=false pending safety and promotion
+  run_identity: sufficient_work_floor_seconds=4.25; publish_process_kill_margin_seconds=2.5; parent_return_tail_seconds=0.5; worker_protocol_schema=2; affected_regression_attempt02=67/67
+  next_action: run full discovery and dedicated official-checker, deadline, invalid-output, backend-fault, and process-cleanup safety sentinels
+```
+
+```yaml
+- timestamp: 2026-07-15T20:36:00+09:00
+  stage: S4
+  slice: S4-04-RECOVERY-09
+  old_status: IN_PROGRESS
+  new_status: IN_PROGRESS
+  branch: codex/fable-s4-recovery
+  commit: 942b60730873501975285361fa8b7f5aeb86d542
+  dirty: true
+  commands:
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+    - cd baseline && /opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m unittest ten named official-checker, exact-float, deadline, invalid-output, worker-checkpoint, hard-timeout, and process-group cleanup sentinels -v
+    - inspect the process table for target-worktree harness, worker, Gurobi, and CP-SAT processes
+    - git diff --check; inspect the exact 13-path diff allowlist; hash the two protected baseline files
+  red_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-insufficient.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/red-sufficient.json
+  green_evidence: benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/full-discovery-dirty.json; benchmarks/evidence/s4/s4-04/20260715T110950Z-s4-04-recovery09/checker-deadline-cleanup-sentinels.json
+  checker_result: PASS; exact-float proposal and successful move/swap sentinels reached the official checker, worker checkpoint output was reverified, and all ten dedicated safety sentinels passed
+  benchmark_or_stress_evidence: pending frozen qualification
+  gate_decision: NOT_RUN
+  failure_or_fallback_reason: dirty full discovery passed all 117 behavioral tests and failed only the intentional package clean-HEAD audit; the exact command must pass after the implementation commit is clean before qualification starts
+  feature_default_decision: assignment_refinement=false; assignment_v2=false; cross_bay=false pending the frozen gate
+  run_identity: dirty_full_discovery_attempt02=117_behavioral_passes_of_118; checker_deadline_cleanup=10/10; stale_target_worker_or_solver_processes=0; protected_utils_sha256=d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75; protected_baseline_greedy_sha256=8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b
+  next_action: complete the production/harness diff audit, freeze the allowlist and diff hashes, create the planned implementation commit, then rerun exact full discovery on the clean commit
 ```

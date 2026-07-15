@@ -34,6 +34,9 @@ class SolverConfig:
     assignment_threads: int = 4
     assignment_congestion_cap_fraction: float = 0.85
     assignment_congestion_weight_multiplier: float = 1.0
+    assignment_refinement: bool = False
+    assignment_v2: bool = False
+    cross_bay: bool = False
     alns: bool = True
     alns_destroy_min_fraction: float = 0.02
     alns_destroy_max_fraction: float = 0.06

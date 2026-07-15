@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+from solver import entry as solver_entry
+from solver.alns import ALNSMetrics, AnytimeRunResult
 from solver.budget import Budget, BudgetExpired, deadline_reserve
 from solver.checker_adapter import official_check
 from solver.entry import solve
@@ -29,6 +32,126 @@ class BudgetTests(unittest.TestCase):
 
 
 class EntryArmorTests(unittest.TestCase):
+    @staticmethod
+    def _no_op_anytime(_state, incumbent, _rng, **_kwargs):
+        return AnytimeRunResult(
+            solution=incumbent.solution,
+            metrics=ALNSMetrics(),
+            incumbent_trace=(),
+            stopped_reason="max_epochs",
+            epoch_count=0,
+            first_epoch_trace=(),
+            prefix_consistent=True,
+            operator_metrics=(),
+            epoch_solutions=(),
+        )
+
+    @staticmethod
+    def _s4_fixture():
+        return instance(
+            [
+                block(release=0, due=2, processing=2),
+                block(release=0, due=3, processing=2),
+                block(release=1, due=4, processing=1),
+                block(release=2, due=5, processing=1),
+            ]
+        )
+
+    def test_assignment_refinement_insufficient_work_skips_explicitly(self):
+        prob_info = self._s4_fixture()
+        telemetry = {}
+        with patch(
+            "solver.entry.run_anytime_epochs",
+            side_effect=self._no_op_anytime,
+        ):
+            s3 = solve(
+                prob_info,
+                7.0,
+                _retime=False,
+                _alns=True,
+                _assignment_refinement=False,
+            )
+            skipped = solve(
+                prob_info,
+                7.0,
+                _retime=False,
+                _alns=True,
+                _assignment_refinement=True,
+                _assignment_v2=True,
+                _cross_bay=False,
+                _telemetry=telemetry,
+            )
+
+        self.assertEqual(s3, skipped)
+        self.assertEqual("skipped_insufficient_work", telemetry["s4_worker_status"])
+        self.assertEqual("minimum_useful_work_not_available", telemetry["s4_skip_reason"])
+        self.assertFalse(telemetry["s4_worker_launched"])
+        self.assertNotIn("assignment_seed_attempts", telemetry)
+        checked = official_check(prob_info, skipped)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+
+    def test_assignment_refinement_sufficient_work_launches_and_attempts(self):
+        prob_info = self._s4_fixture()
+        telemetry = {}
+        with patch(
+            "solver.entry.run_anytime_epochs",
+            side_effect=self._no_op_anytime,
+        ):
+            s3 = solve(
+                prob_info,
+                12.0,
+                _retime=False,
+                _alns=True,
+                _assignment_refinement=False,
+            )
+            refined = solve(
+                prob_info,
+                12.0,
+                _retime=False,
+                _alns=True,
+                _assignment_refinement=True,
+                _assignment_v2=True,
+                _cross_bay=False,
+                _telemetry=telemetry,
+            )
+
+        self.assertTrue(telemetry["s4_worker_launched"])
+        self.assertIn(telemetry["s4_worker_status"], {"completed", "completed_after_budget"})
+        self.assertIn("assignment_seed_attempts", telemetry)
+        self.assertGreaterEqual(len(telemetry["assignment_seed_attempts"]), 1)
+        self.assertLessEqual(
+            official_check(prob_info, refined).objective,
+            official_check(prob_info, s3).objective,
+        )
+
+    def test_assignment_refinement_failure_keeps_s3(self):
+        prob_info = self._s4_fixture()
+        with patch(
+            "solver.entry.run_anytime_epochs",
+            side_effect=self._no_op_anytime,
+        ):
+            s3 = solve(
+                prob_info,
+                12.0,
+                _retime=False,
+                _alns=True,
+                _assignment_refinement=False,
+            )
+            faulted = solve(
+                prob_info,
+                12.0,
+                _retime=False,
+                _alns=True,
+                _assignment_refinement=True,
+                _fault="during_assignment_refinement",
+            )
+
+        self.assertEqual(s3, faulted)
+        checked = official_check(prob_info, faulted)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
+
     def test_selected_s3_default_runs_alns_without_override(self):
         prob_info = instance(
             [

@@ -90,11 +90,15 @@ def apply_retime_copy(
     state: SolutionState,
     request: RetimeRequest,
     result: ExactResult,
+    *,
+    require_certified_optimal: bool = False,
 ) -> SolutionState | None:
     """Apply a valid strict-Z1 improvement to a fresh state copy only."""
 
     valid, _reason = validate_result(request, result)
     if not valid or result.status not in SOLUTION_STATUSES or result.solution is None:
+        return None
+    if require_certified_optimal and not _certified_optimal(result):
         return None
     current_entries = dict(request.current_entries)
     if any(
@@ -137,11 +141,20 @@ def retime_bay(
     seed: int = 20260710,
     threads: int = 4,
     call_timebox_cap: float = 5.0,
+    require_certified_optimal: bool = False,
+    fixed_timebox: float | None = None,
 ) -> RetimeBayOutcome:
     """Run one backend within the S2 per-call timebox and return a copy."""
 
+    budget.checkpoint("retime request build")
     request = _request_for_bay(state, bay_id, seed=seed, threads=threads)
-    timebox = min(call_timebox_cap, 0.10 * budget.remaining)
+    budget.checkpoint("retime backend call")
+    proportional = 0.10 * budget.remaining
+    timebox = min(
+        call_timebox_cap,
+        budget.remaining,
+        proportional if fixed_timebox is None else max(0.0, fixed_timebox),
+    )
     result = deadline_bounded_call(
         backend,
         request,
@@ -149,12 +162,20 @@ def retime_bay(
         timebox=timebox,
         budget=budget,
     )
+    budget.checkpoint("retime backend returned")
+    candidate = apply_retime_copy(
+        state,
+        request,
+        result,
+        require_certified_optimal=require_certified_optimal,
+    )
+    budget.checkpoint("retime candidate materialized")
     return RetimeBayOutcome(
         bay_id=bay_id,
         backend=backend,
         request=request,
         result=result,
-        candidate=apply_retime_copy(state, request, result),
+        candidate=candidate,
         timebox=timebox,
     )
 
@@ -171,6 +192,8 @@ def retime_sweep(
     threads: int = 4,
     call_timebox_cap: float = 5.0,
     pilot_budget_cap: float = 4.0,
+    require_certified_optimal: bool = False,
+    fixed_call_timebox: float | None = None,
 ) -> RetimeSweepOutcome:
     """Pilot once, fix a winner, and checker-guard each improving bay copy."""
 
@@ -209,6 +232,8 @@ def retime_sweep(
             seed=seed,
             threads=threads,
             call_timebox_cap=call_timebox_cap,
+            require_certified_optimal=require_certified_optimal,
+            fixed_timebox=fixed_call_timebox,
         )
         candidate_z1 = (
             outcome.candidate.z1 if outcome.candidate is not None else None
@@ -305,3 +330,12 @@ def _copy_state(state: SolutionState) -> SolutionState:
     for placement in state.placements.values():
         copied.place(placement)
     return copied
+
+
+def _certified_optimal(result: ExactResult) -> bool:
+    if result.status == "optimal":
+        return True
+    if result.objective is None or result.bound is None:
+        return False
+    tolerance = 1e-9 * max(1.0, abs(float(result.objective)))
+    return abs(float(result.objective) - float(result.bound)) <= tolerance

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
+import json
 from typing import Any
 
 from .checker_adapter import CheckerResult, official_check
 from .instance import ProblemInstance
 from .serialize import serialize_non_interlock
-from .state import SolutionState
+from .state import Placement, SolutionState
 
 
 class IncumbentVerificationError(ValueError):
@@ -23,15 +25,40 @@ class NoVerifiedIncumbentError(RuntimeError):
 class _VerifiedRecord:
     solution: dict[str, Any]
     checker_result: CheckerResult
+    placements: tuple[Placement, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class VerifiedCheckpoint:
+    """Immutable, instance-bound representation of a verified incumbent."""
+
+    instance_sha256: str
+    solution_json: bytes
+    solution_sha256: str
+    checker_result: CheckerResult
+    placements: tuple[Placement, ...]
+    verification_count: int
+
+    def solution_copy(self) -> dict[str, Any]:
+        """Materialize a branch-owned checker solution from frozen placements."""
+        if hashlib.sha256(self.solution_json).hexdigest() != self.solution_sha256:
+            raise ValueError("verified checkpoint solution hash mismatch")
+        solution = serialize_non_interlock(self.placements)
+        if _canonical_json(solution) != self.solution_json:
+            raise ValueError("verified checkpoint placement snapshot mismatch")
+        return solution
 
 
 class VerifiedIncumbent:
     """Own only pre-serialized solutions accepted by the official checker."""
 
     def __init__(self, prob_info: dict[str, Any] | ProblemInstance) -> None:
-        self._prob_info = (
-            prob_info.raw if isinstance(prob_info, ProblemInstance) else prob_info
+        self._instance = (
+            prob_info
+            if isinstance(prob_info, ProblemInstance)
+            else ProblemInstance.parse(prob_info)
         )
+        self._prob_info = self._instance.raw
         self._record: _VerifiedRecord | None = None
         self._last_verification: _VerifiedRecord | None = None
         self._verification_count = 0
@@ -64,6 +91,98 @@ class VerifiedIncumbent:
             raise NoVerifiedIncumbentError("no checker verification has run")
         return self._last_verification.checker_result
 
+    def snapshot_state(
+        self,
+        template: SolutionState | None = None,
+    ) -> SolutionState:
+        """Reconstruct the exact checker-accepted placement state."""
+        if self._record is None:
+            raise NoVerifiedIncumbentError("no checker-verified incumbent is registered")
+        if template is not None and template.instance is not self._instance:
+            raise ValueError("snapshot template belongs to a different problem instance")
+        state = SolutionState(
+            self._instance,
+            geom=None if template is None else template.geom,
+            shape_catalog=(
+                None if template is None else template.shape_catalog
+            ),
+        )
+        for placement in self._record.placements:
+            state.place(placement)
+        state.assert_invariants()
+        return state
+
+    def capture_checkpoint(self) -> _VerifiedRecord:
+        """Capture the immutable accepted record for epoch rollback."""
+        if self._record is None:
+            raise NoVerifiedIncumbentError("no checker-verified incumbent is registered")
+        return self._record
+
+    def export_checkpoint(self) -> VerifiedCheckpoint:
+        """Export immutable bytes and frozen value objects for branch isolation."""
+        if self._record is None:
+            raise NoVerifiedIncumbentError("no checker-verified incumbent is registered")
+        solution = serialize_non_interlock(self._record.placements)
+        solution_json = _canonical_json(solution)
+        return VerifiedCheckpoint(
+            instance_sha256=_instance_sha256(self._instance),
+            solution_json=solution_json,
+            solution_sha256=hashlib.sha256(solution_json).hexdigest(),
+            checker_result=self._record.checker_result,
+            placements=self._record.placements,
+            verification_count=self._verification_count,
+        )
+
+    @classmethod
+    def from_checkpoint(
+        cls,
+        prob_info: dict[str, Any] | ProblemInstance,
+        checkpoint: VerifiedCheckpoint,
+    ) -> VerifiedIncumbent:
+        """Create a fresh verified-incumbent owner from immutable checkpoint data."""
+        if not isinstance(checkpoint, VerifiedCheckpoint):
+            raise TypeError("checkpoint must be an immutable verified checkpoint")
+        instance = (
+            prob_info
+            if isinstance(prob_info, ProblemInstance)
+            else ProblemInstance.parse(prob_info)
+        )
+        if _instance_sha256(instance) != checkpoint.instance_sha256:
+            raise ValueError("verified checkpoint belongs to a different instance")
+        if hashlib.sha256(checkpoint.solution_json).hexdigest() != (
+            checkpoint.solution_sha256
+        ):
+            raise ValueError("verified checkpoint solution hash mismatch")
+        solution = checkpoint.solution_copy()
+        state = SolutionState(instance)
+        for placement in checkpoint.placements:
+            state.place(placement)
+        state.assert_invariants()
+        if _canonical_json(serialize_non_interlock(state.placements.values())) != (
+            checkpoint.solution_json
+        ):
+            raise ValueError("verified checkpoint placement snapshot mismatch")
+        checked = official_check(instance.raw, solution)
+        if checked != checkpoint.checker_result:
+            raise ValueError("verified checkpoint checker result mismatch")
+        if not checked.feasible or checked.stage != 5 or checked.objective is None:
+            raise ValueError("verified checkpoint is not a feasible Stage-5 incumbent")
+        incumbent = cls(instance)
+        incumbent._record = _VerifiedRecord(
+            solution,
+            checked,
+            checkpoint.placements,
+        )
+        incumbent._last_verification = incumbent._record
+        incumbent._verification_count = checkpoint.verification_count + 1
+        return incumbent
+
+    def restore_checkpoint(self, checkpoint: _VerifiedRecord) -> None:
+        """Restore a record previously returned by ``capture_checkpoint``."""
+        if not isinstance(checkpoint, _VerifiedRecord):
+            raise TypeError("checkpoint must be a verified-incumbent checkpoint")
+        self._record = checkpoint
+
     def register_initial(self, state: SolutionState) -> CheckerResult:
         """Full-check and atomically store the required first incumbent."""
         if self.has_incumbent:
@@ -72,7 +191,11 @@ class VerifiedIncumbent:
         if not checked.feasible:
             details = "; ".join(checked.violations) or "official checker rejected T0"
             raise IncumbentVerificationError(details)
-        self._record = _VerifiedRecord(serialized, checked)
+        self._record = _VerifiedRecord(
+            serialized,
+            checked,
+            _placement_snapshot(state),
+        )
         return checked
 
     def try_update(self, state: SolutionState) -> bool:
@@ -89,12 +212,34 @@ class VerifiedIncumbent:
         tolerance = 1e-9 * max(1.0, abs(current_objective))
         if checked.objective >= current_objective - tolerance:
             return False
-        self._record = _VerifiedRecord(serialized, checked)
+        self._record = _VerifiedRecord(
+            serialized,
+            checked,
+            _placement_snapshot(state),
+        )
         return True
 
     def _verify(self, state: SolutionState) -> tuple[dict[str, Any], CheckerResult]:
         serialized = serialize_non_interlock(state.placements.values())
         checked = official_check(self._prob_info, serialized)
         self._verification_count += 1
-        self._last_verification = _VerifiedRecord(serialized, checked)
+        self._last_verification = _VerifiedRecord(
+            serialized,
+            checked,
+            _placement_snapshot(state),
+        )
         return serialized, checked
+
+
+def _placement_snapshot(state: SolutionState) -> tuple[Placement, ...]:
+    return tuple(
+        sorted(state.placements.values(), key=lambda placement: placement.block_id)
+    )
+
+
+def _canonical_json(value: Any) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _instance_sha256(instance: ProblemInstance) -> str:
+    return hashlib.sha256(_canonical_json(instance.raw)).hexdigest()

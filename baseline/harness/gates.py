@@ -405,6 +405,198 @@ def evaluate_s3(evidence_root: Path) -> dict[str, Any]:
     }
 
 
+def evaluate_s4(evidence_root: Path) -> dict[str, Any]:
+    """Evaluate exact-float parity, paired gain, fallback, and S4 safety."""
+
+    requirements = (
+        (
+            "parity",
+            {
+                "stage": "s4",
+                "slice": "s4-04",
+                "kind": "objective",
+                "cases": 100,
+                "selector": "high-w23",
+                "component": "assignment",
+            },
+        ),
+        (
+            "benchmark",
+            {"stage": "s4", "slice": "s4-01", "component": "assignment_v2"},
+        ),
+        (
+            "benchmark",
+            {"stage": "s4", "slice": "s4-03", "component": "cross_bay"},
+        ),
+        ("ab", {"stage": "s4", "slice": "s4-04", "selector": "high-w23"}),
+        ("ab", {"stage": "s4", "slice": "s4-04", "selector": "training"}),
+        ("stress", {"stage": "s4", "slice": "s4-04", "selector": "smoke-3"}),
+    )
+    selected: list[dict[str, Any]] = []
+    failures: list[str] = []
+    for command, match in requirements:
+        found = latest_summary(
+            evidence_root,
+            stage="s4",
+            command=command,
+            match=match,
+        )
+        label = f"{command}:{','.join(f'{key}={value}' for key, value in match.items())}"
+        if found is None:
+            failures.append(f"missing complete evidence for {label}")
+            continue
+        run_dir, summary = found
+        selected.append({"requirement": label, "run_dir": str(run_dir), "summary": summary})
+        if summary.get("status") != "passed":
+            failures.append(f"non-passing evidence for {label}")
+
+    def chosen(fragment: str) -> dict[str, Any] | None:
+        return next(
+            (
+                item["summary"]
+                for item in selected
+                if fragment in item["requirement"]
+            ),
+            None,
+        )
+
+    parity = chosen("parity:")
+    if parity is not None:
+        if int(parity.get("mismatch_count", 0)) != 0:
+            failures.append("S4 assignment objective parity contains a mismatch")
+        if float(parity.get("max_z2_relative_error", float("inf"))) > 1e-6:
+            failures.append("S4 assignment Z2 relative error exceeds 1e-6")
+        if float(parity.get("max_z3_relative_error", float("inf"))) > 1e-6:
+            failures.append("S4 assignment Z3 relative error exceeds 1e-6")
+
+    assignment_v2 = chosen("component=assignment_v2")
+    if assignment_v2 is not None:
+        if assignment_v2.get("record_count") != 10 or assignment_v2.get("feasible_count") != 10:
+            failures.append("S4 assignment-v2 proof does not contain 10 feasible rows")
+        max_v2_z2_error = assignment_v2.get(
+            "max_v2_float_z2_relative_error",
+            assignment_v2.get("max_v2_z2_relative_error", float("inf")),
+        )
+        if float(max_v2_z2_error) > 1e-6:
+            failures.append("S4 assignment-v2 checker Z2 parity failed")
+
+    cross_bay = chosen("component=cross_bay")
+    if cross_bay is not None:
+        if int(cross_bay.get("move_attempts", 0)) <= 0:
+            failures.append("S4 cross-bay proof attempted no moves")
+        if int(cross_bay.get("swap_attempts", 0)) <= 0:
+            failures.append("S4 cross-bay proof attempted no swaps")
+        if int(cross_bay.get("move_accepted", 0)) + int(cross_bay.get("swap_accepted", 0)) <= 0:
+            failures.append("S4 cross-bay proof accepted neither a move nor a swap")
+
+    high = chosen("ab:stage=s4,slice=s4-04,selector=high-w23")
+    if high is not None:
+        if high.get("comparison_count") != 10:
+            failures.append("S4 high-w23 A/B does not contain 10 instance comparisons")
+        if int(high.get("regression_count", 0)) != 0:
+            failures.append("S4 high-w23 A/B contains a checker-objective regression")
+        if int(high.get("z2_regression_count", 0)) != 0:
+            failures.append("S4 high-w23 A/B contains a checker Z2 regression")
+        if int(high.get("s3_floor_mismatch_count", -1)) != 0:
+            failures.append("S4 high-w23 A/B does not share an identical verified S3 floor")
+        if float(high.get("median_b_objective", float("inf"))) >= float(
+            high.get("median_a_objective", float("-inf"))
+        ):
+            failures.append("S4 high-w23 median objective is not strictly lower")
+        if int(high.get("improved_count", 0)) < 5:
+            failures.append("S4 improves fewer than half of high-w23 instances")
+        if int(high.get("real_s4_improved_count", 0)) < 5:
+            failures.append("S4 produces real gains on fewer than half of high-w23 instances")
+        if int(high.get("cross_bay_accepted", 0)) <= 0:
+            failures.append("S4 integrated A/B accepted no cross-bay move or swap")
+
+    training = chosen("ab:stage=s4,slice=s4-04,selector=training")
+    if training is not None:
+        if training.get("comparison_count") != 40:
+            failures.append("S4 training A/B does not contain 40 instance comparisons")
+        if int(training.get("regression_count", 0)) != 0:
+            failures.append("S4 training A/B contains a checker-objective regression")
+        if int(training.get("z2_regression_count", 0)) != 0:
+            failures.append("S4 training A/B contains a checker Z2 regression")
+        if int(training.get("s3_floor_mismatch_count", -1)) != 0:
+            failures.append("S4 training A/B does not share an identical verified S3 floor")
+
+    stress = chosen("selector=smoke-3")
+    if stress is not None:
+        if stress.get("record_count") != 9 or stress.get("feasible_count") != 9:
+            failures.append("S4 fault stress does not contain 9 feasible records")
+        if int(stress.get("fault_miss_count", 0)) != 0:
+            failures.append("S4 fault stress did not exercise every backend fault")
+        if int(stress.get("never_worse_failure_count", 0)) != 0:
+            failures.append("S4 fault stress regressed the S3 incumbent")
+        if int(stress.get("z2_regression_count", 0)) != 0:
+            failures.append("S4 fault stress regressed checker Z2")
+        if int(stress.get("unverified_return_count", 0)) != 0:
+            failures.append("S4 fault stress contains an unverified return")
+        if int(stress.get("leak_count", 0)) != 0:
+            failures.append("S4 fault stress contains a process leak")
+        if int(stress.get("timeout_count", 0)) != 0:
+            failures.append("S4 fault stress contains a timeout")
+        if int(stress.get("crash_count", 0)) != 0:
+            failures.append("S4 fault stress contains a crash")
+
+    integrated = tuple(
+        summary
+        for summary in (parity, high, training, stress)
+        if summary is not None
+    )
+    integrated_identities = {
+        (summary.get("commit"), summary.get("dirty_diff_hash"))
+        for summary in integrated
+    }
+    code_identity = None
+    if len(integrated) != 4:
+        pass
+    elif any(None in identity for identity in integrated_identities):
+        failures.append("S4 integrated evidence is missing frozen code identity")
+    elif len(integrated_identities) != 1:
+        failures.append("S4 integrated evidence does not share one frozen code identity")
+    else:
+        commit, dirty_diff_hash = next(iter(integrated_identities))
+        code_identity = {
+            "commit": commit,
+            "dirty_diff_hash": dirty_diff_hash,
+        }
+
+    gain_failures = {
+        "S4 high-w23 median objective is not strictly lower",
+        "S4 improves fewer than half of high-w23 instances",
+        "S4 produces real gains on fewer than half of high-w23 instances",
+        "S4 integrated A/B accepted no cross-bay move or swap",
+    }
+    safety_failures = [failure for failure in failures if failure not in gain_failures]
+    safety_pass = not safety_failures
+    promotion_pass = not failures
+    outcome = (
+        "COMPLETE"
+        if promotion_pass
+        else "GATE_FAILED_DISABLED"
+        if safety_pass
+        else "BLOCKED"
+    )
+    return {
+        "stage": "s4",
+        "status": "passed" if promotion_pass else "failed",
+        "decision": "PASS" if promotion_pass else "FAIL",
+        "outcome": outcome,
+        "safety_pass": safety_pass,
+        "promotion_pass": promotion_pass,
+        "safety_failures": safety_failures,
+        "selected_evidence": selected,
+        "failures": failures,
+        "code_identity": code_identity,
+        "assignment_refinement": promotion_pass,
+        "assignment_v2": promotion_pass,
+        "cross_bay": promotion_pass,
+        "assignment_backend": "gurobi" if promotion_pass else None,
+        "fallback_order": ["gurobi", "cpsat", "greedy"] if promotion_pass else None,
+    }
+
 def evaluate_s6(
     evidence_root: Path,
     *,

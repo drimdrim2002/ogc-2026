@@ -7,6 +7,7 @@ import math
 from collections.abc import Callable, Mapping, Sequence
 from statistics import median
 
+from .budget import Budget
 from .config import DEFAULT_CONFIG, SolverConfig
 from .exact import (
     AssignmentRequest,
@@ -20,6 +21,7 @@ from .geometry import ShapeInfo
 from .cpsat_backend import assign_cpsat
 from .gurobi_backend import assign_gurobi
 from .instance import ProblemInstance
+from .state import SolutionState
 
 
 @dataclass(frozen=True, slots=True)
@@ -539,6 +541,40 @@ def assignment_from_solution(
     )
 
 
+def assignment_from_state(state: SolutionState) -> AssignmentResult:
+    """Project an exact verified placement state into an assignment plan."""
+    if not isinstance(state, SolutionState):
+        raise TypeError("state must be a SolutionState")
+    expected = set(range(len(state.instance.blocks)))
+    if set(state.placements) != expected:
+        raise ValueError("verified assignment state must contain every block")
+    order = tuple(
+        placement.block_id
+        for placement in sorted(
+            state.placements.values(),
+            key=lambda placement: (placement.entry, placement.block_id),
+        )
+    )
+    projected = assignment_from_solution(
+        state.instance,
+        tuple(
+            (block_id, state.placements[block_id].bay_id)
+            for block_id in sorted(expected)
+        ),
+        order=order,
+    )
+    return replace(
+        projected,
+        assignments={
+            block_id: replace(
+                item,
+                orient_idx=state.placements[block_id].orient_idx,
+            )
+            for block_id, item in projected.assignments.items()
+        },
+    )
+
+
 def assignment_v2(
     instance: ProblemInstance,
     starting_assignment: AssignmentResult,
@@ -573,6 +609,7 @@ def choose_assignment_candidate(
     config: SolverConfig = DEFAULT_CONFIG,
     backend_calls: Mapping[str, AssignmentCall] | None = None,
     verify: Callable[[AssignmentResult], AssignmentVerification] | None = None,
+    budget: Budget | None = None,
 ) -> AssignmentSelection:
     """Evaluate Gurobi and scaled CP-SAT proposals without risking v1.
 
@@ -594,12 +631,20 @@ def choose_assignment_candidate(
     if set(calls) != {"gurobi", "cpsat"}:
         raise ValueError("backend_calls must provide gurobi and cpsat")
 
+    if budget is not None:
+        budget.checkpoint("S4 before assignment request build")
     request = assignment_request(instance, starting_assignment, config=config)
+    if budget is not None:
+        budget.checkpoint("S4 after assignment request build")
     incumbent_solution = tuple(request.current_assignment)
     incumbent_evaluation = evaluate_assignment_solution(request, incumbent_solution)
+    if budget is not None:
+        budget.checkpoint("S4 before assignment incumbent verification")
     incumbent_verification = (
         verify(starting_assignment) if verify is not None else None
     )
+    if budget is not None:
+        budget.checkpoint("S4 after assignment incumbent verification")
     if incumbent_verification is not None and not incumbent_verification.feasible:
         raise ValueError("starting assignment must be checker-feasible")
 
@@ -616,12 +661,19 @@ def choose_assignment_candidate(
     fallback: list[str] = []
 
     for backend in ("gurobi", "cpsat"):
+        if budget is not None:
+            budget.checkpoint(f"S4 before {backend} assignment")
+        timebox = config.assignment_timebox_seconds
+        if budget is not None:
+            timebox = min(timebox, budget.remaining)
         raw = exact_assign(
             backend,
             request,
             calls[backend],
-            timebox=config.assignment_timebox_seconds,
+            timebox=timebox,
         )
+        if budget is not None:
+            budget.checkpoint(f"S4 after {backend} assignment")
         if raw.status not in SOLUTION_STATUSES or raw.solution is None:
             reason = raw.reason or raw.status
             attempts.append(
@@ -665,7 +717,26 @@ def choose_assignment_candidate(
             raw.solution,
             order=starting_assignment.order,
         )
+        proposed = replace(
+            proposed,
+            assignments={
+                block_id: replace(
+                    item,
+                    orient_idx=(
+                        starting_assignment.assignments[block_id].orient_idx
+                        if item.bay_id
+                        == starting_assignment.assignments[block_id].bay_id
+                        else item.orient_idx
+                    ),
+                )
+                for block_id, item in proposed.assignments.items()
+            },
+        )
+        if budget is not None:
+            budget.checkpoint(f"S4 before {backend} assignment verification")
         verification = verify(proposed) if verify is not None else None
+        if budget is not None:
+            budget.checkpoint(f"S4 after {backend} assignment verification")
         if verification is not None and not verification.feasible:
             reason = verification.reason or "checker_rejected"
             attempts.append(
@@ -729,6 +800,8 @@ def choose_assignment_candidate(
             )
         )
 
+    if budget is not None:
+        budget.checkpoint("S4 assignment selection complete")
     return AssignmentSelection(
         assignment=best_assignment,
         backend=best_backend,
