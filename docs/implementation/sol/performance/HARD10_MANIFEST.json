@@ -1,0 +1,5636 @@
+{
+  "input_artifact": {
+    "config_hashes": [
+      "b02608da6524b8651a3ffccdb78e7c6a985404b7740e7207c5337f3caa1a27d3"
+    ],
+    "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f",
+    "raw": "artifacts/ogc_sage/performance/phase0/phase0-telemetry-20260714T152646Z-5f932a611e80/raw.jsonl",
+    "raw_sha256": "afb2592787f1f157d74a4b8d9054891b5cba2cfca71800b6a18407adc4d5f8dc",
+    "record_count": 240,
+    "source_commits": [
+      "5f932a611e8076d01a3f59c1e4e44da350d522e6"
+    ]
+  },
+  "instances": [
+    {
+      "block_count": 250,
+      "instance": "prob_38.json",
+      "instance_sha256": "e7f9accc8a0f20da377455d0ff38d599ce922c18416c95ccccb0c020aa7e8722",
+      "median_repair_seconds": 158.40715321106836,
+      "median_runtime_hardness": 5.924303878149389,
+      "rank": 1,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                2732584505.0,
+                2679932488.0,
+                2580312334.0,
+                2469022174.0,
+                2416163101.0,
+                2333418776.0,
+                2299580387.0,
+                2250382284.0,
+                2212775358.0,
+                2184906569.0,
+                2155227957.0,
+                2069329813.0,
+                2054431571.0,
+                2003210750.0,
+                1945152557.0,
+                1944925896.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.6219306649581995,
+              "elapsed_seconds": 26.458508000010625,
+              "end_seconds": 36.325994875020115,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 0.4800824999983888
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -169549354.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 4.310923373996047
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -105511090.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.755632250016788
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -286343522.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 12.218873542005895
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -111290160.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.7180222079914529
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -114737822.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 6.966792291990714
+                }
+              },
+              "repair_seconds": 24.393847791070584,
+              "retime_seconds": 1.2634402899711858,
+              "start_seconds": 9.86748687500949
+            },
+            {
+              "best_trace": [
+                1944925896.0,
+                1859076212.0,
+                1859049546.0,
+                1837848948.0,
+                1797511283.0,
+                1794349558.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.2756538340181578,
+              "elapsed_seconds": 134.96946708398173,
+              "end_seconds": 171.29561458399985,
+              "exit_reason": "DEADLINE",
+              "iterations": 10,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 155742.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 8.995147499983432
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": -24362323.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 38.600733750034124
+                },
+                "random_k": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 27294.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 4.7591228329984006
+                },
+                "shaw": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 132920.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 10.239358166989405
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -85849684.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 54.22322999997414
+                },
+                "z2_contributor": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -40337665.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 18.143102500005625
+                }
+              },
+              "repair_seconds": 134.05734387494158,
+              "retime_seconds": 0.46208120801020414,
+              "start_seconds": 36.32614750001812
+            }
+          ],
+          "iterations_total": 26,
+          "repair_seconds": 158.45119166601216,
+          "retime_seconds": 1.72552149798139,
+          "runtime_hardness": 6.160642813999752,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                2732584505.0,
+                2649810254.0,
+                2615940637.0,
+                2615357891.0,
+                2585669029.0,
+                2512574798.0,
+                2512476468.0,
+                2401189210.0,
+                2349906157.0,
+                2286322837.0,
+                2245329945.0,
+                2210698174.0,
+                2169243750.0,
+                2149297582.0,
+                2085512658.0,
+                2085445699.0,
+                2051250276.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.6330878339067567,
+              "elapsed_seconds": 21.840243749989895,
+              "end_seconds": 31.763213208992966,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -98330.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.8434466659964528
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -180989342.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 3.313767582993023
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -75649847.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 3.7511388749990147
+                },
+                "shaw": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -137461901.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 3.93032133296947
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -111287258.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 1.3279579170048237
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -175847551.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 8.6653235850099
+                }
+              },
+              "repair_seconds": 19.66959529108135,
+              "retime_seconds": 1.3359825440566055,
+              "start_seconds": 9.92296945900307
+            },
+            {
+              "best_trace": [
+                2051250276.0,
+                2039295528.0,
+                2027841699.0,
+                2027815033.0,
+                1993195094.0,
+                1992918623.0,
+                1992878624.0,
+                1992762126.0,
+                1884021564.0,
+                1830433473.0,
+                1781538924.0,
+                1781498925.0,
+                1781485592.0,
+                1781352262.0,
+                1751352658.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.6138368750398513,
+              "elapsed_seconds": 139.5417795420217,
+              "end_seconds": 171.3051827920135,
+              "exit_reason": "DEADLINE",
+              "iterations": 19,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -249828.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 10.69066599998041
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -114437388.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 57.44266604099539
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -52666232.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 23.996933082991745
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": -260667.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 6.973577249009395
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -108740562.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 18.475612917012768
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -46073768.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 21.95360862495727
+                }
+              },
+              "repair_seconds": 137.66791049795575,
+              "retime_seconds": 0.8473996659449767,
+              "start_seconds": 31.763403249991825
+            }
+          ],
+          "iterations_total": 35,
+          "repair_seconds": 157.3375057890371,
+          "retime_seconds": 2.1833822100015823,
+          "runtime_hardness": 4.557739657115391,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                2732584505.0,
+                2621294345.0,
+                2557458447.0,
+                2474684196.0,
+                2432543743.0,
+                2324113924.0,
+                2260513167.0,
+                2260499834.0,
+                2217019297.0,
+                2154451090.0,
+                2043896088.0,
+                2010152280.0,
+                2010085615.0,
+                1908276173.0,
+                1860091699.0,
+                1859788946.0,
+                1808392873.0,
+                1759242851.0,
+                1759096188.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.6770559990545735,
+              "elapsed_seconds": 43.280401916999836,
+              "end_seconds": 53.21122320898576,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": -195820.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 5.070548915973632
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -146375008.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 1.6795402500138152
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -196373671.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 6.921281834016554
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -115231971.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.521799290989293
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -432084423.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 9.199347917019622
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -82893830.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 4,
+                  "time_s": 17.87951591599267
+                }
+              },
+              "repair_seconds": 41.19091412401758,
+              "retime_seconds": 1.2162833319162019,
+              "start_seconds": 9.930821291985922
+            },
+            {
+              "best_trace": [
+                1759096188.0,
+                1660775900.0,
+                1641066704.0,
+                1562688358.0,
+                1551139936.0,
+                1496853048.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.36187679204158485,
+              "elapsed_seconds": 118.05612320802175,
+              "end_seconds": 171.26750304200687,
+              "exit_reason": "DEADLINE",
+              "iterations": 11,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 0,
+                  "attempts": 0,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 0,
+                  "new_best": 0,
+                  "time_s": 0.0
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -31257618.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 22.815089375013486
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": 6574.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 0,
+                  "time_s": 10.123340666963486
+                },
+                "shaw": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 28526.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 1.9803225829964504
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -230985522.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 70.58155854200595
+                },
+                "z2_contributor": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 0,
+                  "new_best": 0,
+                  "time_s": 12.54708758398192
+                }
+              },
+              "repair_seconds": 117.21623908705078,
+              "retime_seconds": 0.33276816704892553,
+              "start_seconds": 53.21137983398512
+            }
+          ],
+          "iterations_total": 27,
+          "repair_seconds": 158.40715321106836,
+          "retime_seconds": 1.5490514989651274,
+          "runtime_hardness": 5.924303878149389,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 100,
+      "instance": "prob_23.json",
+      "instance_sha256": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+      "median_repair_seconds": 135.64282291807467,
+      "median_runtime_hardness": 4.43361610913731,
+      "rank": 2,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                427822117.0,
+                407087458.0,
+                370689766.0,
+                362796041.0,
+                356458361.0,
+                334589761.0,
+                298671256.0,
+                234835484.0,
+                214644817.0,
+                144951557.0,
+                142132536.0,
+                142004009.0,
+                132173734.0,
+                119875424.0,
+                117244978.0,
+                112950185.0,
+                110238385.0,
+                103282618.0,
+                98075962.0,
+                88774488.0,
+                88720252.0,
+                87133849.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.36285987301380374,
+              "elapsed_seconds": 32.8388391250046,
+              "end_seconds": 39.00690570799634,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -182763.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 5.445100540993735
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -12298310.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 6.4234352500061505
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -40172720.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 3.983362292026868
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -24485460.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 9.661060373997316
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -72316197.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.236370208003791
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -27399421.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 4.087193415994989
+                }
+              },
+              "repair_seconds": 20.685099000984337,
+              "retime_seconds": 11.732375750027131,
+              "start_seconds": 6.168066582991742
+            },
+            {
+              "best_trace": [
+                87133849.0,
+                86876228.0,
+                86860185.0,
+                82914516.0,
+                82570191.0,
+                66540582.0,
+                66364315.0,
+                54542949.0,
+                54434477.0,
+                54322938.0,
+                50634890.0,
+                48790866.0,
+                48695953.0,
+                47462084.0,
+                47405019.0,
+                41900065.0,
+                41344146.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.5845736240153201,
+              "elapsed_seconds": 132.0044975829951,
+              "end_seconds": 171.01157137498376,
+              "exit_reason": "DEADLINE",
+              "iterations": 30,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": -623885.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 25.289534417010145
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -3688048.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 10.218981625977904
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 5,
+                  "delta_sum": -240240.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 11.910838082025293
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": 67795.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 17.13303337598336
+                },
+                "tardy_chain": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -33355929.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 59.78075300095952
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -176267.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 7.6689081660006195
+                }
+              },
+              "repair_seconds": 114.95772391709033,
+              "retime_seconds": 16.36304558298434,
+              "start_seconds": 39.00707379198866
+            }
+          ],
+          "iterations_total": 46,
+          "repair_seconds": 135.64282291807467,
+          "retime_seconds": 28.095421333011473,
+          "runtime_hardness": 3.5595270489366553,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                427822117.0,
+                416733876.0,
+                399607002.0,
+                391744639.0,
+                379479423.0,
+                295101766.0,
+                270579483.0,
+                270563440.0,
+                265533051.0,
+                229618624.0,
+                226279512.0,
+                213421681.0,
+                213082706.0,
+                206523430.0,
+                196662013.0,
+                186940210.0,
+                179823625.0,
+                130034977.0,
+                107781794.0,
+                105829298.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.25067758598015644,
+              "elapsed_seconds": 50.748673499998404,
+              "end_seconds": 56.97612270800164,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -16043.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 3.010123207990546
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -33807489.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 5,
+                  "time_s": 6.308133499987889
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -7116585.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 3.092090707999887
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -32384646.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.2505735420272686
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -58167610.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 28.82133625098504
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -39290478.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 5,
+                  "time_s": 8.26387725098175
+                }
+              },
+              "repair_seconds": 39.72319883503951,
+              "retime_seconds": 10.724815373920137,
+              "start_seconds": 6.227449208003236
+            },
+            {
+              "best_trace": [
+                105829298.0,
+                104708511.0,
+                96166341.0,
+                91786784.0,
+                91773225.0,
+                88844481.0,
+                88366120.0,
+                73070203.0,
+                72866818.0,
+                69852173.0,
+                68300342.0,
+                65737691.0,
+                63459779.0,
+                60767120.0,
+                48225128.0,
+                46896346.0,
+                46638725.0,
+                42985341.0,
+                42944664.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.5142240429413505,
+              "elapsed_seconds": 114.03694520800491,
+              "end_seconds": 171.01322729099775,
+              "exit_reason": "DEADLINE",
+              "iterations": 18,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -478361.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 5.693793040991295
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -5365277.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 25.476466500986135
+                },
+                "random_k": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": -3653384.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 13.401060082978802
+                },
+                "shaw": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 189826.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 5.791444875008892
+                },
+                "tardy_chain": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -30075144.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 41.82947316701757
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -10214474.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 5,
+                  "time_s": 21.842465084046125
+                }
+              },
+              "repair_seconds": 99.20155079296092,
+              "retime_seconds": 14.254030832991702,
+              "start_seconds": 56.97628208299284
+            }
+          ],
+          "iterations_total": 34,
+          "repair_seconds": 138.92474962800043,
+          "retime_seconds": 24.97884620691184,
+          "runtime_hardness": 4.820693995144478,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                427822117.0,
+                391424425.0,
+                379034893.0,
+                365438874.0,
+                357642722.0,
+                321729485.0,
+                251195567.0,
+                238256494.0,
+                228697399.0,
+                200653709.0,
+                193730191.0,
+                190557385.0,
+                189811640.0,
+                184971077.0,
+                183791444.0,
+                183461953.0,
+                182656064.0,
+                127199754.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.22492704194155522,
+              "elapsed_seconds": 18.42734870899585,
+              "end_seconds": 24.585333333991002,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 3.168986875010887
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -26535092.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.411570166994352
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -20739866.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 5.137385042005917
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -40762713.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 2.440724040992791
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -72310929.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.1156842919881456
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -1551634.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.1506672090035863
+                }
+              },
+              "repair_seconds": 9.630265498009976,
+              "retime_seconds": 8.52333999806433,
+              "start_seconds": 6.1579846249951515
+            },
+            {
+              "best_trace": [
+                127199754.0,
+                107287005.0,
+                105185360.0,
+                98081623.0,
+                86746299.0,
+                86637827.0,
+                84292120.0,
+                84292031.0,
+                66946679.0,
+                64420558.0,
+                64125675.0,
+                62647744.0,
+                59953581.0,
+                58624799.0,
+                57852066.0,
+                57482752.0,
+                55394666.0,
+                46277872.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.45679745901725255,
+              "elapsed_seconds": 146.42892970901448,
+              "end_seconds": 171.01442308400874,
+              "exit_reason": "DEADLINE",
+              "iterations": 21,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -108472.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 10.183650501043303
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -9629858.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 5.868312417005654
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -772733.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 11.064083792007295
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -5250958.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 3,
+                  "time_s": 44.27599841696792
+                },
+                "tardy_chain": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -46374895.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 64.90101883505122
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -3063477.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 10.133492666034726
+                }
+              },
+              "repair_seconds": 124.63873145799153,
+              "retime_seconds": 21.25145908401464,
+              "start_seconds": 24.585493374994257
+            }
+          ],
+          "iterations_total": 37,
+          "repair_seconds": 134.2689969560015,
+          "retime_seconds": 29.77479908207897,
+          "runtime_hardness": 4.43361610913731,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 250,
+      "instance": "prob_40.json",
+      "instance_sha256": "8da9a9830346564aa1717ea0303e283add26a263860794b1ebbd5cbc2fb7e58c",
+      "median_repair_seconds": 155.21455591605627,
+      "median_runtime_hardness": 4.337077265029722,
+      "rank": 3,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                100698137.0,
+                98421068.0,
+                95623622.0,
+                91455176.0,
+                90244801.0,
+                90240799.0,
+                88036660.0,
+                85290398.0,
+                84883516.0,
+                83893875.0,
+                80135842.0,
+                78761951.0,
+                75909718.0,
+                75514855.0,
+                71637346.0,
+                70770009.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.8945900009130128,
+              "elapsed_seconds": 44.02948312499211,
+              "end_seconds": 57.03330291598104,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -4002.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.7493512090004515
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -3600662.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 4.414223875006428
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -3487444.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.6851620000088587
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -14547421.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 26.175676917016972
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -4168446.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.9780582500097807
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": -4104900.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 10.01998337500845
+                }
+              },
+              "repair_seconds": 42.42187129010563,
+              "retime_seconds": 0.5599944590067025,
+              "start_seconds": 13.003819790988928
+            },
+            {
+              "best_trace": [
+                70770009.0,
+                67555883.0,
+                67553215.0,
+                67057480.0,
+                64990941.0,
+                64986939.0,
+                63957817.0,
+                63952211.0,
+                63950210.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.6420094580098521,
+              "elapsed_seconds": 114.014010666986,
+              "end_seconds": 171.04750370798865,
+              "exit_reason": "DEADLINE",
+              "iterations": 20,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": -2668.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 2.884169582015602
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 4,
+                  "delta_sum": -493535.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 33.09932824905263
+                },
+                "random_k": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 2668.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 4.594358208996709
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": -4939.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 2,
+                  "time_s": 10.826886168011697
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -3214126.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 18.311928124981932
+                },
+                "z2_contributor": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -3095661.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 44.288967417989625
+                }
+              },
+              "repair_seconds": 112.79268462595064,
+              "retime_seconds": 0.3602311660069972,
+              "start_seconds": 57.03349304100266
+            }
+          ],
+          "iterations_total": 36,
+          "repair_seconds": 155.21455591605627,
+          "retime_seconds": 0.9202256250136998,
+          "runtime_hardness": 4.337077265029722,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                100698137.0,
+                98410869.0,
+                96323728.0,
+                95384136.0,
+                93100600.0,
+                93095741.0,
+                88926337.0,
+                88380064.0,
+                86204728.0,
+                85031325.0,
+                83655531.0,
+                82047534.0,
+                80070308.0,
+                80069641.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.7086499169818126,
+              "elapsed_seconds": 20.783883332973346,
+              "end_seconds": 33.82262391599943,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 0.8620060840039514
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -5838398.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 3.8920183749869466
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -3585223.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 4.580609541997546
+                },
+                "shaw": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -944451.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 3.457370832999004
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -4169404.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 1.1331173329963349
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -6090353.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 4,
+                  "time_s": 6.851921710011084
+                }
+              },
+              "repair_seconds": 19.142034040007275,
+              "retime_seconds": 0.7888049990870059,
+              "start_seconds": 13.038740583026083
+            },
+            {
+              "best_trace": [
+                80069641.0,
+                80057327.0,
+                75959310.0,
+                75958210.0,
+                75792980.0,
+                75792020.0,
+                73788101.0,
+                72549336.0,
+                72469127.0,
+                70229711.0,
+                69566668.0,
+                65461422.0,
+                64945334.0,
+                61798159.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 1.0761397489986848,
+              "elapsed_seconds": 137.24514970800374,
+              "end_seconds": 171.06792220802163,
+              "exit_reason": "DEADLINE",
+              "iterations": 36,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 6,
+                  "delta_sum": -2976.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 15.688991417002399
+                },
+                "preference_alternative": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -246146.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 3,
+                  "time_s": 8.040222208976047
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -3243644.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 10.189088957966305
+                },
+                "shaw": {
+                  "accepted": 8,
+                  "attempts": 9,
+                  "delta_sum": -3417101.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 3,
+                  "time_s": 23.586697247985285
+                },
+                "tardy_chain": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -11350438.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 66.95061179198092
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 9,
+                  "delta_sum": 1677.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 0,
+                  "time_s": 12.767386709019775
+                }
+              },
+              "repair_seconds": 135.24272775108693,
+              "retime_seconds": 0.4441197929554619,
+              "start_seconds": 33.82277250001789
+            }
+          ],
+          "iterations_total": 52,
+          "repair_seconds": 154.3847617910942,
+          "retime_seconds": 1.2329247920424677,
+          "runtime_hardness": 2.9926478189064745,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                100698137.0,
+                96528602.0,
+                92464497.0,
+                90180508.0,
+                88072912.0,
+                84058068.0,
+                82871131.0,
+                80431790.0,
+                79302572.0,
+                75267126.0,
+                73188931.0,
+                69242901.0,
+                68671732.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.7420588759996463,
+              "elapsed_seconds": 43.947200750000775,
+              "end_seconds": 56.98111379201873,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 11339.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 3.1479112489905674
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -3470926.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.2373282079934143
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -6247324.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 18.43901433298015
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -4064105.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 1.0841083340055775
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -16165855.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 15.605193208990386
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -2078195.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 3.4264846660080366
+                }
+              },
+              "repair_seconds": 42.63234516591183,
+              "retime_seconds": 0.42047220896347426,
+              "start_seconds": 13.033913042017957
+            },
+            {
+              "best_trace": [
+                68671732.0,
+                64931560.0,
+                64925557.0,
+                63435324.0,
+                60775642.0,
+                57322402.0,
+                57315732.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.4092869170126505,
+              "elapsed_seconds": 114.2591743330122,
+              "end_seconds": 171.24133729201276,
+              "exit_reason": "DEADLINE",
+              "iterations": 11,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 0,
+                  "attempts": 0,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 0,
+                  "new_best": 0,
+                  "time_s": 0.0
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -1490233.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 14.104469208978117
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": 197.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 0,
+                  "time_s": 9.408315292006591
+                },
+                "shaw": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 1004.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 3.160586375015555
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -9853094.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 50.49251428997377
+                },
+                "z2_contributor": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 0,
+                  "new_best": 0,
+                  "time_s": 37.08652208300191
+                }
+              },
+              "repair_seconds": 113.36248625005828,
+              "retime_seconds": 0.3906167079694569,
+              "start_seconds": 56.98216295900056
+            }
+          ],
+          "iterations_total": 27,
+          "repair_seconds": 155.9948314159701,
+          "retime_seconds": 0.8110889169329312,
+          "runtime_hardness": 5.807626678996409,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 100,
+      "instance": "prob_25.json",
+      "instance_sha256": "bc05276709763260f8412c37742106d34f44991e0d6ecf163c5e183727057fb5",
+      "median_repair_seconds": 145.08212399602053,
+      "median_runtime_hardness": 3.497170572636025,
+      "rank": 4,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                28924991.0,
+                27415725.0,
+                24929303.0,
+                23454207.0,
+                22886837.0,
+                21920243.0,
+                19461719.0,
+                19162597.0,
+                19006682.0,
+                15424892.0,
+                14704702.0,
+                10701368.0,
+                10519277.0,
+                10138979.0,
+                9749451.0,
+                9163158.0,
+                9139478.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.19175162698957138,
+              "elapsed_seconds": 24.169184124999447,
+              "end_seconds": 30.1085859159939,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 3,
+                  "attempts": 4,
+                  "delta_sum": -23652.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 2.1921247910067905
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -720190.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 4.3607214170042425
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -3941260.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 7.217078456975287
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -299122.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 4.143000582989771
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -4944946.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.3335952920024283
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -1502807.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 4.920296083000721
+                }
+              },
+              "repair_seconds": 16.330676998011768,
+              "retime_seconds": 7.5960697929840535,
+              "start_seconds": 5.939401790994452
+            },
+            {
+              "best_trace": [
+                9139478.0,
+                7802810.0,
+                7695423.0,
+                7688753.0,
+                6767428.0,
+                6758090.0,
+                6754088.0,
+                5952307.0,
+                5950973.0,
+                5506084.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.3516525000159163,
+              "elapsed_seconds": 140.92310200000065,
+              "end_seconds": 171.0318479159905,
+              "exit_reason": "DEADLINE",
+              "iterations": 22,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 3,
+                  "attempts": 5,
+                  "delta_sum": 19672.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 9.346766583010321
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 1.294698374986183
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 4,
+                  "delta_sum": 9019.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 20.536420500982786
+                },
+                "shaw": {
+                  "accepted": 1,
+                  "attempts": 4,
+                  "delta_sum": 31032.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 0,
+                  "time_s": 16.650382916035596
+                },
+                "tardy_chain": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -3504663.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 6,
+                  "time_s": 89.63892408099491
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 0,
+                  "time_s": 3.45359491702402
+                }
+              },
+              "repair_seconds": 128.75144699800876,
+              "retime_seconds": 11.759421498980373,
+              "start_seconds": 30.108745915989857
+            }
+          ],
+          "iterations_total": 38,
+          "repair_seconds": 145.08212399602053,
+          "retime_seconds": 19.355491291964427,
+          "runtime_hardness": 4.327305665473288,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                28924991.0,
+                27589402.0,
+                25976486.0,
+                23961695.0,
+                23303776.0,
+                20772463.0,
+                19670038.0,
+                19137295.0,
+                16019070.0,
+                15784596.0,
+                15389732.0,
+                14828479.0,
+                12515615.0,
+                12409562.0,
+                11406157.0,
+                11232737.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.1718251239217352,
+              "elapsed_seconds": 40.6535942920018,
+              "end_seconds": 46.67521470799693,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 12006.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 0.6528530000068713
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -2102806.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 5,
+                  "time_s": 6.840268206986366
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -1564658.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 10.766532042995095
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -2014791.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 1.0648126660089474
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -4844177.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 13.266297915979521
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 6,
+                  "delta_sum": -3352691.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 4,
+                  "time_s": 8.060492708027596
+                }
+              },
+              "repair_seconds": 34.450775334000355,
+              "retime_seconds": 5.978628957935143,
+              "start_seconds": 6.02162041599513
+            },
+            {
+              "best_trace": [
+                11232737.0,
+                11220064.0,
+                11101338.0,
+                9337644.0,
+                9198908.0,
+                7821194.0,
+                7813857.0,
+                7811249.0,
+                7807914.0,
+                6918653.0,
+                6418403.0,
+                6329692.0,
+                6324417.0,
+                5126210.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.2337271659343969,
+              "elapsed_seconds": 124.33615395799279,
+              "end_seconds": 171.0115270410024,
+              "exit_reason": "DEADLINE",
+              "iterations": 31,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 3,
+                  "attempts": 4,
+                  "delta_sum": 7184.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 0,
+                  "time_s": 7.36194066805183
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 5,
+                  "delta_sum": 36746.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 11.050624375988264
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -2608.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 14.590464790991973
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": 8671.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 10.596554249001201
+                },
+                "tardy_chain": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": -5729126.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 8,
+                  "time_s": 75.24263945905841
+                },
+                "z2_contributor": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 0,
+                  "time_s": 5.4916422509995755
+                }
+              },
+              "repair_seconds": 110.70887049596058,
+              "retime_seconds": 13.228742125997087,
+              "start_seconds": 46.67537308300962
+            }
+          ],
+          "iterations_total": 47,
+          "repair_seconds": 145.15964582996094,
+          "retime_seconds": 19.20737108393223,
+          "runtime_hardness": 3.497170572636025,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                28924991.0,
+                26393678.0,
+                25478976.0,
+                24146055.0,
+                24144721.0,
+                22973759.0,
+                22972627.0,
+                21820443.0,
+                18124596.0,
+                15638174.0,
+                15536980.0,
+                15536313.0,
+                15535646.0,
+                15386520.0,
+                14425263.0,
+                14195480.0,
+                14129447.0,
+                13409087.0,
+                13173521.0,
+                12920728.0,
+                12290822.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.2641342919378076,
+              "elapsed_seconds": 24.940018708002754,
+              "end_seconds": 30.897718833002727,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 8206.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 1.505643082986353
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -1434115.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 4,
+                  "time_s": 1.5063608749769628
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -1615904.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 5.830830582039198
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -2303119.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 6.742030791006982
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -5017735.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.4549054160015658
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -1591163.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 7.897872917004861
+                }
+              },
+              "repair_seconds": 18.360909373965114,
+              "retime_seconds": 6.264231955981813,
+              "start_seconds": 5.957700124999974
+            },
+            {
+              "best_trace": [
+                12290822.0,
+                10159966.0,
+                10157965.0,
+                10141957.0,
+                10140169.0,
+                8874981.0,
+                8870312.0,
+                8865906.0,
+                7743254.0,
+                6917432.0,
+                6038702.0,
+                5777905.0,
+                4734152.0,
+                4537696.0,
+                4457656.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.440562414994929,
+              "elapsed_seconds": 140.1132566659944,
+              "end_seconds": 171.01113720799913,
+              "exit_reason": "DEADLINE",
+              "iterations": 31,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 7,
+                  "delta_sum": 58251.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 0,
+                  "time_s": 21.552815834002104
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 5,
+                  "delta_sum": 2668.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 0,
+                  "time_s": 11.652865499985637
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 6,
+                  "delta_sum": -191070.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 2,
+                  "time_s": 26.080827541969484
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -1712747.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 7,
+                  "time_s": 31.49703091799165
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -5562449.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 41.3555315839767
+                },
+                "z2_contributor": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 0,
+                  "time_s": 7.971916748967487
+                }
+              },
+              "repair_seconds": 125.18307903895038,
+              "retime_seconds": 14.396355499979109,
+              "start_seconds": 30.897880542004714
+            }
+          ],
+          "iterations_total": 47,
+          "repair_seconds": 143.5439884129155,
+          "retime_seconds": 20.660587455960922,
+          "runtime_hardness": 3.49371438018886,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 150,
+      "instance": "prob_27.json",
+      "instance_sha256": "4cc738ab2969376a7c771c26cb5a9dabc690b91c7b211b05c996e2d2abaf1e99",
+      "median_repair_seconds": 161.0401644979429,
+      "median_runtime_hardness": 3.3740334669831404,
+      "rank": 5,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                1411730535.0,
+                1385233727.0,
+                1306186643.0,
+                1274321434.0,
+                1264419688.0,
+                1209221068.0,
+                1160453165.0,
+                1160346501.0,
+                1092592918.0,
+                1060014264.0,
+                996119724.0,
+                996079725.0,
+                948892178.0,
+                906412786.0,
+                906386120.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.2913775420165621,
+              "elapsed_seconds": 20.763783500005957,
+              "end_seconds": 28.548632500023814,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 0,
+                  "time_s": 2.334980459010694
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -42479392.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 1.2676717499853112
+                },
+                "random_k": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -148029964.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 10.051540123997256
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -186846743.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 5.5763206249976065
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -79047084.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.6095974170020781
+                },
+                "z2_contributor": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -48767903.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 0.9189988329890184
+                }
+              },
+              "repair_seconds": 19.879402832011692,
+              "retime_seconds": 0.46966116505791433,
+              "start_seconds": 7.784849000017857
+            },
+            {
+              "best_trace": [
+                906386120.0,
+                906290638.0,
+                829999212.0,
+                829865882.0,
+                825106001.0,
+                805852706.0,
+                783156171.0,
+                766349198.0,
+                748907087.0,
+                731200863.0,
+                695561675.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.5136299570440315,
+              "elapsed_seconds": 142.46922345799976,
+              "end_seconds": 171.0180090830254,
+              "exit_reason": "DEADLINE",
+              "iterations": 32,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 7,
+                  "delta_sum": 64514.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 1,
+                  "time_s": 13.397719666041667
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -19253295.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 9.204919916024664
+                },
+                "random_k": {
+                  "accepted": 7,
+                  "attempts": 8,
+                  "delta_sum": -40245678.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 2,
+                  "time_s": 29.857019125047373
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 6,
+                  "delta_sum": -52417344.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 34.61903575103497
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -93733537.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 19.430426209961297
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -4759881.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 35.95563891596976
+                }
+              },
+              "repair_seconds": 141.2833776260668,
+              "retime_seconds": 0.3211647920543328,
+              "start_seconds": 28.54878562502563
+            }
+          ],
+          "iterations_total": 48,
+          "repair_seconds": 161.1627804580785,
+          "retime_seconds": 0.7908259571122471,
+          "runtime_hardness": 3.3740334669831404,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                1411730535.0,
+                1367157662.0,
+                1322336429.0,
+                1277649406.0,
+                1199024355.0,
+                1172116099.0,
+                1113079543.0,
+                1098226581.0,
+                1083467197.0,
+                1056606175.0,
+                981261392.0,
+                980794737.0,
+                958584755.0,
+                958518090.0,
+                920306575.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.3067770829948131,
+              "elapsed_seconds": 24.848510250012623,
+              "end_seconds": 32.67672404201585,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 0,
+                  "attempts": 1,
+                  "delta_sum": 36616.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 0.587033625022741
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -118368813.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.8061834999825805
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -87282519.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 7.994936875009444
+                },
+                "shaw": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": -44650409.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 0.8805402079888154
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -153969834.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 8.433539791003568
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -86582451.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 3,
+                  "time_s": 4.1416033749701455
+                }
+              },
+              "repair_seconds": 23.874782416940434,
+              "retime_seconds": 0.543000876030419,
+              "start_seconds": 7.8282137920032255
+            },
+            {
+              "best_trace": [
+                920306575.0,
+                911386798.0,
+                911360132.0,
+                911320133.0,
+                911306800.0,
+                911186803.0,
+                858191828.0,
+                858178352.0,
+                810140324.0,
+                809860331.0,
+                766269638.0,
+                724280399.0,
+                683497455.0,
+                658437812.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7041417930449825,
+              "elapsed_seconds": 138.441401707998,
+              "end_seconds": 171.1182721250225,
+              "exit_reason": "DEADLINE",
+              "iterations": 29,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 106664.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 2.9433919159928337
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 6,
+                  "delta_sum": -8609807.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 2,
+                  "time_s": 14.889115542027866
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -41908440.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 3,
+                  "time_s": 26.07488504104549
+                },
+                "shaw": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -25365409.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 35.56723358400632
+                },
+                "tardy_chain": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -210466283.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 51.051511666039005
+                },
+                "z2_contributor": {
+                  "accepted": 8,
+                  "attempts": 8,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 0,
+                  "time_s": 7.909890249982709
+                }
+              },
+              "repair_seconds": 137.07784304305096,
+              "retime_seconds": 0.4244684999866877,
+              "start_seconds": 32.676870417024475
+            }
+          ],
+          "iterations_total": 45,
+          "repair_seconds": 160.9526254599914,
+          "retime_seconds": 0.9674693760171067,
+          "runtime_hardness": 3.598224329689078,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                1411730535.0,
+                1332816781.0,
+                1300287995.0,
+                1255754758.0,
+                1208816724.0,
+                1179097467.0,
+                1153347200.0,
+                1134518322.0,
+                1096411797.0,
+                1096331799.0,
+                1059776316.0,
+                1052974703.0,
+                1035067939.0,
+                1035054606.0,
+                1001828926.0,
+                1001706894.0,
+                943965640.0,
+                943938974.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.3488814140437171,
+              "elapsed_seconds": 32.57054254200193,
+              "end_seconds": 40.36287829201319,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": -95366.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 2.064902374986559
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -74252494.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 2.4736927499761805
+                },
+                "random_k": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -134874275.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 8.03355120899505
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -50435550.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 5.386687251011608
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -136655008.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 12.07786458299961
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -71332205.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 2.529214000009233
+                }
+              },
+              "repair_seconds": 31.405717376997927,
+              "retime_seconds": 0.7079833349853288,
+              "start_seconds": 7.7923357500112616
+            },
+            {
+              "best_trace": [
+                943938974.0,
+                875818628.0,
+                875779598.0,
+                826007509.0,
+                780021992.0,
+                766921200.0,
+                738109768.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.4326400410209317,
+              "elapsed_seconds": 130.65427229201305,
+              "end_seconds": 171.0173062920221,
+              "exit_reason": "DEADLINE",
+              "iterations": 38,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 7,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 19.82494483300252
+                },
+                "preference_alternative": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -39030.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 1,
+                  "time_s": 7.469579918019008
+                },
+                "random_k": {
+                  "accepted": 8,
+                  "attempts": 9,
+                  "delta_sum": -41670065.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 2,
+                  "time_s": 33.53948062600102
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 7,
+                  "delta_sum": 226661.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 0,
+                  "time_s": 13.322204622963909
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -163877952.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 49.736877958028344
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 0,
+                  "time_s": 6.756727209023666
+                }
+              },
+              "repair_seconds": 129.63444712094497,
+              "retime_seconds": 0.38753733297926374,
+              "start_seconds": 40.363034000009065
+            }
+          ],
+          "iterations_total": 54,
+          "repair_seconds": 161.0401644979429,
+          "retime_seconds": 1.0955206679645926,
+          "runtime_hardness": 3.002512688257546,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 250,
+      "instance": "prob_39.json",
+      "instance_sha256": "baac66c946de74ae63de5672a9c53ca2150a1724602f552f8588bdabb6153965",
+      "median_repair_seconds": 158.26089479299844,
+      "median_runtime_hardness": 3.357080190040506,
+      "rank": 6,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                1356306027.0,
+                1328050808.0,
+                1327317227.0,
+                1270669642.0,
+                1240652305.0,
+                1240372312.0,
+                1222163172.0,
+                1192556764.0,
+                1162139548.0,
+                1138508675.0,
+                1115339334.0,
+                1098083367.0,
+                1078831954.0,
+                1069059699.0,
+                1026800605.0,
+                997984831.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.5990071248961613,
+              "elapsed_seconds": 15.096007709013065,
+              "end_seconds": 23.218327000009594,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -279993.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.647622374992352
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -72257229.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.509949333005352
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -58272556.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.4932291660225019
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -108315829.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 5,
+                  "time_s": 7.12134833302116
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -56647585.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.636405166995246
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -62548004.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.6792719579825643
+                }
+              },
+              "repair_seconds": 13.133293290971778,
+              "retime_seconds": 1.166436249972321,
+              "start_seconds": 8.12231929099653
+            },
+            {
+              "best_trace": [
+                997984831.0,
+                997983991.0,
+                997943992.0,
+                941433611.0,
+                918511214.0,
+                918497881.0,
+                877353692.0,
+                851219875.0,
+                851215623.0,
+                829241819.0,
+                817577024.0,
+                817523692.0,
+                800183356.0,
+                744826318.0,
+                703075173.0,
+                702701805.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7692147500347346,
+              "elapsed_seconds": 148.0278624999919,
+              "end_seconds": 171.24637329098186,
+              "exit_reason": "DEADLINE",
+              "iterations": 32,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 0,
+                  "time_s": 19.72290699998848
+                },
+                "preference_alternative": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -101865198.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 25.098880751989782
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": -17329538.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 9.78872591702384
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 9,
+                  "delta_sum": -63909811.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 5,
+                  "time_s": 72.26486883399775
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -111867419.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 11.098642917029792
+                },
+                "z2_contributor": {
+                  "accepted": 1,
+                  "attempts": 6,
+                  "delta_sum": 55400.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 0,
+                  "time_s": 10.044961249019252
+                }
+              },
+              "repair_seconds": 145.85369270699448,
+              "retime_seconds": 0.9864268740057014,
+              "start_seconds": 23.218510790989967
+            }
+          ],
+          "iterations_total": 48,
+          "repair_seconds": 158.98698599796626,
+          "retime_seconds": 2.1528631239780225,
+          "runtime_hardness": 3.357080190040506,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                1356306027.0,
+                1338096887.0,
+                1298065079.0,
+                1267627543.0,
+                1234635054.0,
+                1234634394.0,
+                1234630544.0,
+                1178190267.0,
+                1145803965.0,
+                1125693190.0,
+                1115921749.0,
+                1082277797.0,
+                1057653706.0,
+                1057653638.0,
+                1022554596.0,
+                1012754841.0,
+                995372848.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.6679040849558078,
+              "elapsed_seconds": 14.345713124988833,
+              "end_seconds": 22.470180541975424,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -3850.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.5273563330119941
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -71963867.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.663275000988506
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -42006084.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.671236998983659
+                },
+                "shaw": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -65537238.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.4133624579699244
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -56440277.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.6092210419883486
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -124981863.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 5.453205167985288
+                }
+              },
+              "repair_seconds": 12.308515916956821,
+              "retime_seconds": 1.1911471250059549,
+              "start_seconds": 8.12446741698659
+            },
+            {
+              "best_trace": [
+                995372848.0,
+                979784686.0,
+                979683827.0,
+                979683387.0,
+                923864176.0,
+                906697892.0,
+                873166212.0,
+                872043011.0,
+                856843046.0,
+                856683050.0,
+                856654935.0,
+                845344724.0,
+                833329921.0,
+                833183258.0,
+                818955648.0,
+                818942315.0,
+                808151887.0,
+                783540153.0,
+                728451306.0,
+                698087518.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 1.1682896669954062,
+              "elapsed_seconds": 148.5607367499906,
+              "end_seconds": 171.03112454197253,
+              "exit_reason": "DEADLINE",
+              "iterations": 35,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -28115.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 1,
+                  "time_s": 22.576131832029205
+                },
+                "preference_alternative": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -78547417.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 13.488405750016682
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -23325014.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 18.324212124978658
+                },
+                "shaw": {
+                  "accepted": 7,
+                  "attempts": 8,
+                  "delta_sum": -35479991.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 4,
+                  "time_s": 18.18986070805113
+                },
+                "tardy_chain": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -141271846.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 64.10632358401199
+                },
+                "z2_contributor": {
+                  "accepted": 8,
+                  "attempts": 9,
+                  "delta_sum": -18288819.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 2,
+                  "time_s": 11.866460417979397
+                }
+              },
+              "repair_seconds": 145.38750908398652,
+              "retime_seconds": 1.5605998309911229,
+              "start_seconds": 22.47038779198192
+            }
+          ],
+          "iterations_total": 51,
+          "repair_seconds": 157.69602500094334,
+          "retime_seconds": 2.7517469559970777,
+          "runtime_hardness": 3.1460347442537335,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                1356306027.0,
+                1298993132.0,
+                1253396386.0,
+                1235187246.0,
+                1207397360.0,
+                1150714325.0,
+                1126492038.0,
+                1105989681.0,
+                1082355270.0,
+                1027434334.0,
+                1000919415.0,
+                948080896.0,
+                932595403.0,
+                917508842.0,
+                912657943.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.6842570839799009,
+              "elapsed_seconds": 20.139282250020187,
+              "end_seconds": 28.26346212500357,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 2.6122613760235254
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -42431427.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.0299635420087725
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -87412147.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 4.562292749935295
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -60683307.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.8684674170217477
+                },
+                "tardy_chain": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -221755385.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 4.837567751004826
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -31365818.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 3.220615208032541
+                }
+              },
+              "repair_seconds": 18.209777250071056,
+              "retime_seconds": 1.0556007080012932,
+              "start_seconds": 8.124179874983383
+            },
+            {
+              "best_trace": [
+                912657943.0,
+                861623619.0,
+                861594484.0,
+                844991472.0,
+                844990742.0,
+                794053555.0,
+                781972025.0,
+                781962521.0,
+                735734269.0,
+                735707603.0,
+                733149586.0,
+                696262757.0,
+                696262491.0,
+                696047248.0,
+                676021082.0,
+                653933166.0,
+                643240206.0,
+                616997814.0,
+                581958690.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 1.2199615010467824,
+              "elapsed_seconds": 142.76765724999132,
+              "end_seconds": 171.0313017499866,
+              "exit_reason": "DEADLINE",
+              "iterations": 29,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 4,
+                  "delta_sum": 383422.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 27.530327251006383
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 5,
+                  "delta_sum": -28176282.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 20.643778833997203
+                },
+                "random_k": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -22098150.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 12.951275375002297
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -37179730.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 11.750650708039757
+                },
+                "tardy_chain": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -220125716.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 6,
+                  "time_s": 55.268011248030234
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -22584183.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 14.614159084012499
+                }
+              },
+              "repair_seconds": 140.0511175429274,
+              "retime_seconds": 1.016060915979324,
+              "start_seconds": 28.26364449999528
+            }
+          ],
+          "iterations_total": 45,
+          "repair_seconds": 158.26089479299844,
+          "retime_seconds": 2.071661623980617,
+          "runtime_hardness": 3.56294569815509,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 100,
+      "instance": "prob_21.json",
+      "instance_sha256": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b",
+      "median_repair_seconds": 126.299649290042,
+      "median_runtime_hardness": 3.0989858805959765,
+      "rank": 7,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                360614955.0,
+                344897007.0,
+                325457493.0,
+                325013874.0,
+                292027441.0,
+                290174154.0,
+                284428284.0,
+                278548431.0,
+                259783173.0,
+                221890787.0,
+                202189642.0,
+                172947933.0,
+                170547993.0,
+                157817824.0,
+                155524548.0,
+                155199136.0,
+                146999721.0,
+                143546474.0,
+                137896012.0,
+                136216054.0,
+                131952494.0,
+                131152514.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.19896545802475885,
+              "elapsed_seconds": 32.72541391701088,
+              "end_seconds": 41.910670709010446,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -769031.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 3,
+                  "time_s": 7.155502289970173
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -8199415.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 2.8751338750007562
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -44492636.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 7,
+                  "time_s": 9.483895582990954
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -18380631.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.699932124989573
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -62228142.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 4,
+                  "time_s": 5.486221250001108
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -19701145.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 5.022763251006836
+                }
+              },
+              "repair_seconds": 17.00367845702567,
+              "retime_seconds": 15.479676126968116,
+              "start_seconds": 9.185256791999564
+            },
+            {
+              "best_trace": [
+                131152514.0,
+                103693581.0,
+                102173619.0,
+                80837696.0,
+                76833133.0,
+                76713136.0,
+                76630212.0,
+                76628815.0,
+                76202159.0,
+                64762445.0,
+                64726169.0,
+                63406202.0,
+                57113026.0,
+                47980924.0,
+                37360883.0,
+                37200887.0,
+                34128667.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.3094789980677888,
+              "elapsed_seconds": 129.10151416700683,
+              "end_seconds": 171.01234945902252,
+              "exit_reason": "DEADLINE",
+              "iterations": 36,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": -119200.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 4,
+                  "time_s": 18.438284874981036
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -1397.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 7.130565542000113
+                },
+                "random_k": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 0,
+                  "time_s": 5.387737290991936
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 6,
+                  "delta_sum": 82068.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 1,
+                  "time_s": 8.885844249976799
+                },
+                "tardy_chain": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -71619219.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 7,
+                  "time_s": 66.67670395900495
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 7,
+                  "delta_sum": -3713830.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 2,
+                  "time_s": 22.580495458998485
+                }
+              },
+              "repair_seconds": 109.29597083301633,
+              "retime_seconds": 19.367940373980673,
+              "start_seconds": 41.91083529201569
+            }
+          ],
+          "iterations_total": 52,
+          "repair_seconds": 126.299649290042,
+          "retime_seconds": 34.84761650094879,
+          "runtime_hardness": 3.0989858805959765,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                367668112.0,
+                343331459.0,
+                323891317.0,
+                312108681.0,
+                286269327.0,
+                285637133.0,
+                253084213.0,
+                226244884.0,
+                216607301.0,
+                215087339.0,
+                211688207.0,
+                175875769.0,
+                168868894.0,
+                141789335.0,
+                134762844.0,
+                126218851.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.18577362500946037,
+              "elapsed_seconds": 19.82145054198918,
+              "end_seconds": 28.967651334009133,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 0.32636450001155026
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -37373368.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 5,
+                  "time_s": 6.162473834992852
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -15550868.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.2878124169947114
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -12414830.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.305780249997042
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -59632479.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 4,
+                  "time_s": 4.8903287920111325
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -19440142.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 1,
+                  "time_s": 2.84678970798268
+                }
+              },
+              "repair_seconds": 9.664160209998954,
+              "retime_seconds": 9.936057499988237,
+              "start_seconds": 9.146200792019954
+            },
+            {
+              "best_trace": [
+                126218851.0,
+                126218511.0,
+                125551861.0,
+                125405198.0,
+                122485271.0,
+                101263469.0,
+                96023600.0,
+                96022500.0,
+                96019590.0,
+                95952925.0,
+                81921983.0,
+                81615324.0,
+                66665748.0,
+                66350059.0,
+                53609857.0,
+                42931577.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.5050092930323444,
+              "elapsed_seconds": 142.04557833302533,
+              "end_seconds": 171.01338450002368,
+              "exit_reason": "DEADLINE",
+              "iterations": 32,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -315689.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 16.717596709000645
+                },
+                "preference_alternative": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -340.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 18.25860695898882
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -2910.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 3.005238499987172
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -813313.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 1.1667956659803167
+                },
+                "tardy_chain": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": -73620802.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 7,
+                  "time_s": 96.40817891596816
+                },
+                "z2_contributor": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 0,
+                  "time_s": 6.487342499021906
+                }
+              },
+              "repair_seconds": 132.12088970807963,
+              "retime_seconds": 9.34568741597468,
+              "start_seconds": 28.967806166998344
+            }
+          ],
+          "iterations_total": 48,
+          "repair_seconds": 141.78504991807858,
+          "retime_seconds": 19.281744915962918,
+          "runtime_hardness": 3.355558225709198,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                367081460.0,
+                334082447.0,
+                321242768.0,
+                320722834.0,
+                308496473.0,
+                289069108.0,
+                284349226.0,
+                269509597.0,
+                264736786.0,
+                235727964.0,
+                227290071.0,
+                215532728.0,
+                206186295.0,
+                199783945.0,
+                190962055.0,
+                179943697.0,
+                172321201.0,
+                170961235.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.2407958300318569,
+              "elapsed_seconds": 26.819103540998185,
+              "end_seconds": 36.31412479100982,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 159343.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 5.354313415999059
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -27865258.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.9030435000022408
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -29763086.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 7.58118300003116
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -17050088.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 5,
+                  "time_s": 7.310120457987068
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -62007835.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.5605645829928108
+                },
+                "z2_contributor": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": -8748155.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 1.1078670409915503
+                }
+              },
+              "repair_seconds": 16.650144500978058,
+              "retime_seconds": 9.879257252032403,
+              "start_seconds": 9.495021250011632
+            },
+            {
+              "best_trace": [
+                170961235.0,
+                145316123.0,
+                142196201.0,
+                142182041.0,
+                141791301.0,
+                138258056.0,
+                111961150.0,
+                109266924.0,
+                108306948.0,
+                88286438.0,
+                88206440.0,
+                70414892.0,
+                70294895.0,
+                56175248.0,
+                44876583.0,
+                44871247.0,
+                44857914.0,
+                44844474.0,
+                42071004.0,
+                40084387.0,
+                39711063.0,
+                37699020.0,
+                27878025.0,
+                26811385.0,
+                26758053.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7624001249496359,
+              "elapsed_seconds": 134.698328708997,
+              "end_seconds": 171.01265987500665,
+              "exit_reason": "DEADLINE",
+              "iterations": 50,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 11,
+                  "delta_sum": 191479.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 0,
+                  "time_s": 33.079571458976716
+                },
+                "preference_alternative": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -2721826.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 9.320083499973407
+                },
+                "random_k": {
+                  "accepted": 8,
+                  "attempts": 8,
+                  "delta_sum": -3998660.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 4,
+                  "time_s": 17.402187540952582
+                },
+                "shaw": {
+                  "accepted": 10,
+                  "attempts": 10,
+                  "delta_sum": -18302285.0,
+                  "exceptions": 0,
+                  "feasible": 10,
+                  "new_best": 6,
+                  "time_s": 28.636711250030203
+                },
+                "tardy_chain": {
+                  "accepted": 9,
+                  "attempts": 9,
+                  "delta_sum": -93082188.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 7,
+                  "time_s": 26.96408450094168
+                },
+                "z2_contributor": {
+                  "accepted": 4,
+                  "attempts": 6,
+                  "delta_sum": -2618810.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 4,
+                  "time_s": 19.29324525000993
+                }
+              },
+              "repair_seconds": 109.58196650882019,
+              "retime_seconds": 24.240264332969673,
+              "start_seconds": 36.31433116600965
+            }
+          ],
+          "iterations_total": 66,
+          "repair_seconds": 126.23211100979825,
+          "retime_seconds": 34.119521585002076,
+          "runtime_hardness": 2.429570190830308,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 200,
+      "instance": "prob_33.json",
+      "instance_sha256": "01a59c5da7b9cd36437f4dbb12783a07f11727cc2a39e740c30462fd11ed04fd",
+      "median_repair_seconds": 159.4365359120129,
+      "median_runtime_hardness": 3.0986032098858582,
+      "rank": 8,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                647513491.0,
+                636874850.0,
+                616082568.0,
+                615962836.0,
+                588458908.0,
+                573257469.0,
+                562589073.0,
+                545905758.0,
+                518822199.0,
+                518818529.0,
+                512497093.0,
+                496168723.0,
+                480567216.0,
+                474275095.0,
+                466911198.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.43846545901033096,
+              "elapsed_seconds": 11.92382029199507,
+              "end_seconds": 19.990531666990137,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 4,
+                  "delta_sum": -20888800.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 2,
+                  "time_s": 2.5744241660286207
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -16328370.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.9047904159815516
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -43872373.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 2.6330682080006227
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -15605177.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.9670989580044989
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -54587487.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.4137211260094773
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -29296872.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.425162958970759
+                }
+              },
+              "repair_seconds": 10.719223706953926,
+              "retime_seconds": 0.6352785420313012,
+              "start_seconds": 8.066711374995066
+            },
+            {
+              "best_trace": [
+                466911198.0,
+                440254652.0,
+                434874803.0,
+                410078580.0,
+                394131058.0,
+                394128058.0,
+                384326352.0,
+                360258178.0,
+                336681486.0,
+                324322905.0,
+                324269569.0,
+                302703105.0,
+                292447853.0,
+                292442883.0,
+                286374483.0,
+                283578184.0,
+                283519684.0,
+                261231903.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.8755857090000063,
+              "elapsed_seconds": 151.05655333399773,
+              "end_seconds": 171.0472577920009,
+              "exit_reason": "DEADLINE",
+              "iterations": 36,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 7,
+                  "delta_sum": 26668.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 0,
+                  "time_s": 8.417799917981029
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -28999073.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 11.461542792007094
+                },
+                "random_k": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": -6035065.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 1,
+                  "time_s": 34.508885081944754
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 6,
+                  "delta_sum": -22081039.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 19.584278169000754
+                },
+                "tardy_chain": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -120664099.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 5,
+                  "time_s": 57.86328145902371
+                },
+                "z2_contributor": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": -5446319.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 5,
+                  "time_s": 19.19214429197018
+                }
+              },
+              "repair_seconds": 148.717312205059,
+              "retime_seconds": 1.055552460020408,
+              "start_seconds": 19.990704458003165
+            }
+          ],
+          "iterations_total": 52,
+          "repair_seconds": 159.4365359120129,
+          "retime_seconds": 1.6908310020517092,
+          "runtime_hardness": 3.0986032098858582,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                647513491.0,
+                631184651.0,
+                614487236.0,
+                611481487.0,
+                588487242.0,
+                588404465.0,
+                560896257.0,
+                555497198.0,
+                537410753.0,
+                531090437.0,
+                513381044.0,
+                499010140.0,
+                471954405.0,
+                468380157.0,
+                461450490.0,
+                452449431.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.4790562929410953,
+              "elapsed_seconds": 13.874809708999237,
+              "end_seconds": 21.866902916983236,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -82777.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.6999292079999577
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -52124678.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 2.4942022089962848
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -23371963.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.339837833016645
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -3005749.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 1.2146344590000808
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -54563943.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.9148905420152005
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -61914950.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 5.2057376239972655
+                }
+              },
+              "repair_seconds": 12.71941325001535,
+              "retime_seconds": 0.5557571650715545,
+              "start_seconds": 7.992093207983999
+            },
+            {
+              "best_trace": [
+                452449431.0,
+                450669776.0,
+                434860709.0,
+                423643539.0,
+                423557121.0,
+                397731363.0,
+                394395667.0,
+                392819562.0,
+                367537518.0,
+                367530851.0,
+                344578004.0,
+                321763515.0,
+                321723513.0,
+                299654669.0,
+                299634668.0,
+                299594666.0,
+                299576774.0,
+                287755950.0,
+                268216117.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7494110848929267,
+              "elapsed_seconds": 149.16173495800467,
+              "end_seconds": 171.0288115000003,
+              "exit_reason": "DEADLINE",
+              "iterations": 33,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -10608.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 9.160123624984408
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 5,
+                  "delta_sum": -3103232.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 2,
+                  "time_s": 20.957789124950068
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 0,
+                  "time_s": 6.876974250015337
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -17892.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 2,
+                  "time_s": 11.934966416971292
+                },
+                "tardy_chain": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": -138483815.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 9,
+                  "time_s": 55.34611678996589
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 7,
+                  "delta_sum": -41982747.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 4,
+                  "time_s": 44.88000379203004
+                }
+              },
+              "repair_seconds": 147.25907245991402,
+              "retime_seconds": 0.7910451240022667,
+              "start_seconds": 21.86707654199563
+            }
+          ],
+          "iterations_total": 49,
+          "repair_seconds": 159.97848570992937,
+          "retime_seconds": 1.3468022890738212,
+          "runtime_hardness": 3.2923528163061877,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                647513491.0,
+                620009563.0,
+                609304598.0,
+                592975748.0,
+                577450300.0,
+                577370813.0,
+                550274784.0,
+                534306772.0,
+                518513760.0,
+                501832655.0,
+                491075751.0,
+                485315463.0,
+                485155455.0,
+                472721500.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.4029007500212174,
+              "elapsed_seconds": 12.413290333992336,
+              "end_seconds": 20.45591354201315,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -79487.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 1,
+                  "time_s": 2.0755064160039183
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -32296862.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.107648875011364
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -47835652.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 3.967720876011299
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -10864973.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 2,
+                  "time_s": 2.688951874995837
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -54599957.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 0.924629291985184
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -29115060.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.6432911250158213
+                }
+              },
+              "repair_seconds": 11.25885516605922,
+              "retime_seconds": 0.6321607499849051,
+              "start_seconds": 8.042623208020814
+            },
+            {
+              "best_trace": [
+                472721500.0,
+                445668695.0,
+                430953388.0,
+                406063564.0,
+                399776965.0,
+                399763631.0,
+                392263709.0,
+                392262559.0,
+                392262336.0,
+                391225348.0,
+                391205347.0,
+                366430885.0,
+                366424218.0,
+                358875822.0,
+                350572465.0,
+                327201340.0,
+                327194673.0,
+                326869237.0,
+                319027629.0,
+                312291964.0,
+                306918362.0,
+                301466920.0,
+                301393583.0,
+                301360248.0,
+                284964016.0,
+                282440542.0,
+                282400540.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 1.0416086690675002,
+              "elapsed_seconds": 150.65996020799503,
+              "end_seconds": 171.11604758299654,
+              "exit_reason": "DEADLINE",
+              "iterations": 37,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 7,
+                  "attempts": 8,
+                  "delta_sum": -60567.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 3,
+                  "time_s": 18.87818241797504
+                },
+                "preference_alternative": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -47218741.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 8,
+                  "time_s": 26.08564641501289
+                },
+                "random_k": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -10826194.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 16.961104541027453
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 6,
+                  "delta_sum": 129833.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 1,
+                  "time_s": 11.552961456996854
+                },
+                "tardy_chain": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -116484448.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 7,
+                  "time_s": 51.836831959954
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -15598011.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 4,
+                  "time_s": 25.33852175003267
+                }
+              },
+              "repair_seconds": 148.00263770695892,
+              "retime_seconds": 1.228346751013305,
+              "start_seconds": 20.456087375001516
+            }
+          ],
+          "iterations_total": 53,
+          "repair_seconds": 159.26149287301814,
+          "retime_seconds": 1.8605075009982102,
+          "runtime_hardness": 3.040037742905969,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 150,
+      "instance": "prob_28.json",
+      "instance_sha256": "8f77e8c499896e62e03850d6047b2d90ae659a4f303318a2dee3f1ef87b5f93c",
+      "median_repair_seconds": 120.70673487696331,
+      "median_runtime_hardness": 3.0747347492807027,
+      "rank": 9,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                708435240.0,
+                679653153.0,
+                677976496.0,
+                638086663.0,
+                624336538.0,
+                611461990.0,
+                606286707.0,
+                588842079.0,
+                583070195.0,
+                486605940.0,
+                477827789.0,
+                477680837.0,
+                453655383.0,
+                442620979.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.30151029097032733,
+              "elapsed_seconds": 13.211521208984777,
+              "end_seconds": 20.084892167011276,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -1676657.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 1,
+                  "time_s": 2.6304862499819137
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -11034404.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.8889575829962268
+                },
+                "random_k": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -88210365.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 3.247208207962103
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -11094119.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 5.412663501978386
+                },
+                "tardy_chain": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -39889833.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.3474991249968298
+                },
+                "z2_contributor": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -17444628.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 0.6812715000123717
+                }
+              },
+              "repair_seconds": 10.252158167015295,
+              "retime_seconds": 2.5821535410068464,
+              "start_seconds": 6.873370958026499
+            },
+            {
+              "best_trace": [
+                442620979.0,
+                403241535.0,
+                388121913.0,
+                386028632.0,
+                377402181.0,
+                375455563.0,
+                375255568.0,
+                371109005.0,
+                370975675.0,
+                370952452.0,
+                368965835.0,
+                351307810.0,
+                351281144.0,
+                351263621.0,
+                342084489.0,
+                340284534.0,
+                334881391.0,
+                331721470.0,
+                318840218.0,
+                245548717.0,
+                211031274.0,
+                206831009.0,
+                201671138.0,
+                179176340.0,
+                179043010.0,
+                173482584.0,
+                143792216.0,
+                142978903.0,
+                118079010.0,
+                117462354.0,
+                103348187.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7306657089793589,
+              "elapsed_seconds": 150.93472187497537,
+              "end_seconds": 171.0197646250017,
+              "exit_reason": "DEADLINE",
+              "iterations": 42,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 9,
+                  "delta_sum": 672557.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 2,
+                  "time_s": 27.00720491501852
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -23061168.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 4.7350632489833515
+                },
+                "random_k": {
+                  "accepted": 9,
+                  "attempts": 9,
+                  "delta_sum": -19556479.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 7,
+                  "time_s": 21.608119292010088
+                },
+                "shaw": {
+                  "accepted": 8,
+                  "attempts": 8,
+                  "delta_sum": -43237746.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 8,
+                  "time_s": 44.43194787701941
+                },
+                "tardy_chain": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -142894884.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 6,
+                  "time_s": 37.1430601250031
+                },
+                "z2_contributor": {
+                  "accepted": 9,
+                  "attempts": 9,
+                  "delta_sum": -8643974.0,
+                  "exceptions": 0,
+                  "feasible": 9,
+                  "new_best": 4,
+                  "time_s": 16.00575778898201
+                }
+              },
+              "repair_seconds": 106.27719600309501,
+              "retime_seconds": 43.676250416989205,
+              "start_seconds": 20.085042750026332
+            }
+          ],
+          "iterations_total": 58,
+          "repair_seconds": 116.52935417011031,
+          "retime_seconds": 46.25840395799605,
+          "runtime_hardness": 2.806685484967351,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                708435240.0,
+                680995074.0,
+                663308751.0,
+                653885146.0,
+                648952186.0,
+                609062353.0,
+                608696255.0,
+                589155651.0,
+                575907545.0,
+                556577156.0,
+                458046286.0,
+                418646940.0,
+                418593608.0,
+                416406996.0,
+                399966502.0,
+                396419607.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.2796552909712773,
+              "elapsed_seconds": 14.824325624998892,
+              "end_seconds": 21.675100333988667,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 0,
+                  "time_s": 0.45810254200478084
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -60228876.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 1.9808065840043128
+                },
+                "random_k": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -39317778.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 5.28829295898322
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -14356565.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.172228957992047
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -79289179.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.7094328750099521
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -18105753.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 4,
+                  "time_s": 4.2119698770402465
+                }
+              },
+              "repair_seconds": 9.929458124970552,
+              "retime_seconds": 4.532437335961731,
+              "start_seconds": 6.850774708989775
+            },
+            {
+              "best_trace": [
+                396419607.0,
+                384004936.0,
+                383978270.0,
+                383874692.0,
+                374621590.0,
+                339005724.0,
+                264194261.0,
+                261380998.0,
+                256689058.0,
+                252133784.0,
+                252088083.0,
+                247248204.0,
+                215964111.0,
+                215084133.0,
+                214897471.0,
+                213283403.0,
+                210510139.0,
+                205317303.0,
+                202544039.0,
+                175736611.0,
+                174186958.0,
+                173546974.0,
+                150252608.0,
+                150052613.0,
+                129726167.0,
+                112978813.0,
+                112632155.0,
+                97912523.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.6394318329694215,
+              "elapsed_seconds": 149.34236383301322,
+              "end_seconds": 171.01762025000062,
+              "exit_reason": "DEADLINE",
+              "iterations": 37,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 3,
+                  "attempts": 4,
+                  "delta_sum": 12381.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 0,
+                  "time_s": 10.228777749987785
+                },
+                "preference_alternative": {
+                  "accepted": 5,
+                  "attempts": 6,
+                  "delta_sum": -23355951.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 14.277476876042783
+                },
+                "random_k": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -6788190.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 7,
+                  "time_s": 20.34438800002681
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -16850932.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 6,
+                  "time_s": 32.46349620798719
+                },
+                "tardy_chain": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -145642745.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 6,
+                  "time_s": 55.46931003994541
+                },
+                "z2_contributor": {
+                  "accepted": 11,
+                  "attempts": 11,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 11,
+                  "new_best": 2,
+                  "time_s": 16.55533724994166
+                }
+              },
+              "repair_seconds": 110.77727675199276,
+              "retime_seconds": 37.7217694989522,
+              "start_seconds": 21.675256416987395
+            }
+          ],
+          "iterations_total": 53,
+          "repair_seconds": 120.70673487696331,
+          "retime_seconds": 42.25420683491393,
+          "runtime_hardness": 3.0747347492807027,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                708435240.0,
+                668545545.0,
+                639502130.0,
+                617221691.0,
+                602166663.0,
+                580357694.0,
+                566011386.0,
+                546219810.0,
+                525536894.0,
+                521565128.0,
+                508117689.0,
+                488414960.0,
+                457425688.0,
+                457080749.0,
+                420016328.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.2883460420416668,
+              "elapsed_seconds": 12.809217458008789,
+              "end_seconds": 19.750394167000195,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 2,
+                  "delta_sum": 21228.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 0,
+                  "time_s": 2.015678709023632
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -64772324.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 1.7970602500427049
+                },
+                "random_k": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -82343080.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 5,
+                  "time_s": 3.7748448330094106
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -60032687.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.6895394170132931
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -76954116.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.08738404099131
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -4316705.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.4412481660256162
+                }
+              },
+              "repair_seconds": 12.086728915106505,
+              "retime_seconds": 0.35666687504271977,
+              "start_seconds": 6.9411767089914065
+            },
+            {
+              "best_trace": [
+                420016328.0,
+                385868634.0,
+                385841968.0,
+                346096295.0,
+                337858007.0,
+                271286338.0,
+                265965144.0,
+                265938478.0,
+                265935349.0,
+                264374781.0,
+                259148245.0,
+                253495056.0,
+                253472931.0,
+                253299602.0,
+                237899392.0,
+                202608825.0,
+                199568901.0,
+                190910439.0,
+                188970212.0,
+                185343636.0,
+                155552338.0,
+                153026418.0,
+                152893088.0,
+                151067707.0,
+                151054374.0,
+                145617923.0,
+                113872050.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7296544150449336,
+              "elapsed_seconds": 151.27521537500434,
+              "end_seconds": 171.02578254201217,
+              "exit_reason": "DEADLINE",
+              "iterations": 29,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 5,
+                  "delta_sum": 319992.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 0,
+                  "time_s": 15.905346457031555
+                },
+                "preference_alternative": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -17060277.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 7,
+                  "time_s": 15.145707210002001
+                },
+                "random_k": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": -5419573.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 4,
+                  "time_s": 36.41296004405012
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -8707253.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 6,
+                  "time_s": 39.142227542062756
+                },
+                "tardy_chain": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -99229559.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 3,
+                  "time_s": 24.94732254301198
+                },
+                "z2_contributor": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -25404700.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 19.717928791011218
+                }
+              },
+              "repair_seconds": 122.43348741700174,
+              "retime_seconds": 27.92559820698807,
+              "start_seconds": 19.75056716700783
+            }
+          ],
+          "iterations_total": 45,
+          "repair_seconds": 134.52021633210825,
+          "retime_seconds": 28.28226508203079,
+          "runtime_hardness": 3.617832920314201,
+          "seed": 20260712
+        }
+      ]
+    },
+    {
+      "block_count": 100,
+      "instance": "prob_24.json",
+      "instance_sha256": "b236dc3e0a3326bf25af9762754fdb9ac8cd2277cc5eb030c37162c51d111e60",
+      "median_repair_seconds": 121.73812296209508,
+      "median_runtime_hardness": 2.9761167561287207,
+      "rank": 10,
+      "seed_measurements": [
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                266677853.0,
+                255689212.0,
+                255551164.0,
+                253537881.0,
+                253471216.0,
+                250337961.0,
+                225988481.0,
+                221895473.0,
+                220628838.0,
+                215375459.0,
+                207635559.0,
+                198022466.0,
+                173489118.0,
+                168974010.0,
+                160427557.0,
+                156693711.0,
+                156598948.0,
+                142528455.0,
+                136261945.0,
+                120172395.0,
+                118399106.0,
+                108190178.0,
+                106776880.0,
+                106776595.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.5042747510015033,
+              "elapsed_seconds": 27.069382124987897,
+              "end_seconds": 35.81759674998466,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -299761.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 7.540437625953928
+                },
+                "preference_alternative": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": -14070493.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 2,
+                  "time_s": 2.8117652500222903
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -30543956.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 6.52159387600841
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -20604658.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 4.5914815830183215
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -48882828.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.3232942919712514
+                },
+                "z2_contributor": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -13247035.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 4,
+                  "time_s": 4.27895316798822
+                }
+              },
+              "repair_seconds": 13.38187404294149,
+              "retime_seconds": 13.138110873987898,
+              "start_seconds": 8.748214624996763
+            },
+            {
+              "best_trace": [
+                106776595.0,
+                106464650.0,
+                104718027.0,
+                104646587.0,
+                84438780.0,
+                82958817.0,
+                63772630.0,
+                45159762.0,
+                34173370.0,
+                34093372.0,
+                34078619.0,
+                33665296.0,
+                26383756.0,
+                25677107.0,
+                19178943.0,
+                19145013.0,
+                18545028.0,
+                15954116.0,
+                15927951.0,
+                15584606.0,
+                15424610.0,
+                15408640.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.8584199999750126,
+              "elapsed_seconds": 135.1988189999829,
+              "end_seconds": 171.01658041597693,
+              "exit_reason": "DEADLINE",
+              "iterations": 45,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 8,
+                  "attempts": 8,
+                  "delta_sum": -479353.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 5,
+                  "time_s": 12.006193333043484
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 4,
+                  "delta_sum": 119078.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 2,
+                  "time_s": 12.396922416024609
+                },
+                "random_k": {
+                  "accepted": 8,
+                  "attempts": 8,
+                  "delta_sum": -343345.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 2,
+                  "time_s": 11.172948749997886
+                },
+                "shaw": {
+                  "accepted": 6,
+                  "attempts": 7,
+                  "delta_sum": 24652.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 4,
+                  "time_s": 18.15521979003097
+                },
+                "tardy_chain": {
+                  "accepted": 6,
+                  "attempts": 8,
+                  "delta_sum": -55764610.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 8,
+                  "time_s": 75.57268295699032
+                },
+                "z2_contributor": {
+                  "accepted": 10,
+                  "attempts": 10,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 10,
+                  "new_best": 0,
+                  "time_s": 5.892865250003524
+                }
+              },
+              "repair_seconds": 108.35624891915359,
+              "retime_seconds": 25.885469332017237,
+              "start_seconds": 35.81776141599403
+            }
+          ],
+          "iterations_total": 61,
+          "repair_seconds": 121.73812296209508,
+          "retime_seconds": 39.023580206005136,
+          "runtime_hardness": 2.6354377568541016,
+          "seed": 20260710
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                267917822.0,
+                264841441.0,
+                264694778.0,
+                259663710.0,
+                249437299.0,
+                242717073.0,
+                239250493.0,
+                230561188.0,
+                228107916.0,
+                203797211.0,
+                203794771.0,
+                203714773.0,
+                188789015.0,
+                186916733.0,
+                172100941.0,
+                148154873.0,
+                144697162.0,
+                125426848.0,
+                120893628.0,
+                120882158.0,
+                116784075.0,
+                111797533.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.3599499159026891,
+              "elapsed_seconds": 26.04122837499017,
+              "end_seconds": 34.81610895798076,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 1,
+                  "attempts": 1,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 1,
+                  "new_best": 1,
+                  "time_s": 2.3385011670179665
+                },
+                "preference_alternative": {
+                  "accepted": 3,
+                  "attempts": 3,
+                  "delta_sum": -32817931.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 5,
+                  "time_s": 6.513092957960907
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -7555794.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.0090712920064107
+                },
+                "shaw": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -8689305.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 3.2090262919664383
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -43581019.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 3,
+                  "time_s": 3.6636910840461496
+                },
+                "z2_contributor": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -13637486.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 7,
+                  "time_s": 7.305994124035351
+                }
+              },
+              "repair_seconds": 10.821946334996028,
+              "retime_seconds": 14.81807546003256,
+              "start_seconds": 8.77488058299059
+            },
+            {
+              "best_trace": [
+                111797533.0,
+                105451272.0,
+                104997950.0,
+                102784672.0,
+                102718007.0,
+                84749451.0,
+                82416176.0,
+                77916718.0,
+                63096631.0,
+                50253960.0,
+                44414106.0,
+                44200778.0,
+                32991582.0,
+                31631616.0,
+                23116833.0,
+                22396851.0,
+                21010219.0,
+                20941484.0,
+                20781488.0,
+                20773328.0,
+                19226700.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.7660382910398766,
+              "elapsed_seconds": 136.20031824999023,
+              "end_seconds": 171.01659204097814,
+              "exit_reason": "DEADLINE",
+              "iterations": 32,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 5,
+                  "delta_sum": -266660.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 10.0270062929485
+                },
+                "preference_alternative": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -10863192.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 4,
+                  "time_s": 28.845553541992558
+                },
+                "random_k": {
+                  "accepted": 2,
+                  "attempts": 3,
+                  "delta_sum": -719317.0,
+                  "exceptions": 0,
+                  "feasible": 3,
+                  "new_best": 2,
+                  "time_s": 6.757008208049228
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 5,
+                  "delta_sum": -461482.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 4,
+                  "time_s": 19.849999707977986
+                },
+                "tardy_chain": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": -65355293.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 8,
+                  "time_s": 63.57025566700031
+                },
+                "z2_contributor": {
+                  "accepted": 7,
+                  "attempts": 7,
+                  "delta_sum": 0.0,
+                  "exceptions": 0,
+                  "feasible": 7,
+                  "new_best": 0,
+                  "time_s": 7.148541293019662
+                }
+              },
+              "repair_seconds": 112.85501558298711,
+              "retime_seconds": 22.50792404092499,
+              "start_seconds": 34.81627379098791
+            }
+          ],
+          "iterations_total": 48,
+          "repair_seconds": 123.67696191798314,
+          "retime_seconds": 37.32599950095755,
+          "runtime_hardness": 3.3542283628945975,
+          "seed": 20260711
+        },
+        {
+          "invocation_measurements": [
+            {
+              "best_trace": [
+                270424426.0,
+                246074941.0,
+                228672248.0,
+                224352356.0,
+                221275975.0,
+                220276000.0,
+                208377409.0,
+                183018043.0,
+                182963128.0,
+                164536334.0,
+                160256441.0,
+                140538501.0,
+                132978157.0,
+                130658215.0,
+                126923265.0,
+                121123410.0,
+                110047425.0,
+                107277444.0,
+                103624202.0,
+                101026788.0,
+                100022716.0,
+                97116122.0,
+                89544728.0,
+                87049810.0,
+                83316570.0,
+                83311670.0
+              ],
+              "budget_seconds": 60.0,
+              "checker_seconds": 0.468004291964462,
+              "elapsed_seconds": 33.92029491698486,
+              "end_seconds": 42.669860750000225,
+              "exit_reason": "ITERATION_LIMIT",
+              "iterations": 16,
+              "kind": "anchor",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -59815.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 2.8200055829947814
+                },
+                "preference_alternative": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -10636725.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 4,
+                  "time_s": 6.050176833028672
+                },
+                "random_k": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -26576062.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 6,
+                  "time_s": 8.772451042023022
+                },
+                "shaw": {
+                  "accepted": 4,
+                  "attempts": 4,
+                  "delta_sum": -47135831.0,
+                  "exceptions": 0,
+                  "feasible": 4,
+                  "new_best": 7,
+                  "time_s": 9.934391000017058
+                },
+                "tardy_chain": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -44067425.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 2,
+                  "time_s": 1.5797380830044858
+                },
+                "z2_contributor": {
+                  "accepted": 2,
+                  "attempts": 2,
+                  "delta_sum": -5264899.0,
+                  "exceptions": 0,
+                  "feasible": 2,
+                  "new_best": 4,
+                  "time_s": 4.761631584027782
+                }
+              },
+              "repair_seconds": 17.400684706954053,
+              "retime_seconds": 16.00779737503035,
+              "start_seconds": 8.749565833015367
+            },
+            {
+              "best_trace": [
+                83311670.0,
+                67134437.0,
+                64814231.0,
+                64579792.0,
+                64566459.0,
+                64565776.0,
+                51405263.0,
+                49569060.0,
+                49342399.0,
+                47422447.0,
+                46336487.0,
+                46336077.0,
+                44749450.0,
+                32250786.0,
+                30825677.0,
+                27732421.0,
+                26311788.0,
+                26154505.0,
+                26141172.0,
+                20674642.0
+              ],
+              "budget_seconds": 180.0,
+              "checker_seconds": 0.9409147510305047,
+              "elapsed_seconds": 128.34631304099457,
+              "end_seconds": 171.01634191599442,
+              "exit_reason": "DEADLINE",
+              "iterations": 38,
+              "kind": "extension",
+              "operator_stats": {
+                "congested_window": {
+                  "accepted": 7,
+                  "attempts": 8,
+                  "delta_sum": -144633.0,
+                  "exceptions": 0,
+                  "feasible": 8,
+                  "new_best": 1,
+                  "time_s": 18.139527958002873
+                },
+                "preference_alternative": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -5577042.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 13.338591832987731
+                },
+                "random_k": {
+                  "accepted": 5,
+                  "attempts": 6,
+                  "delta_sum": -40061.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 4,
+                  "time_s": 18.300984083965886
+                },
+                "shaw": {
+                  "accepted": 5,
+                  "attempts": 7,
+                  "delta_sum": -1531773.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 7,
+                  "time_s": 27.731582207983593
+                },
+                "tardy_chain": {
+                  "accepted": 6,
+                  "attempts": 6,
+                  "delta_sum": -41836410.0,
+                  "exceptions": 0,
+                  "feasible": 6,
+                  "new_best": 3,
+                  "time_s": 44.76326049899217
+                },
+                "z2_contributor": {
+                  "accepted": 5,
+                  "attempts": 5,
+                  "delta_sum": -1085960.0,
+                  "exceptions": 0,
+                  "feasible": 5,
+                  "new_best": 1,
+                  "time_s": 6.070015167002566
+                }
+              },
+              "repair_seconds": 104.29647179000312,
+              "retime_seconds": 23.00535095896339,
+              "start_seconds": 42.67002887499984
+            }
+          ],
+          "iterations_total": 54,
+          "repair_seconds": 121.69715649695718,
+          "retime_seconds": 39.01314833399374,
+          "runtime_hardness": 2.9761167561287207,
+          "seed": 20260712
+        }
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "selection": {
+    "runtime_hardness_formula": "median_seed((lns_repair_seconds + lns_retime_seconds) / max(1, lns_iterations))",
+    "seed_set": [
+      20260710,
+      20260711,
+      20260712
+    ],
+    "telemetry_source": {
+      "explanation": "Every 180-second record contains separately measured anchor and extension invocations. Runtime hardness sums their repair/retime seconds and iterations within the same run.",
+      "status": "measured_from_direct_invocations"
+    },
+    "tie_break": [
+      "median_repair_seconds_desc",
+      "block_count_asc",
+      "instance_number_asc"
+    ]
+  },
+  "status": "frozen"
+}

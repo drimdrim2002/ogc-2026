@@ -177,15 +177,6 @@ def load_optional_phase(
                     ),
                     densify_hook=densify_hook,
                 )
-                if trace is not None:
-                    trace.operator_stats = {
-                        name: metrics for name, metrics in result.metrics.per_operator
-                    }
-                    trace.model_stats["lns"] = result.metrics
-                    for name, duration in result.metrics.time_by_phase:
-                        trace.add_phase_time(f"lns_{name}", duration)
-                    for objective in result.metrics.best_trace:
-                        trace.add_best(objective)
                 return result
 
         return OptionalPhaseResult(
@@ -387,21 +378,57 @@ def solve(
                     trace=trace,
                 )
         if lns_runner is not None and search_budget.can_start(0.0, margin=0.01):
+            lns_started = time.monotonic()
             try:
-                lns_runner(store.snapshot, store, raw, checker, search_budget)
+                lns_result = lns_runner(
+                    store.snapshot, store, raw, checker, search_budget
+                )
             except Exception as exc:
                 if trace is not None:
+                    trace.add_lns_invocation(
+                        kind="anchor",
+                        started=lns_started,
+                        ended=time.monotonic(),
+                        budget_seconds=search_budget.limit,
+                        error=exc,
+                    )
                     trace.add_exception("lns", exc)
+            else:
+                if trace is not None:
+                    trace.add_lns_invocation(
+                        kind="anchor",
+                        started=lns_started,
+                        ended=time.monotonic(),
+                        budget_seconds=search_budget.limit,
+                        result=lns_result,
+                    )
         if (
             lns_runner is not None
             and budget.limit > search_budget.limit + 1e-9
             and budget.can_start(0.0, margin=0.01)
         ):
+            lns_started = time.monotonic()
             try:
-                lns_runner(store.snapshot, store, raw, checker, budget)
+                lns_result = lns_runner(store.snapshot, store, raw, checker, budget)
             except Exception as exc:
                 if trace is not None:
+                    trace.add_lns_invocation(
+                        kind="extension",
+                        started=lns_started,
+                        ended=time.monotonic(),
+                        budget_seconds=budget.limit,
+                        error=exc,
+                    )
                     trace.add_exception("lns_extension", exc)
+            else:
+                if trace is not None:
+                    trace.add_lns_invocation(
+                        kind="extension",
+                        started=lns_started,
+                        ended=time.monotonic(),
+                        budget_seconds=budget.limit,
+                        result=lns_result,
+                    )
     except Exception as exc:
         if trace is not None:
             trace.add_exception("optional_phase", exc)

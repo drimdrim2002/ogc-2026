@@ -35,11 +35,13 @@ from baseline.solver.state import Placement, SolutionSnapshot, compute_objective
 from baseline.utils import check_feasibility  # noqa: E402
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 ARTIFACT_ROOT = REPO_ROOT / "artifacts/ogc_sage/step9"
+PERFORMANCE_ARTIFACT_ROOT = REPO_ROOT / "artifacts/ogc_sage/performance/phase0"
 RAW_NAME = "raw.jsonl"
 SUMMARY_NAME = "summary.json"
 EVIDENCE_MANIFEST = REPO_ROOT / "docs/implementation/sol/evidence/step9-evidence.json"
+HARD10_MANIFEST = REPO_ROOT / "docs/implementation/sol/performance/HARD10_MANIFEST.json"
 DEFAULT_DATA_DIRS = (REPO_ROOT / "data/train 2", REPO_ROOT / "data/train")
 FINAL_VARIANT = "heuristic_lns"
 FINAL_BUDGETS = (60.0, 180.0)
@@ -75,6 +77,7 @@ RAW_REQUIRED_FIELDS = (
     "model_stats",
     "constructor_deadline_hit",
     "validated_best_trace",
+    "lns_invocations",
     "operator_stats",
     "exception",
     "outer_timeout",
@@ -216,6 +219,255 @@ def variant_config_payload(variant: str) -> dict[str, Any]:
 
 def config_hash(variant: str) -> str:
     return sha256_bytes(canonical_json(variant_config_payload(variant)).encode("utf-8"))
+
+
+def _historical_raw_records(path: Path) -> list[dict[str, Any]]:
+    """Read the immutable v1 baseline without presenting it as v2 telemetry."""
+    try:
+        records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ContractError(f"invalid historical raw artifact: {exc}") from exc
+    if not records or any(not isinstance(record, dict) for record in records):
+        raise ContractError("historical raw artifact has no object records")
+    return records
+
+
+def _historical_lns_iterations(record: Mapping[str, Any]) -> int:
+    try:
+        value = record["model_stats"]["lns"]["iterations"]
+    except (KeyError, TypeError) as exc:
+        raise ContractError("historical raw is missing legacy LNS iteration telemetry") from exc
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ContractError("historical raw has invalid legacy LNS iterations")
+    return value
+
+
+def _invocation_measurement(
+    record: Mapping[str, Any], expected_kinds: tuple[str, ...],
+) -> tuple[float, float, int, list[dict[str, Any]]]:
+    """Validate and aggregate direct v2 invocation telemetry."""
+    invocations = record.get("lns_invocations")
+    if not isinstance(invocations, list) or len(invocations) != len(expected_kinds):
+        raise ContractError("direct telemetry has an unexpected invocation count")
+    kinds = tuple(item.get("kind") for item in invocations if isinstance(item, Mapping))
+    if kinds != expected_kinds:
+        raise ContractError(
+            f"direct telemetry has invocation kinds {kinds!r}, expected {expected_kinds!r}"
+        )
+    repair_seconds = retime_seconds = 0.0
+    iterations = 0
+    normalized: list[dict[str, Any]] = []
+    for item in invocations:
+        if not isinstance(item, Mapping):
+            raise ContractError("direct telemetry invocation is not an object")
+        try:
+            repair = float(item["repair_seconds"])
+            retime = float(item["retime_seconds"])
+            count = int(item["iterations"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ContractError(f"direct telemetry is incomplete: {exc}") from exc
+        if (
+            not math.isfinite(repair)
+            or not math.isfinite(retime)
+            or repair < 0.0
+            or retime < 0.0
+            or count < 0
+        ):
+            raise ContractError("direct telemetry has invalid phase times or iterations")
+        repair_seconds += repair
+        retime_seconds += retime
+        iterations += count
+        normalized.append(dict(item))
+    return repair_seconds, retime_seconds, iterations, normalized
+
+
+def freeze_hard10_manifest(input_raw: Path, output: Path) -> dict[str, Any]:
+    """Freeze hard-10 from an exact 40×2×3 original-baseline artifact.
+
+    V2 records use direct invocation telemetry. V1 records retain the
+    explicitly labelled historical reconstruction only so that the old
+    baseline remains auditable.
+    """
+    records = _historical_raw_records(input_raw)
+    instances, dataset_hash = validate_dataset()
+    expected_keys = {
+        (name, budget, seed)
+        for name in instances
+        for budget in FINAL_BUDGETS
+        for seed in FINAL_SEEDS
+    }
+    by_key: dict[tuple[str, float, int], Mapping[str, Any]] = {}
+    for record in records:
+        try:
+            key = (str(record["instance"]), float(record["budget_seconds"]), int(record["seed"]))
+            valid = (
+                record["variant"] == FINAL_VARIANT
+                and record["status"] == "completed"
+                and record["feasible"] is True
+                and int(record["stage"]) == 5
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ContractError(f"malformed historical raw record: {exc}") from exc
+        if key in by_key:
+            raise ContractError(f"duplicate historical run key {key}")
+        if key in expected_keys:
+            if not valid:
+                raise ContractError(f"historical baseline did not complete cleanly: {key}")
+            by_key[key] = record
+    if set(by_key) != expected_keys:
+        missing = sorted(expected_keys - set(by_key))
+        raise ContractError(f"historical baseline is not the exact 40×2×3 matrix; missing={missing}")
+
+    direct_flags = ["lns_invocations" in record for record in by_key.values()]
+    if any(direct_flags) and not all(direct_flags):
+        raise ContractError("baseline artifact mixes legacy and direct telemetry schemas")
+    direct_telemetry = all(direct_flags)
+    if direct_telemetry:
+        for name in instances:
+            for seed in FINAL_SEEDS:
+                _invocation_measurement(by_key[(name, 60.0, seed)], ("anchor",))
+                _invocation_measurement(
+                    by_key[(name, 180.0, seed)], ("anchor", "extension")
+                )
+
+    ranked: list[dict[str, Any]] = []
+    for name, path in instances.items():
+        seed_rows: list[dict[str, Any]] = []
+        for seed in FINAL_SEEDS:
+            anchor = by_key[(name, 60.0, seed)]
+            extension = by_key[(name, 180.0, seed)]
+            if direct_telemetry:
+                repair_seconds, retime_seconds, iterations, invocations = (
+                    _invocation_measurement(extension, ("anchor", "extension"))
+                )
+                seed_rows.append(
+                    {
+                        "seed": seed,
+                        "invocation_measurements": invocations,
+                        "repair_seconds": repair_seconds,
+                        "retime_seconds": retime_seconds,
+                        "iterations_total": iterations,
+                        "runtime_hardness": (repair_seconds + retime_seconds)
+                        / max(1, iterations),
+                    }
+                )
+            else:
+                phase_times = extension.get("phase_timings", {})
+                repair_seconds = float(phase_times.get("lns_repair", 0.0))
+                retime_seconds = float(phase_times.get("lns_retime", 0.0))
+                anchor_iterations = _historical_lns_iterations(anchor)
+                extension_iterations = _historical_lns_iterations(extension)
+                iterations = anchor_iterations + extension_iterations
+                seed_rows.append(
+                    {
+                        "seed": seed,
+                        "repair_seconds_aggregate": repair_seconds,
+                        "retime_seconds_aggregate": retime_seconds,
+                        "anchor_iterations_reconstructed": anchor_iterations,
+                        "extension_iterations_legacy_last_call": extension_iterations,
+                        "iterations_total_reconstructed": iterations,
+                        "runtime_hardness": (repair_seconds + retime_seconds)
+                        / max(1, iterations),
+                    }
+                )
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        ranked.append(
+            {
+                "instance": name,
+                "instance_sha256": sha256_file(path),
+                "block_count": len(raw["blocks"]),
+                "median_runtime_hardness": statistics.median(
+                    item["runtime_hardness"] for item in seed_rows
+                ),
+                (
+                    "median_repair_seconds"
+                    if direct_telemetry
+                    else "median_repair_seconds_aggregate"
+                ): statistics.median(
+                    item["repair_seconds"]
+                    if direct_telemetry
+                    else item["repair_seconds_aggregate"]
+                    for item in seed_rows
+                ),
+                "seed_measurements": seed_rows,
+            }
+        )
+    ranked.sort(
+        key=lambda item: (
+            -float(item["median_runtime_hardness"]),
+            -float(
+                item[
+                    "median_repair_seconds"
+                    if direct_telemetry
+                    else "median_repair_seconds_aggregate"
+                ]
+            ),
+            int(item["block_count"]),
+            int(str(item["instance"]).split("_")[1].split(".")[0]),
+        )
+    )
+    selected = [dict(item, rank=index) for index, item in enumerate(ranked[:10], 1)]
+    source_commits = sorted({str(record["source_commit"]) for record in by_key.values()})
+    config_hashes = sorted({str(record["config_hash"]) for record in by_key.values()})
+    telemetry_source = (
+        {
+            "status": "measured_from_direct_invocations",
+            "explanation": "Every 180-second record contains separately measured anchor and extension invocations. Runtime hardness sums their repair/retime seconds and iterations within the same run.",
+        }
+        if direct_telemetry
+        else {
+            "status": "reconstructed_from_legacy_aggregate_raw",
+            "explanation": "The v1 raw artifact stores aggregate 180-second LNS phase time and the extension's last-call iterations. The matching 60-second record supplies the deterministic anchor iteration count; phase times are deliberately labelled aggregate rather than invocation-measured.",
+        }
+    )
+    document = {
+        "schema_version": 1,
+        "status": "frozen",
+        "selection": {
+            "runtime_hardness_formula": "median_seed((lns_repair_seconds + lns_retime_seconds) / max(1, lns_iterations))",
+            "tie_break": ["median_repair_seconds_desc", "block_count_asc", "instance_number_asc"],
+            "seed_set": list(FINAL_SEEDS),
+            "telemetry_source": telemetry_source,
+        },
+        "input_artifact": {
+            "raw": str(input_raw.relative_to(REPO_ROOT)),
+            "raw_sha256": sha256_file(input_raw),
+            "source_commits": source_commits,
+            "config_hashes": config_hashes,
+            "dataset_sha256": dataset_hash,
+            "record_count": len(by_key),
+        },
+        "instances": selected,
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return document
+
+
+def hard10_instance_names(manifest_path: Path = HARD10_MANIFEST) -> tuple[str, ...]:
+    try:
+        document = json.loads(manifest_path.read_text(encoding="utf-8"))
+        rows = document["instances"]
+        names = tuple(str(row["instance"]) for row in rows)
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ContractError(f"invalid hard-10 manifest: {exc}") from exc
+    if len(names) != 10 or len(set(names)) != 10:
+        raise ContractError("hard-10 manifest must contain exactly 10 unique instances")
+    return names
+
+
+def validate_baseline_contract(
+    *, variant: str, budgets: Iterable[float], seeds: Iterable[int],
+    requested_instances: Iterable[str] | None,
+) -> None:
+    if variant != FINAL_VARIANT:
+        raise ContractError(f"baseline gate requires variant {FINAL_VARIANT!r}")
+    if tuple(float(value) for value in budgets) != (60.0,):
+        raise ContractError("baseline gate requires the exact 60-second anchor budget")
+    if tuple(int(value) for value in seeds) != (20260710,):
+        raise ContractError("baseline gate requires seed 20260710")
+    if requested_instances is None or tuple(requested_instances) != hard10_instance_names():
+        raise ContractError("baseline gate requires the frozen hard-10 manifest order")
 
 
 def make_run_key(
@@ -368,6 +620,7 @@ def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
         "validated_best_trace": [],
         "validated_best_events": [],
         "trace_non_increasing": True,
+        "lns_invocations": [],
         "operator_stats": {},
         "retime_z1_worsen_count": 0,
         "exception": None,
@@ -424,6 +677,7 @@ def worker_record(request: Mapping[str, Any]) -> dict[str, Any]:
             ),
             validated_best_trace=trace_dict["validated_best"],
             validated_best_events=trace_dict["validated_best_events"],
+            lns_invocations=trace_dict["lns_invocations"],
             trace_non_increasing=_trace_non_increasing(trace_dict["validated_best"]),
             operator_stats=trace_dict["operator_stats"],
             retime_z1_worsen_count=_retime_z1_worsen(trace_dict),
@@ -459,7 +713,7 @@ def _empty_timeout_record(request: Mapping[str, Any], elapsed: float) -> dict[st
         construction_stats=[],
         constructor_deadline_hit=False, validated_best_trace=[],
         validated_best_events=[],
-        trace_non_increasing=True, operator_stats={}, retime_z1_worsen_count=0,
+        trace_non_increasing=True, lns_invocations=[], operator_stats={}, retime_z1_worsen_count=0,
         exception="outer timeout", outer_timeout=True, captured_stdout="",
         captured_stderr="", environment=environment_versions(),
     )
@@ -597,7 +851,7 @@ def summarize(
     gate_pass = base_pass
     if gate == "constructor":
         gate_pass = gate_pass and percentile(constructor_times, 0.90) <= 8.0 and max(constructor_times, default=0.0) <= 12.0 and not any(record["constructor_deadline_hit"] for record in records)
-    if gate == "final":
+    if gate in {"final", "phase0"}:
         gate_pass = gate_pass and regressions == 0 and len(planned_keys) == FINAL_EXPECTED_RUN_COUNT
     return {
         "schema_version": SCHEMA_VERSION,
@@ -800,14 +1054,19 @@ def command_compare(args: argparse.Namespace) -> int:
 
 def command_run(args: argparse.Namespace) -> int:
     instances, dataset_hash = validate_dataset()
-    if args.gate == "final":
+    if args.gate == "baseline":
+        validate_baseline_contract(
+            variant=args.variant, budgets=args.budgets, seeds=args.seeds,
+            requested_instances=args.instances,
+        )
+    if args.gate in {"final", "phase0"}:
         validate_final_matrix_contract(
             variant=args.variant, budgets=args.budgets, seeds=args.seeds,
             requested_instances=args.instances,
         )
         if len(instances) != FINAL_INSTANCE_COUNT:
             raise ContractError(
-                f"final gate requires {FINAL_INSTANCE_COUNT} official instances, got {len(instances)}"
+                f"{args.gate} gate requires {FINAL_INSTANCE_COUNT} official instances, got {len(instances)}"
             )
     if args.instances:
         requested = args.instances
@@ -821,7 +1080,12 @@ def command_run(args: argparse.Namespace) -> int:
     digest = config_hash(args.variant)
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = args.run_id or f"step9-{args.gate}-{timestamp}-{source_commit[:12]}-{digest[:12]}"
-    run_dir = ARTIFACT_ROOT / run_id
+    artifact_root = (
+        PERFORMANCE_ARTIFACT_ROOT
+        if args.gate in {"baseline", "phase0"}
+        else ARTIFACT_ROOT
+    )
+    run_dir = artifact_root / run_id
     raw_path = run_dir / RAW_NAME
     summary_path = run_dir / SUMMARY_NAME
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -942,11 +1206,19 @@ def command_worker(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_freeze_hard10(args: argparse.Namespace) -> int:
+    input_raw = Path(args.input_raw).resolve()
+    output = Path(args.output).resolve()
+    document = freeze_hard10_manifest(input_raw, output)
+    print(canonical_json({"manifest": str(output), "sha256": sha256_file(output), "instances": [row["instance"] for row in document["instances"]]}))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run")
-    run.add_argument("--gate", choices=("constructor", "feature", "final", "exploitation"), required=True)
+    run.add_argument("--gate", choices=("baseline", "constructor", "feature", "final", "phase0", "exploitation"), required=True)
     run.add_argument("--variant", choices=VARIANTS, default="constructor_retime")
     run.add_argument("--budgets", nargs="+", type=float, required=True)
     run.add_argument("--seeds", nargs="+", type=int, required=True)
@@ -959,6 +1231,10 @@ def parser() -> argparse.ArgumentParser:
     worker.add_argument("--request", required=True)
     worker.add_argument("--result", required=True)
     worker.set_defaults(function=command_worker)
+    freeze = commands.add_parser("freeze-hard10")
+    freeze.add_argument("--input-raw", required=True)
+    freeze.add_argument("--output", default=str(HARD10_MANIFEST))
+    freeze.set_defaults(function=command_freeze_hard10)
     archive = commands.add_parser("archive")
     archive.add_argument("--output", required=True)
     archive.set_defaults(function=command_archive)

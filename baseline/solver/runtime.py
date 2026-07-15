@@ -147,6 +147,7 @@ def _json_value(value: Any) -> Any:
 class RunTrace:
     """Bounded telemetry owned by one internal solver call."""
 
+    telemetry_schema: str = "run-trace-lns-invocations-v1"
     max_events: int = 256
     phase: str = "not_started"
     phase_times: dict[str, float] = field(default_factory=dict)
@@ -157,7 +158,9 @@ class RunTrace:
     retiming: list[dict[str, Any]] = field(default_factory=list)
     assignment: dict[str, Any] = field(default_factory=dict)
     operator_stats: dict[str, Any] = field(default_factory=dict)
+    operator_stats_last: dict[str, Any] = field(default_factory=dict)
     model_stats: dict[str, Any] = field(default_factory=dict)
+    lns_invocations: list[dict[str, Any]] = field(default_factory=list)
     exceptions: list[dict[str, str]] = field(default_factory=list)
     _started: float = field(default_factory=time.monotonic, repr=False)
 
@@ -194,6 +197,110 @@ class RunTrace:
         else:
             detail = str(error)
         self._append(self.exceptions, {"phase": phase, "detail": detail[:1000]})
+
+    def add_lns_invocation(
+        self,
+        *,
+        kind: str,
+        started: float,
+        ended: float,
+        budget_seconds: float,
+        result: Any | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        """Record one anchor or extension LNS call without changing its result.
+
+        ``phase_times`` and ``operator_stats`` remain aggregate telemetry for a
+        whole solve.  The per-call list is the authoritative source when a
+        caller needs to distinguish the 60-second anchor from an extension.
+        ``model_stats['lns']`` is retained as the legacy last-call payload;
+        the explicit ``lns_last`` and ``lns_aggregate`` keys remove that
+        ambiguity for new consumers.
+        """
+        if kind not in {"anchor", "extension"}:
+            raise ValueError(f"unknown LNS invocation kind {kind!r}")
+        metrics = getattr(result, "metrics", None)
+        phase_times = {
+            str(name): float(duration)
+            for name, duration in getattr(metrics, "time_by_phase", ())
+            if isinstance(duration, (int, float))
+            and not isinstance(duration, bool)
+            and math.isfinite(float(duration))
+            and float(duration) >= 0.0
+        }
+        operators = {
+            str(name): _json_value(values)
+            for name, values in getattr(metrics, "per_operator", ())
+        }
+        best_trace = [
+            float(value)
+            for value in getattr(metrics, "best_trace", ())
+            if isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(float(value))
+        ]
+        record = {
+            "kind": kind,
+            "start_seconds": max(0.0, float(started) - self._started),
+            "end_seconds": max(0.0, float(ended) - self._started),
+            "budget_seconds": max(0.0, float(budget_seconds)),
+            "elapsed_seconds": max(0.0, float(ended) - float(started)),
+            "iterations": int(getattr(metrics, "iterations", 0) or 0),
+            "repair_seconds": phase_times.get("repair", 0.0),
+            "retime_seconds": phase_times.get("retime", 0.0),
+            "checker_seconds": phase_times.get("checker", 0.0),
+            "exit_reason": (
+                f"ERROR:{type(error).__name__}"
+                if error is not None
+                else str(getattr(metrics, "exit_reason", "UNKNOWN"))
+            ),
+            "operator_stats": operators,
+            "best_trace": best_trace,
+        }
+        self._append(self.lns_invocations, record)
+        for name, duration in phase_times.items():
+            self.add_phase_time(f"lns_{name}", duration)
+        for objective in best_trace:
+            self.add_best(objective)
+
+        if metrics is None:
+            return
+        self.model_stats["lns"] = metrics
+        self.model_stats["lns_last"] = _json_value(metrics)
+        self.operator_stats_last = operators
+        aggregate = self.model_stats.setdefault(
+            "lns_aggregate",
+            {
+                "invocation_count": 0,
+                "iterations": 0,
+                "repair_seconds": 0.0,
+                "retime_seconds": 0.0,
+                "checker_seconds": 0.0,
+                "exit_reasons": [],
+            },
+        )
+        aggregate["invocation_count"] += 1
+        aggregate["iterations"] += record["iterations"]
+        for key in ("repair_seconds", "retime_seconds", "checker_seconds"):
+            aggregate[key] += record[key]
+        aggregate["exit_reasons"].append(record["exit_reason"])
+        for name, values in operators.items():
+            totals = self.operator_stats.setdefault(
+                name,
+                {
+                    "attempts": 0,
+                    "feasible": 0,
+                    "accepted": 0,
+                    "new_best": 0,
+                    "delta_sum": 0.0,
+                    "exceptions": 0,
+                    "time_s": 0.0,
+                },
+            )
+            for field in totals:
+                value = values.get(field, 0)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    totals[field] += value
 
     def as_dict(self) -> dict[str, Any]:
         return _json_value(self)

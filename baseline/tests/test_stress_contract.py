@@ -20,6 +20,7 @@ from experiments.ogc_sage.benchmark_ogc_sage import (  # noqa: E402
     FINAL_SEEDS,
     FINAL_VARIANT,
     SCHEMA_VERSION,
+    _invocation_measurement,
     config_hash,
     load_raw,
     make_run_key,
@@ -59,7 +60,7 @@ class StressContractTests(unittest.TestCase):
 
     def test_resume_accepts_only_schema_valid_terminal_records(self):
         record = {field: None for field in (
-            "schema_version run_key status instance instance_hash dataset_hash variant config_hash source_commit budget_seconds seed start_utc end_utc elapsed_seconds feasible stage violations obj1 obj2 obj3 objective internal_checker_objective_error phase_timings checker_timings model_stats construction_stats constructor_deadline_hit validated_best_trace validated_best_events operator_stats exception outer_timeout environment"
+            "schema_version run_key status instance instance_hash dataset_hash variant config_hash source_commit budget_seconds seed start_utc end_utc elapsed_seconds feasible stage violations obj1 obj2 obj3 objective internal_checker_objective_error phase_timings checker_timings model_stats construction_stats constructor_deadline_hit validated_best_trace validated_best_events lns_invocations operator_stats exception outer_timeout environment"
         ).split()}
         record.update(schema_version=SCHEMA_VERSION, run_key="a" * 64, status="completed")
         validate_raw_record(record)
@@ -116,6 +117,31 @@ class StressContractTests(unittest.TestCase):
     def test_summary_missing_field_is_rejected(self):
         with self.assertRaisesRegex(ContractError, "summary missing"):
             validate_summary({"schema_version": SCHEMA_VERSION})
+
+    def test_direct_invocation_measurement_requires_anchor_extension_shape(self):
+        record = {
+            "lns_invocations": [
+                {
+                    "kind": "anchor",
+                    "repair_seconds": 2.0,
+                    "retime_seconds": 0.5,
+                    "iterations": 3,
+                },
+                {
+                    "kind": "extension",
+                    "repair_seconds": 4.0,
+                    "retime_seconds": 1.0,
+                    "iterations": 5,
+                },
+            ]
+        }
+        repair, retime, iterations, rows = _invocation_measurement(
+            record, ("anchor", "extension")
+        )
+        self.assertEqual((6.0, 1.5, 8), (repair, retime, iterations))
+        self.assertEqual(2, len(rows))
+        with self.assertRaisesRegex(ContractError, "kinds"):
+            _invocation_measurement(record, ("extension", "anchor"))
 
 
 if __name__ == "__main__":
