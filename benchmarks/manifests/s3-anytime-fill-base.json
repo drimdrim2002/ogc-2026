@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "plan_id": "S3-AF",
+  "phase_id": "AF-00",
+  "attempt_id": "20260715T184340Z-af00-01",
+  "generated_at_utc": "2026-07-15T18:43:40Z",
+  "base": {
+    "commit": "3046278c337e2b3cfef7f478a0fa420dda22038e",
+    "branch": "codex/fable-s6-rehearsal",
+    "worktree": "/Users/brown/workspace/ogc/fable-native-s3-stabilization"
+  },
+  "target": {
+    "branch": "codex/fable-s3-anytime-fill",
+    "worktree": "/Users/brown/workspace/ogc/fable-native-s3-anytime"
+  },
+  "runtime": {
+    "python_executable": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "python_version": "3.12.13",
+    "packages": {
+      "gurobipy": "13.0.2",
+      "numpy": "2.1.3",
+      "ortools": "9.15.6755",
+      "psutil": "7.2.2",
+      "shapely": "2.1.2"
+    }
+  },
+  "protected_files": [
+    {
+      "path": "baseline/utils.py",
+      "sha256": "d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75"
+    },
+    {
+      "path": "baseline/baseline_greedy.py",
+      "sha256": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b"
+    }
+  ],
+  "reference_commits": [
+    {
+      "role": "resumable_s3_reference",
+      "commit": "fbeb430c7f617c6dcbfa67bd96d17c1d8d6710ff"
+    },
+    {
+      "role": "unified_s3_s4_reference",
+      "commit": "4b68031ad219688be18fc05579a21a75ad7fab96"
+    },
+    {
+      "role": "aq_05_final_record",
+      "commit": "bb1ab6bf550aa42c606e5fa2865fcd350a690cff"
+    }
+  ],
+  "qualification_evidence": {
+    "source_worktree": "/Users/brown/workspace/ogc/fable-native-s3-stabilization",
+    "s3": [
+      "benchmarks/evidence/s3-stabilization-01/qualification/20260715T033128Z-s3-stabilization01-qualification01/",
+      "benchmarks/evidence/s3-stabilization-01/s3/gate/20260715T033128Z-s3-stabilization01-qualification01-q8-gate/",
+      "benchmarks/evidence/s3-stabilization-01/s3/report/20260715T033128Z-s3-stabilization01-qualification01-q9-report/"
+    ],
+    "s6": [
+      "benchmarks/evidence/s6/stress/20260715T062300Z-1c1af384/",
+      "benchmarks/evidence/s6/submission-rehearsal/20260715T062455Z-f9a83806/",
+      "benchmarks/evidence/s6/gate/20260715T071357Z-829b8cee/",
+      "benchmarks/evidence/s6/report/20260715T071403Z-dc77be76/"
+    ]
+  },
+  "hard_5_inputs": {
+    "source_worktree": "/Users/brown/workspace/ogc/fable-native-s3-stabilization",
+    "files": [
+      {
+        "path": "data/train/prob_21.json",
+        "sha256": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b"
+      },
+      {
+        "path": "data/train/prob_22.json",
+        "sha256": "798f79582b85ca8b312b70b5b6dcbedf4ab1610807c027b9fadf68af6b2d3d12"
+      },
+      {
+        "path": "data/train/prob_23.json",
+        "sha256": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738"
+      },
+      {
+        "path": "data/train/prob_24.json",
+        "sha256": "b236dc3e0a3326bf25af9762754fdb9ac8cd2277cc5eb030c37162c51d111e60"
+      },
+      {
+        "path": "data/train/prob_25.json",
+        "sha256": "bc05276709763260f8412c37742106d34f44991e0d6ecf163c5e183727057fb5"
+      }
+    ]
+  }
+}
