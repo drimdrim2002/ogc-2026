@@ -75,8 +75,9 @@ class BudgetTests(unittest.TestCase):
     def test_reserve_matrix_and_cooperative_allowance(self):
         self.assertEqual(0.05, deadline_reserve(0.5))
         self.assertEqual(0.1, deadline_reserve(2))
-        self.assertEqual(3.0, deadline_reserve(5))
-        self.assertEqual(3.0, deadline_reserve(12))
+        self.assertEqual(3.2, deadline_reserve(5))
+        self.assertEqual(3.2, deadline_reserve(12))
+        self.assertEqual(3.2, deadline_reserve(120))
 
         now = [100.0]
         budget = Budget(2, clock=lambda: now[0])
@@ -86,6 +87,10 @@ class BudgetTests(unittest.TestCase):
         now[0] = 101.9
         with self.assertRaisesRegex(BudgetExpired, "test stage"):
             budget.checkpoint("test stage")
+
+        long_budget = Budget(120, clock=lambda: now[0])
+        self.assertAlmostEqual(116.8, long_budget.remaining)
+        self.assertAlmostEqual(120.0, long_budget.hard_remaining)
 
     def test_s3_extension_uses_parent_bounded_segments_and_repeats_batches(self):
         prob_info = instance(

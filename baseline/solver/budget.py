@@ -16,7 +16,7 @@ def deadline_reserve(timelimit: float) -> float:
     limit = _valid_timelimit(timelimit)
     if limit < 3.0:
         return min(max(0.05 * limit, 0.05), max(limit - 0.05, 0.05))
-    return min(max(0.05 * limit, 3.0), 60.0)
+    return min(3.2, limit)
 
 
 class Budget:
