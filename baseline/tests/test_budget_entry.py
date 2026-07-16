@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
+from solver import alns
 from solver.budget import Budget, BudgetExpired, deadline_reserve
 from solver.checker_adapter import official_check
 from solver.entry import solve
-from solver.instance import UnsolvableInstanceError
+from solver.incumbent import VerifiedIncumbent
+from solver.instance import ProblemInstance, UnsolvableInstanceError
+from solver.state import Placement, SolutionState
 from tests.fixtures import TWO_SQUARE, block, instance
 
 
@@ -26,6 +30,98 @@ class BudgetTests(unittest.TestCase):
         now[0] = 101.9
         with self.assertRaisesRegex(BudgetExpired, "test stage"):
             budget.checkpoint("test stage")
+
+    def test_s3_extension_uses_parent_bounded_segments_and_repeats_batches(self):
+        prob_info = instance(
+            [block(layers=(TWO_SQUARE,), due=0, processing=1, preferences=(0,))],
+            bays=((2, 2),),
+            weights={"w1": 1.0, "w2": 0.0, "w3": 0.0},
+        )
+        parsed = ProblemInstance.parse(prob_info)
+        state = SolutionState(parsed)
+        state.place(Placement(0, 0, 0, 0, 0, 99, 100))
+        incumbent = VerifiedIncumbent(parsed)
+        incumbent.register_initial(state)
+        checkpoint = incumbent.export_checkpoint()
+
+        class FakeClock:
+            def __init__(self):
+                self.now = 100.0
+
+            def __call__(self):
+                return self.now
+
+        def exercise(limit):
+            clock = FakeClock()
+            parent = Budget(limit, clock=clock, reserve=0.0)
+            child_deadlines = []
+            batch_starts = []
+            destroy_scales = []
+
+            def fake_batch(_state, active_incumbent, _rng, **kwargs):
+                child_deadlines.append(kwargs["budget"].deadline)
+                batch_starts.append(clock.now)
+                destroy_scales.append(kwargs["initial_destroy_scale"])
+                self.assertEqual(24, kwargs["max_iterations"])
+                clock.now += min(2.0, kwargs["budget"].remaining)
+                return alns.ALNSRunResult(
+                    solution=active_incumbent.solution,
+                    metrics=alns.ALNSMetrics(iterations=24),
+                    incumbent_trace=(),
+                    stopped_reason="max_iterations",
+                )
+
+            with (
+                patch("solver.alns.run_alns", side_effect=fake_batch),
+                patch("solver.alns.same_bay_restart", return_value=False),
+            ):
+                result = alns.run_s3_extension(
+                    checkpoint,
+                    parent,
+                    alns.S3ExtensionProfile(
+                        segment_seconds=8.0,
+                        iterations_per_batch=24,
+                        remove_count=1,
+                        acceptor_name="strict",
+                        adaptive=False,
+                    ),
+                    17,
+                    {},
+                    prob_info=prob_info,
+                )
+            return parent, child_deadlines, batch_starts, destroy_scales, result
+
+        parent, deadlines, starts, scales, result = exercise(24.0)
+        self.assertEqual(3, result.metrics.segments_started)
+        self.assertEqual(12, result.metrics.batches_started)
+        self.assertEqual(288, result.metrics.iterations)
+        self.assertEqual("work_deadline", result.stopped_reason)
+        self.assertEqual([108.0] * 4 + [116.0] * 4 + [124.0] * 4, deadlines)
+        self.assertEqual([1.0] * 4 + [1.5] * 4 + [2.0] * 4, scales)
+        self.assertEqual(
+            (
+                (0, 17, 1.0, "continue"),
+                (1, 104746, 1.5, "verified_restart"),
+                (2, 209475, 2.0, "same_bay_restart"),
+            ),
+            tuple(
+                (
+                    item.segment_index,
+                    item.seed,
+                    item.destroy_scale,
+                    item.restart_policy,
+                )
+                for item in result.segment_profiles
+            ),
+        )
+        self.assertGreater(starts.count(100.0), 0)
+        self.assertEqual(parent.deadline, max(deadlines))
+
+        short_parent, short_deadlines, _, _, short = exercise(5.0)
+        self.assertEqual(1, short.metrics.segments_started)
+        self.assertGreater(short.metrics.batches_started, 1)
+        self.assertTrue(all(item == short_parent.deadline for item in short_deadlines))
+        self.assertEqual("work_deadline", short.stopped_reason)
 
 
 class EntryArmorTests(unittest.TestCase):

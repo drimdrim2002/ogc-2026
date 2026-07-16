@@ -14,7 +14,7 @@ import time
 from types import MappingProxyType
 from typing import Any
 
-from numpy.random import Generator
+from numpy.random import Generator, PCG64
 
 from .budget import Budget, BudgetExpired
 from .checker_adapter import CheckerResult, official_check
@@ -25,7 +25,8 @@ from .construct import (
     first_fit,
     insert_block,
 )
-from .incumbent import VerifiedIncumbent
+from .incumbent import VerifiedCheckpoint, VerifiedIncumbent
+from .instance import ProblemInstance
 from .serialize import serialize_non_interlock
 from .state import ObjectiveDiagnostics, Placement, SolutionState, StateUndoToken
 from .validate import validate_insertion
@@ -152,6 +153,98 @@ class AnytimeRunResult:
     prefix_consistent: bool
     operator_metrics: tuple[tuple[str, int, int, int], ...]
     epoch_solutions: tuple[dict[str, Any], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class S3ExtensionProfile:
+    """Fixed batch policy with deterministic segment variation."""
+
+    segment_seconds: float = 8.0
+    iterations_per_batch: int = 24
+    remove_count: int | None = None
+    acceptor_name: str = "sa"
+    adaptive: bool = False
+    safety_sample_interval: int = 8
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.segment_seconds) or self.segment_seconds <= 0.0:
+            raise ValueError("segment_seconds must be finite and positive")
+        if (
+            isinstance(self.iterations_per_batch, bool)
+            or not isinstance(self.iterations_per_batch, int)
+            or self.iterations_per_batch <= 0
+        ):
+            raise ValueError("iterations_per_batch must be a positive integer")
+        if self.remove_count is not None and (
+            isinstance(self.remove_count, bool)
+            or not isinstance(self.remove_count, int)
+            or self.remove_count <= 0
+        ):
+            raise ValueError("remove_count must be a positive integer or None")
+        if self.acceptor_name not in {"strict", "rrt", "sa"}:
+            raise ValueError(f"unsupported S3 acceptor {self.acceptor_name!r}")
+        if not isinstance(self.adaptive, bool):
+            raise ValueError("adaptive must be boolean")
+        if (
+            isinstance(self.safety_sample_interval, bool)
+            or not isinstance(self.safety_sample_interval, int)
+            or self.safety_sample_interval < 0
+        ):
+            raise ValueError("safety_sample_interval must be a non-negative integer")
+
+
+@dataclass(frozen=True, slots=True)
+class S3SegmentProfile:
+    segment_index: int
+    seed: int
+    destroy_scale: float
+    restart_policy: str
+
+
+@dataclass(frozen=True, slots=True)
+class S3ExtensionEvent:
+    segment_index: int
+    batch_index: int
+    iteration: int
+    seed: int
+    destroy_scale: float
+    restart_policy: str
+    destroy_name: str
+    repair_name: str
+    previous_cur_obj: float
+    new_obj: float
+    outcome: str
+    accepted: bool
+    potential_incumbent: bool
+
+
+@dataclass(frozen=True, slots=True)
+class S3ExtensionMetrics:
+    segments_started: int
+    batches_started: int
+    iterations: int
+    accepted: int
+    improvements: int
+    restarts: int
+    duplicate_skips: int
+    faults: int
+    deadlines: int
+
+
+@dataclass(frozen=True, slots=True)
+class S3ExtensionResult:
+    checkpoint: VerifiedCheckpoint
+    metrics: S3ExtensionMetrics
+    trace: tuple[S3ExtensionEvent, ...]
+    stopped_reason: str
+    incumbent_trace: tuple[IncumbentTraceEntry, ...] = ()
+    segment_profiles: tuple[S3SegmentProfile, ...] = ()
+    alns_metrics: ALNSMetrics | None = None
+
+    @property
+    def events(self) -> tuple[S3ExtensionEvent, ...]:
+        """Compatibility alias for consumers that name logical trace events."""
+        return self.trace
 
 
 class StrictAcceptor:
@@ -1243,6 +1336,7 @@ def run_alns(
     timelimit_seconds: float = 0.0,
     elapsed_offset_seconds: float = 0.0,
     fault_hook: RunFaultHook | None = None,
+    initial_destroy_scale: float = 1.0,
 ) -> ALNSRunResult:
     """Run the checker-safe S3 loop while returning only a verified incumbent.
 
@@ -1302,6 +1396,12 @@ def run_alns(
         raise ValueError("retime trigger and callback must be configured together")
     if retime_wall_policy is not None and retime_callback is None:
         raise ValueError("retime wall policy requires a retime callback")
+    if (
+        isinstance(initial_destroy_scale, bool)
+        or not math.isfinite(initial_destroy_scale)
+        or not 1.0 <= initial_destroy_scale <= 2.0
+    ):
+        raise ValueError("initial_destroy_scale must be between 1.0 and 2.0")
 
     metrics = ALNSMetrics()
     cur_obj = state.objective
@@ -1310,7 +1410,7 @@ def run_alns(
         raise ValueError("incumbent must have a feasible checker objective")
     trace = [_trace_entry(0, incumbent.solution, initial)]
     stopped_reason = "max_iterations"
-    destroy_scale = 1.0
+    destroy_scale = float(initial_destroy_scale)
 
     for iteration in range(1, max_iterations + 1):
         metrics.iterations += 1
@@ -1345,6 +1445,18 @@ def run_alns(
                 else remove_count
             )
             count = max(1, math.ceil(base_count * destroy_scale))
+            if remove_count is None and initial_destroy_scale > 1.0:
+                existing_cap = min(
+                    len(state.placements),
+                    max(
+                        2,
+                        math.ceil(
+                            len(state.placements)
+                            * DEFAULT_CONFIG.alns_destroy_cap_fraction
+                        ),
+                    ),
+                )
+                count = min(count, existing_cap)
             for name in (destroy_name, repair_name):
                 operators._metrics[name].attempts += 1
 
@@ -1563,6 +1675,375 @@ class _AbsoluteEpochBudget:
     def checkpoint(self, label: str = "S3 epoch") -> None:
         if float(self._clock()) >= self.deadline:
             raise BudgetExpired(f"{label} reached the absolute epoch deadline")
+
+
+class _ParentBoundedBudget:
+    """Absolute segment budget whose deadline cannot exceed its parent."""
+
+    __slots__ = ("parent", "deadline")
+
+    def __init__(self, parent: Any, deadline: float) -> None:
+        self.parent = parent
+        self.deadline = min(float(parent.deadline), float(deadline))
+
+    @property
+    def remaining(self) -> float:
+        parent_remaining = max(0.0, float(self.parent.remaining))
+        parent_now = float(self.parent.deadline) - parent_remaining
+        return max(0.0, min(parent_remaining, self.deadline - parent_now))
+
+    def checkpoint(self, label: str = "S3 extension segment") -> None:
+        self.parent.checkpoint(label)
+        if self.remaining <= 0.0:
+            raise BudgetExpired(f"{label} reached the absolute segment deadline")
+
+
+def run_s3_extension(
+    checkpoint: VerifiedCheckpoint,
+    budget: Any,
+    profile: S3ExtensionProfile,
+    seed: int,
+    telemetry: dict[str, Any] | None,
+    *,
+    prob_info: dict[str, Any] | ProblemInstance,
+    registry: OperatorRegistry | None = None,
+    retime_trigger: RetimeTrigger | None = None,
+    retime_callback: RetimeCallback | None = None,
+    retime_wall_policy: RetimeWallPolicy | None = None,
+    on_event: Callable[[S3ExtensionEvent], None] | None = None,
+    fault_hook: RunFaultHook | None = None,
+) -> S3ExtensionResult:
+    """Fill the parent work deadline with verified, fixed-size S3 batches."""
+    if not isinstance(checkpoint, VerifiedCheckpoint):
+        raise TypeError("checkpoint must be a VerifiedCheckpoint")
+    if not isinstance(profile, S3ExtensionProfile):
+        raise TypeError("profile must be an S3ExtensionProfile")
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise ValueError("seed must be an integer")
+    if telemetry is not None and not isinstance(telemetry, dict):
+        raise TypeError("telemetry must be a dict or None")
+    _validate_absolute_budget(budget)
+
+    instance = (
+        prob_info
+        if isinstance(prob_info, ProblemInstance)
+        else ProblemInstance.parse(prob_info)
+    )
+    original_anchor = checkpoint
+    incumbent = VerifiedIncumbent.from_checkpoint(instance, checkpoint)
+    state = incumbent.snapshot_state()
+    last_verified_checkpoint = incumbent.export_checkpoint()
+    anchor_assignment = tuple(
+        sorted((item.block_id, item.bay_id) for item in checkpoint.placements)
+    )
+    anchor_z2 = checkpoint.checker_result.obj2
+    anchor_z3 = checkpoint.checker_result.obj3
+    operators = OperatorRegistry() if registry is None else registry
+    if not isinstance(operators, OperatorRegistry):
+        raise TypeError("registry must be an OperatorRegistry")
+
+    combined_metrics = ALNSMetrics()
+    incumbent_trace = [
+        _trace_entry(0, incumbent.solution, incumbent.checker_result)
+    ]
+    logical_trace: list[S3ExtensionEvent] = []
+    segment_profiles: list[S3SegmentProfile] = []
+    visited: set[tuple[str, str, int, float, str]] = set()
+    segments = 0
+    batches = 0
+    restarts = 0
+    duplicate_skips = 0
+    faults = 0
+    deadlines = 0
+    iteration_offset = 0
+    stopped_reason = "work_deadline"
+    abort_extension = False
+    segment_index = 0
+
+    while float(budget.remaining) > 0.0 and not abort_extension:
+        try:
+            budget.checkpoint("S3 extension segment start")
+        except BudgetExpired:
+            deadlines += 1
+            stopped_reason = (
+                "deadline_fault" if float(budget.remaining) > 0.0 else "work_deadline"
+            )
+            break
+
+        now = float(budget.deadline) - float(budget.remaining)
+        segment_budget = _ParentBoundedBudget(
+            budget,
+            now + profile.segment_seconds,
+        )
+        destroy_scale, restart_policy = (
+            (1.0, "continue"),
+            (1.5, "verified_restart"),
+            (2.0, "same_bay_restart"),
+        )[segment_index % 3]
+        segment_seed = seed + 104729 * segment_index
+        segment_profiles.append(
+            S3SegmentProfile(
+                segment_index=segment_index,
+                seed=segment_seed,
+                destroy_scale=destroy_scale,
+                restart_policy=restart_policy,
+            )
+        )
+        segments += 1
+
+        if restart_policy != "continue":
+            state = incumbent.snapshot_state(template=state)
+        rng = Generator(PCG64(segment_seed))
+        acceptor = _make_acceptor(profile.acceptor_name, rng, incumbent)
+        destroy_weights = OperatorWeights(
+            operators.destroy_names,
+            adaptive=profile.adaptive,
+        )
+        repair_weights = OperatorWeights(
+            operators.repair_names,
+            adaptive=profile.adaptive,
+        )
+        if restart_policy == "same_bay_restart":
+            try:
+                if same_bay_restart(state, rng, operators, budget=segment_budget):
+                    restarts += 1
+            except BudgetExpired:
+                deadlines += 1
+                if segment_budget.remaining > 0.0:
+                    stopped_reason = "deadline_fault"
+                    abort_extension = True
+
+        batch_index = 0
+        while segment_budget.remaining > 0.0 and not abort_extension:
+            rng.integers(0, 2**63, dtype="int64")
+            identity = (
+                _state_solution_sha256(state),
+                _rng_state_sha256(rng),
+                segment_seed,
+                destroy_scale,
+                restart_policy,
+            )
+            if identity in visited:
+                duplicate_skips += 1
+                stopped_reason = "stalled"
+                abort_extension = True
+                break
+            visited.add(identity)
+            batches += 1
+            remaining_before_batch = segment_budget.remaining
+            trace_count_before_batch = len(logical_trace)
+
+            def record(event: ALNSIterationEvent) -> None:
+                shifted = S3ExtensionEvent(
+                    segment_index=segment_index,
+                    batch_index=batch_index,
+                    iteration=iteration_offset + event.iteration,
+                    seed=segment_seed,
+                    destroy_scale=destroy_scale,
+                    restart_policy=restart_policy,
+                    destroy_name=event.destroy_name,
+                    repair_name=event.repair_name,
+                    previous_cur_obj=event.previous_cur_obj,
+                    new_obj=event.new_obj,
+                    outcome=event.outcome,
+                    accepted=event.accepted,
+                    potential_incumbent=event.potential_incumbent,
+                )
+                logical_trace.append(shifted)
+                if on_event is not None:
+                    on_event(shifted)
+
+            try:
+                batch_result = run_alns(
+                    state,
+                    incumbent,
+                    rng,
+                    max_iterations=profile.iterations_per_batch,
+                    registry=operators,
+                    remove_count=profile.remove_count,
+                    acceptor=acceptor,
+                    safety_sample_interval=profile.safety_sample_interval,
+                    budget=segment_budget,
+                    on_event=record,
+                    destroy_weights=destroy_weights,
+                    repair_weights=repair_weights,
+                    retime_trigger=retime_trigger,
+                    retime_callback=retime_callback,
+                    retime_wall_policy=retime_wall_policy,
+                    timelimit_seconds=profile.segment_seconds,
+                    elapsed_offset_seconds=segment_index * profile.segment_seconds,
+                    fault_hook=fault_hook,
+                    initial_destroy_scale=destroy_scale,
+                )
+            except BudgetExpired:
+                deadlines += 1
+                stopped_reason = (
+                    "deadline_fault"
+                    if segment_budget.remaining > 0.0
+                    else "work_deadline"
+                )
+                last_verified_checkpoint = incumbent.export_checkpoint()
+                state = incumbent.snapshot_state(template=state)
+                abort_extension = True
+                break
+            except Exception as exc:
+                faults += 1
+                stopped_reason = f"fault:{type(exc).__name__}:{exc}"
+                last_verified_checkpoint = incumbent.export_checkpoint()
+                state = incumbent.snapshot_state(template=state)
+                abort_extension = True
+                break
+            _merge_metrics(combined_metrics, batch_result.metrics)
+            for item in batch_result.incumbent_trace[1:]:
+                incumbent_trace.append(
+                    IncumbentTraceEntry(
+                        iteration=iteration_offset + item.iteration,
+                        objective=item.objective,
+                        obj1=item.obj1,
+                        obj2=item.obj2,
+                        obj3=item.obj3,
+                        checker_stage=item.checker_stage,
+                        solution_sha256=item.solution_sha256,
+                    )
+                )
+            iteration_offset += batch_result.metrics.iterations
+            batch_index += 1
+            last_verified_checkpoint = incumbent.export_checkpoint()
+
+            try:
+                _assert_extension_assignment(
+                    anchor_assignment,
+                    anchor_z2,
+                    anchor_z3,
+                    state,
+                )
+            except Exception as exc:
+                faults += 1
+                stopped_reason = f"fault:{type(exc).__name__}:{exc}"
+                abort_extension = True
+                break
+
+            if batch_result.stopped_reason.startswith("fault:") or (
+                batch_result.stopped_reason == "checker_failure"
+            ):
+                faults += 1
+                stopped_reason = batch_result.stopped_reason
+                abort_extension = True
+                break
+            if batch_result.stopped_reason == "deadline":
+                deadlines += 1
+                if segment_budget.remaining > 0.0:
+                    stopped_reason = "deadline_fault"
+                    abort_extension = True
+                break
+            if batch_result.metrics.iterations <= 0 or (
+                segment_budget.remaining >= remaining_before_batch
+                and len(logical_trace) == trace_count_before_batch
+            ):
+                duplicate_skips += 1
+                stopped_reason = "stalled"
+                abort_extension = True
+                break
+
+        last_verified_checkpoint = incumbent.export_checkpoint()
+        segment_index += 1
+
+    anchor_objective = original_anchor.checker_result.objective
+    final_objective = last_verified_checkpoint.checker_result.objective
+    if anchor_objective is None or final_objective is None:
+        raise AssertionError("verified S3 checkpoints require checker objectives")
+    tolerance = 1e-9 * max(1.0, abs(anchor_objective))
+    if final_objective > anchor_objective + tolerance:
+        faults += 1
+        stopped_reason = "fault:AssertionError:S3 extension worsened original anchor"
+        last_verified_checkpoint = original_anchor
+
+    result = S3ExtensionResult(
+        checkpoint=last_verified_checkpoint,
+        metrics=S3ExtensionMetrics(
+            segments_started=segments,
+            batches_started=batches,
+            iterations=combined_metrics.iterations,
+            accepted=combined_metrics.accepted,
+            improvements=max(0, len(incumbent_trace) - 1),
+            restarts=restarts,
+            duplicate_skips=duplicate_skips,
+            faults=faults,
+            deadlines=deadlines,
+        ),
+        trace=tuple(logical_trace),
+        stopped_reason=stopped_reason,
+        incumbent_trace=tuple(incumbent_trace),
+        segment_profiles=tuple(segment_profiles),
+        alns_metrics=combined_metrics,
+    )
+    if telemetry is not None:
+        telemetry.update(
+            s3_extension_input_sha256=original_anchor.solution_sha256,
+            s3_extension_final_sha256=result.checkpoint.solution_sha256,
+            s3_extension_segments=result.metrics.segments_started,
+            s3_extension_batches=result.metrics.batches_started,
+            s3_extension_iterations=result.metrics.iterations,
+            s3_extension_accepted=result.metrics.accepted,
+            s3_extension_improvements=result.metrics.improvements,
+            s3_extension_restarts=result.metrics.restarts,
+            s3_extension_duplicate_skips=result.metrics.duplicate_skips,
+            s3_extension_faults=result.metrics.faults,
+            s3_extension_deadlines=result.metrics.deadlines,
+            s3_extension_stopped_reason=result.stopped_reason,
+            s3_extension_profiles=[
+                {
+                    "segment_index": item.segment_index,
+                    "seed": item.seed,
+                    "destroy_scale": item.destroy_scale,
+                    "restart_policy": item.restart_policy,
+                }
+                for item in result.segment_profiles
+            ],
+        )
+    return result
+
+
+def _validate_absolute_budget(budget: Any) -> None:
+    if not hasattr(budget, "deadline") or not hasattr(budget, "remaining"):
+        raise TypeError("budget must expose absolute deadline and remaining")
+    if not callable(getattr(budget, "checkpoint", None)):
+        raise TypeError("budget must expose checkpoint(label)")
+    deadline = float(budget.deadline)
+    remaining = float(budget.remaining)
+    if not math.isfinite(deadline) or not math.isfinite(remaining) or remaining < 0.0:
+        raise ValueError("budget deadline and remaining must be finite")
+
+
+def _state_solution_sha256(state: SolutionState) -> str:
+    payload = serialize_non_interlock(state.placements.values())
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _rng_state_sha256(rng: Generator) -> str:
+    encoded = json.dumps(
+        rng.bit_generator.state,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode()
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _assert_extension_assignment(
+    anchor_assignment: tuple[tuple[int, int], ...],
+    anchor_z2: float | None,
+    anchor_z3: float | None,
+    state: SolutionState,
+) -> None:
+    current = tuple(
+        sorted((item.block_id, item.bay_id) for item in state.placements.values())
+    )
+    if current != anchor_assignment:
+        raise AssertionError("S3 extension changed assignment or bay membership")
+    if state.z2 != anchor_z2 or state.z3 != anchor_z3:
+        raise AssertionError("S3 extension changed Z2 or Z3")
 
 
 def run_anytime_epochs(

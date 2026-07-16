@@ -991,5 +991,315 @@ class AnytimeTests(unittest.TestCase):
         self.assertEqual(99.0, short_result.incumbent_trace[-1].objective)
 
 
+class S3ExtensionTests(unittest.TestCase):
+    class FakeClock:
+        def __init__(self):
+            self.now = 0.0
+
+        def __call__(self):
+            return self.now
+
+        def advance(self, seconds):
+            self.now += float(seconds)
+
+    @staticmethod
+    def _profile(**overrides):
+        values = {
+            "segment_seconds": 1.0,
+            "iterations_per_batch": 1,
+            "remove_count": 1,
+            "acceptor_name": "strict",
+            "adaptive": False,
+            "safety_sample_interval": 0,
+        }
+        values.update(overrides)
+        return alns.S3ExtensionProfile(**values)
+
+    def _run_scripted(
+        self,
+        *,
+        limit=1.0,
+        exits=(99,),
+        profile=None,
+        seed=23,
+        on_event=None,
+        fault_hook=None,
+        retime_trigger=None,
+        retime_callback=None,
+        budget=None,
+    ):
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        checkpoint = incumbent.export_checkpoint()
+        clock = self.FakeClock()
+        active_budget = (
+            Budget(limit, clock=clock, reserve=0.0) if budget is None else budget
+        )
+        result = alns.run_s3_extension(
+            checkpoint,
+            active_budget,
+            self._profile() if profile is None else profile,
+            seed,
+            {},
+            prob_info=prob_info,
+            registry=AcceptanceTests._scripted_registry(exits),
+            on_event=on_event,
+            fault_hook=fault_hook,
+            retime_trigger=retime_trigger,
+            retime_callback=retime_callback,
+        )
+        return prob_info, checkpoint, clock, result
+
+    def test_fault_and_deadline_boundaries_return_only_latest_verified_state(self):
+        for point in ("repair", "accept", "full_check"):
+            def fail(active_point, *, expected=point):
+                if active_point == expected:
+                    raise RuntimeError(f"injected {expected} fault")
+
+            prob_info, anchor, _clock, result = self._run_scripted(
+                fault_hook=fail
+            )
+            self.assertTrue(result.stopped_reason.startswith("fault:"), point)
+            self.assertEqual(anchor.solution_sha256, result.checkpoint.solution_sha256)
+            checked = official_check(prob_info, result.checkpoint.solution_copy())
+            self.assertTrue(checked.feasible, (point, checked.violations))
+            self.assertEqual(5, checked.stage)
+
+        class BoundaryBudget:
+            deadline = 1.0
+            remaining = 1.0
+
+            def __init__(self, target):
+                self.target = target
+
+            def checkpoint(self, label="S3 extension"):
+                if label == self.target:
+                    raise BudgetExpired(f"injected deadline at {label}")
+
+        for label, expected_objective in (
+            ("S3 scripted repair", 100.0),
+            ("S3 acceptance reported", 100.0),
+            ("S3 before full check", 100.0),
+            ("S3 before candidate commit", 99.0),
+        ):
+            prob_info, _anchor, _clock, result = self._run_scripted(
+                budget=BoundaryBudget(label)
+            )
+            self.assertEqual("deadline_fault", result.stopped_reason, label)
+            checked = official_check(prob_info, result.checkpoint.solution_copy())
+            self.assertTrue(checked.feasible, (label, checked.violations))
+            self.assertEqual(expected_objective, checked.objective, label)
+
+        trigger = alns.RetimeTrigger(
+            min_dirty=1,
+            dirty_fraction=0.01,
+            min_interval_fraction=0.0,
+        )
+        retime_clock = self.FakeClock()
+
+        def corrupt_then_fail(state, _bay_id, _budget, _timebox):
+            placement = state.placements[0]
+            state.remove(0)
+            state.place(
+                Placement(
+                    0,
+                    placement.bay_id,
+                    placement.x,
+                    placement.y,
+                    placement.orient_idx,
+                    49,
+                    50,
+                )
+            )
+            retime_clock.advance(1.0)
+            raise RuntimeError("injected retime mutation fault")
+
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        anchor = incumbent.export_checkpoint()
+        retimed = alns.run_s3_extension(
+            anchor,
+            Budget(1.0, clock=retime_clock, reserve=0.0),
+            self._profile(),
+            23,
+            {},
+            prob_info=prob_info,
+            registry=AcceptanceTests._scripted_registry((99,)),
+            retime_trigger=trigger,
+            retime_callback=corrupt_then_fail,
+        )
+        checked = official_check(prob_info, retimed.checkpoint.solution_copy())
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(99.0, checked.objective)
+
+        retime_deadline = self._run_scripted(
+            budget=BoundaryBudget("S3 before retime"),
+            retime_trigger=alns.RetimeTrigger(
+                min_dirty=1,
+                dirty_fraction=0.01,
+                min_interval_fraction=0.0,
+            ),
+            retime_callback=lambda *_args: None,
+        )[3]
+        self.assertEqual("deadline_fault", retime_deadline.stopped_reason)
+        self.assertEqual(99.0, retime_deadline.checkpoint.checker_result.objective)
+
+    def test_later_segment_fault_preserves_latest_verified_improvement(self):
+        clock = self.FakeClock()
+        repair_count = 0
+
+        def fail_second_repair(point):
+            nonlocal repair_count
+            if point == "repair":
+                repair_count += 1
+                if repair_count == 2:
+                    raise RuntimeError("fault after verified improvement")
+
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        anchor = incumbent.export_checkpoint()
+        real_run_alns = alns.run_alns
+        batch_count = 0
+
+        def end_first_segment(*args, **kwargs):
+            nonlocal batch_count
+            batch_count += 1
+            batch_result = real_run_alns(*args, **kwargs)
+            if batch_count == 1:
+                clock.advance(1.0)
+            return batch_result
+
+        with patch("solver.alns.run_alns", side_effect=end_first_segment):
+            result = alns.run_s3_extension(
+                anchor,
+                Budget(2.0, clock=clock, reserve=0.0),
+                self._profile(remove_count=None),
+                29,
+                {},
+                prob_info=prob_info,
+                registry=AcceptanceTests._scripted_registry((99, 98)),
+                fault_hook=fail_second_repair,
+            )
+        self.assertEqual(2, result.metrics.segments_started)
+        self.assertTrue(result.stopped_reason.startswith("fault:"))
+        self.assertNotEqual(anchor.solution_sha256, result.checkpoint.solution_sha256)
+        checked = official_check(prob_info, result.checkpoint.solution_copy())
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(99.0, checked.objective)
+
+    def test_seeded_prefix_final_sha_and_assignment_are_deterministic(self):
+        def run(limit):
+            prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+                current_exit=100
+            )
+            anchor = incumbent.export_checkpoint()
+            clock = self.FakeClock()
+            result = alns.run_s3_extension(
+                anchor,
+                Budget(limit, clock=clock, reserve=0.0),
+                self._profile(iterations_per_batch=2),
+                31,
+                {},
+                prob_info=prob_info,
+                registry=AcceptanceTests._scripted_registry(range(99, 70, -1)),
+                on_event=lambda _event: clock.advance(0.25),
+            )
+            return prob_info, anchor, result
+
+        short_prob, short_anchor, short = run(1.0)
+        long_prob, long_anchor, long = run(2.0)
+        _replay_prob, _replay_anchor, replay = run(2.0)
+
+        self.assertEqual(short.trace, long.trace[: len(short.trace)])
+        self.assertEqual(long.trace, replay.trace)
+        self.assertEqual(
+            long.checkpoint.solution_sha256,
+            replay.checkpoint.solution_sha256,
+        )
+        self.assertLessEqual(
+            long.checkpoint.checker_result.objective,
+            long_anchor.checker_result.objective,
+        )
+        self.assertEqual(
+            tuple((item.block_id, item.bay_id) for item in long_anchor.placements),
+            tuple((item.block_id, item.bay_id) for item in long.checkpoint.placements),
+        )
+        self.assertEqual(
+            long_anchor.checker_result.obj2,
+            long.checkpoint.checker_result.obj2,
+        )
+        self.assertTrue(
+            official_check(long_prob, long.checkpoint.solution_copy()).feasible
+        )
+        self.assertTrue(
+            official_check(short_prob, short.checkpoint.solution_copy()).feasible
+        )
+
+    def test_worse_search_state_never_replaces_original_anchor(self):
+        clock = self.FakeClock()
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        anchor = incumbent.export_checkpoint()
+        real_run_alns = alns.run_alns
+
+        def finish_batch(*args, **kwargs):
+            batch_result = real_run_alns(*args, **kwargs)
+            clock.advance(1.0)
+            return batch_result
+
+        with patch("solver.alns.run_alns", side_effect=finish_batch):
+            result = alns.run_s3_extension(
+                anchor,
+                Budget(1.0, clock=clock, reserve=0.0),
+                self._profile(acceptor_name="rrt"),
+                37,
+                {},
+                prob_info=prob_info,
+                registry=AcceptanceTests._scripted_registry((102,)),
+            )
+        self.assertEqual(1, result.metrics.accepted)
+        self.assertEqual(anchor.solution_sha256, result.checkpoint.solution_sha256)
+        self.assertEqual(100.0, result.checkpoint.checker_result.objective)
+
+    def test_identical_state_rng_profile_cannot_spin_forever(self):
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        anchor = incumbent.export_checkpoint()
+        clock = self.FakeClock()
+        calls = 0
+
+        def no_progress(_state, active_incumbent, _rng, **_kwargs):
+            nonlocal calls
+            calls += 1
+            return alns.ALNSRunResult(
+                solution=active_incumbent.solution,
+                metrics=alns.ALNSMetrics(),
+                incumbent_trace=(),
+                stopped_reason="max_iterations",
+            )
+
+        with (
+            patch("solver.alns.run_alns", side_effect=no_progress),
+            patch("solver.alns.same_bay_restart", return_value=False),
+        ):
+            result = alns.run_s3_extension(
+                anchor,
+                Budget(24.0, clock=clock, reserve=0.0),
+                self._profile(segment_seconds=8.0, iterations_per_batch=24),
+                41,
+                {},
+                prob_info=prob_info,
+            )
+        self.assertEqual(1, calls)
+        self.assertEqual(1, result.metrics.batches_started)
+        self.assertEqual(1, result.metrics.duplicate_skips)
+        self.assertEqual("stalled", result.stopped_reason)
+
+
 if __name__ == "__main__":
     unittest.main()
