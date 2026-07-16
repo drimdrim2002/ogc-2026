@@ -3,7 +3,7 @@
   "plan_id": "S3-AF",
   "phase_id": "AF-05",
   "attempt_id": "20260716T100018Z-af05-recovery-identity-d-01",
-  "status": "FROZEN_UNQUALIFIED",
+  "status": "QUALIFIED_CANDIDATE_PASS",
   "source_path": "benchmarks/manifests/s3-anytime-fill-candidate.json",
   "base_manifest": "benchmarks/manifests/s3-anytime-fill-base.json",
   "candidate": {
@@ -687,7 +687,7 @@
     ],
     "identities_a_b_c_selectable": false,
     "current_identity_label": "D",
-    "current_identity_status": "FROZEN_UNQUALIFIED",
+    "current_identity_status": "QUALIFIED_CANDIDATE_PASS",
     "selection_owner": "AF-05-recovery-identity-D"
   },
   "configuration": {
@@ -1167,12 +1167,13 @@
       "--jobs",
       "1"
     ],
-    "command_status": "FROZEN_NOT_EXECUTED",
+    "command_status": "EXECUTED_ONCE_COMPLETE",
     "q_run_id": "20260716T100018Z-af05-recovery-identity-d-01-q1",
-    "q_execution_count": 0,
-    "real_q_executed": false,
+    "q_execution_count": 1,
+    "real_q_executed": true,
     "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T100018Z-af05-recovery-identity-d-01-q1",
-    "expected_evidence_directory_confirmed_absent": true,
+    "expected_evidence_directory_confirmed_absent": false,
+    "actual_evidence_directory_present": true,
     "candidate_identity": "bb6fa80d93c50770906555b14abb8208060b5c9bac3252d34ccba0116054589c",
     "candidate_identity_label": "D",
     "freeze_owner": "AF-05-recovery-identity-D",
@@ -1245,9 +1246,54 @@
         "jobs": 1
       }
     ],
-    "real_wall_clock_executed": false,
-    "result": null,
-    "decision": null,
+    "real_wall_clock_executed": true,
+    "result": {
+      "command_exit_code": 0,
+      "run_complete": true,
+      "run_interrupted": false,
+      "records_evaluated": 7,
+      "records_passed": 7,
+      "official_checker_stage_5": "7/7",
+      "gates": {
+        "safety": "PASS",
+        "time": "PASS",
+        "scaling": "PASS",
+        "quality": "PASS"
+      },
+      "metrics": {
+        "hard_5_minimum_useful_seconds": 102.6,
+        "hard_5_min_observed_useful_seconds": 114.02353895799024,
+        "late_improvement_count": 5,
+        "paired_median_relative_delta": -0.03759167367456439,
+        "scaling_short": {
+          "segments": 6,
+          "batches": 39,
+          "iterations": 937,
+          "objective": 61402281.01380482,
+          "logical_event_count": 1231
+        },
+        "scaling_long": {
+          "segments": 34,
+          "batches": 244,
+          "iterations": 5876,
+          "objective": 59735656.01380482,
+          "logical_event_count": 6146
+        },
+        "scaling_exact_logical_prefix": true
+      },
+      "q_evidence_sha256": {
+        "records.jsonl": "4c394b163ca8620cdd914ef7680e2b70a1df1da22cbd1ad72fc508c3c978d464",
+        "qualification.json": "df329522ecd8dc4d61f3b4cd0d7074c5b7005b4c776258c0d2af170a9faa160c",
+        "summary.json": "483b88c89aae4f0262cb2335dbaabd73b88eafd1519080582a246906779d020b",
+        "run.json": "e5977541a078fb195725b8c25d3a237f158295d52941a85bfd179c869d52b672",
+        "command.txt": "1df8f10e8d9a48ddb072efe98d4ae063d458b84864f5ecf6cfd76818d16fa077",
+        "versions.json": "9055d045fd1461eb54d43fc5b703861ddad901ac61d4ecca26f162bc411b472c"
+      }
+    },
+    "decision": "CANDIDATE_PASS",
+    "candidate_consumed": true,
+    "same_identity_rerun_allowed": false,
+    "q_evidence_immutable": true,
     "identities_a_b_c_selectable": false,
     "prohibited_identity_labels": [
       "A",
