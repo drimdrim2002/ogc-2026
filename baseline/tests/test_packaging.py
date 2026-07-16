@@ -10,7 +10,9 @@ import unittest
 import zipfile
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import FrozenInstanceError
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -20,6 +22,7 @@ from experiments.ogc_sage.benchmark_ogc_sage import (  # noqa: E402
     build_archive,
     validate_archive_members,
 )
+from scripts import build_submission_zip as submission_zip  # noqa: E402
 from myalgorithm import algorithm  # noqa: E402
 from solver.runtime import SubmissionConfig  # noqa: E402
 from tests.helpers import checker, load_example  # noqa: E402
@@ -126,6 +129,112 @@ class PackagingContractTests(unittest.TestCase):
     def test_archive_requires_root_utils_py(self):
         with self.assertRaises(Exception):
             validate_archive_members(("myalgorithm.py", "solver/entry.py"))
+
+
+class SubmissionZipBuilderTests(unittest.TestCase):
+    @staticmethod
+    def _write_fake_amd64_elf(path: Path) -> None:
+        header = bytearray(64)
+        header[:7] = b"\x7fELF\x02\x01\x01"
+        header[18:20] = (62).to_bytes(2, "little")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(header)
+
+    def test_default_mode_requires_native_package(self):
+        with self.assertRaisesRegex(
+            submission_zip.SubmissionArchiveError, "native submission is the default"
+        ):
+            submission_zip.submission_members()
+
+    def test_default_output_uses_seoul_build_date(self):
+        instant = datetime(2026, 7, 15, 15, 30, tzinfo=timezone.utc)
+        self.assertEqual(
+            "ogc2026_submission_20260716.zip",
+            submission_zip.default_output_path(instant).name,
+        )
+
+    def test_explicit_python_only_archive_keeps_legacy_allowlist(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "python-only.zip"
+            evidence = submission_zip.build_archive(output, python_only=True)
+            with zipfile.ZipFile(output) as archive:
+                names = archive.namelist()
+                self.assertEqual(evidence["members"], names)
+                self.assertEqual(("myalgorithm.py", "utils.py"), tuple(names[:2]))
+                self.assertTrue(all(name.endswith(".py") for name in names))
+                self.assertIsNone(archive.testzip())
+            self.assertEqual("python-only", evidence["validation"]["mode"])
+            self.assertLessEqual(evidence["size_bytes"], submission_zip.MAX_ARCHIVE_BYTES)
+
+    def test_native_package_maps_only_runtime_files_to_solver(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "package"
+            extension = package / "_ogc_native.cpython-312-x86_64-linux-gnu.so"
+            geos_c = package / "lib/libgeos_c.so.1"
+            geos = package / "lib/libgeos.so.3.13.1"
+            extra = package / "lib/libunused.so.1"
+            for path in (extension, geos_c, geos, extra):
+                self._write_fake_amd64_elf(path)
+            (package / "SHA256SUMS").write_text("not submitted\n", encoding="utf-8")
+            (package / "THIRD_PARTY_LICENSES").mkdir()
+            (package / "THIRD_PARTY_LICENSES/GEOS.txt").write_text(
+                "not submitted\n", encoding="utf-8"
+            )
+
+            def dynamic(path: Path, unused_tool: str):
+                del unused_tool
+                if path.name == extension.name:
+                    return {"libgeos_c.so.1", "libstdc++.so.6", "libc.so.6"}, ("$ORIGIN/lib",)
+                if path.name == geos_c.name:
+                    return {"libgeos.so.3.13.1", "libc.so.6"}, ("$ORIGIN",)
+                return {"libstdc++.so.6", "libm.so.6", "libc.so.6"}, ()
+
+            with mock.patch.object(
+                submission_zip.shutil,
+                "which",
+                side_effect=lambda name: "/usr/bin/readelf" if name == "readelf" else None,
+            ), mock.patch.object(submission_zip, "_readelf_dynamic", side_effect=dynamic):
+                members = submission_zip.submission_members(package)
+                output = Path(directory) / "native.zip"
+                archive_evidence = submission_zip.build_archive(output, package)
+
+            self.assertIn(f"solver/{extension.name}", members)
+            self.assertIn("solver/lib/libgeos_c.so.1", members)
+            self.assertIn("solver/lib/libgeos.so.3.13.1", members)
+            self.assertNotIn("solver/lib/libunused.so.1", members)
+            self.assertNotIn("SHA256SUMS", members)
+            self.assertFalse(any("LICENSE" in name for name in members))
+            self.assertEqual("native", archive_evidence["validation"]["mode"])
+            submission_zip.validate_member_names(members, members)
+            with zipfile.ZipFile(output) as archive:
+                self.assertEqual(archive_evidence["members"], archive.namelist())
+                self.assertIsNone(archive.testzip())
+
+    def test_native_package_rejects_missing_dependency_and_absolute_rpath(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "package"
+            extension = package / "_ogc_native.cpython-312-x86_64-linux-gnu.so"
+            library = package / "lib/libgeos_c.so.1"
+            self._write_fake_amd64_elf(extension)
+            self._write_fake_amd64_elf(library)
+            with mock.patch.object(
+                submission_zip.shutil,
+                "which",
+                side_effect=lambda name: "/usr/bin/readelf" if name == "readelf" else None,
+            ), mock.patch.object(
+                submission_zip,
+                "_readelf_dynamic",
+                return_value=({"libmissing.so.1"}, ("$ORIGIN/lib",)),
+            ):
+                with self.assertRaisesRegex(
+                    submission_zip.SubmissionArchiveError, "shared library is missing"
+                ):
+                    submission_zip.submission_members(package)
+
+        with self.assertRaisesRegex(
+            submission_zip.SubmissionArchiveError, "absolute RPATH/RUNPATH"
+        ):
+            submission_zip._validate_runtime_paths(Path("extension.so"), ("/tmp/lib",))
 
 
 if __name__ == "__main__":
