@@ -151,12 +151,18 @@ class BudgetTests(unittest.TestCase):
         self.assertEqual(288, result.metrics.iterations)
         self.assertEqual("work_deadline", result.stopped_reason)
         self.assertEqual([108.0] * 4 + [116.0] * 4 + [124.0] * 4, deadlines)
-        self.assertEqual([1.0] * 4 + [1.5] * 4 + [2.0] * 4, scales)
+        self.assertEqual([1.0, 1.5, 2.0] * 4, scales)
         self.assertEqual(
-            (
-                (0, 17, 1.0, "continue"),
-                (1, 104746, 1.5, "verified_restart"),
-                (2, 209475, 2.0, "same_bay_restart"),
+            tuple(
+                (
+                    index,
+                    17 + 104729 * index,
+                    (1.0, 1.5, 2.0)[index % 3],
+                    ("continue", "verified_restart", "same_bay_restart")[
+                        index % 3
+                    ],
+                )
+                for index in range(12)
             ),
             tuple(
                 (

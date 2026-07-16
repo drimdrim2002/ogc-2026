@@ -1337,6 +1337,8 @@ def run_alns(
     elapsed_offset_seconds: float = 0.0,
     fault_hook: RunFaultHook | None = None,
     initial_destroy_scale: float = 1.0,
+    logical_iteration_offset: int = 0,
+    logical_iteration_total: int | None = None,
 ) -> ALNSRunResult:
     """Run the checker-safe S3 loop while returning only a verified incumbent.
 
@@ -1356,6 +1358,23 @@ def run_alns(
         or max_iterations < 0
     ):
         raise ValueError("max_iterations must be a non-negative integer")
+    if (
+        isinstance(logical_iteration_offset, bool)
+        or not isinstance(logical_iteration_offset, int)
+        or logical_iteration_offset < 0
+    ):
+        raise ValueError("logical_iteration_offset must be a non-negative integer")
+    logical_total = (
+        max_iterations
+        if logical_iteration_total is None
+        else logical_iteration_total
+    )
+    if (
+        isinstance(logical_total, bool)
+        or not isinstance(logical_total, int)
+        or logical_total < logical_iteration_offset + max_iterations
+    ):
+        raise ValueError("logical_iteration_total cannot truncate this ALNS slice")
     if remove_count is not None and (
         isinstance(remove_count, bool)
         or not isinstance(remove_count, int)
@@ -1424,7 +1443,9 @@ def run_alns(
             incumbent_objective = incumbent.checker_result.objective
             if incumbent_objective is None:
                 raise AssertionError("verified incumbent objective disappeared")
-            progress = (iteration - 1) / max(max_iterations - 1, 1)
+            progress = (
+                logical_iteration_offset + iteration - 1
+            ) / max(logical_total - 1, 1)
             strict.begin_iteration(
                 progress=progress,
                 incumbent_obj=incumbent_objective,
@@ -1678,7 +1699,7 @@ class _AbsoluteEpochBudget:
 
 
 class _ParentBoundedBudget:
-    """Absolute segment budget whose deadline cannot exceed its parent."""
+    """Absolute operational segment budget bounded by its parent deadline."""
 
     __slots__ = ("parent", "deadline")
 
@@ -1694,7 +1715,7 @@ class _ParentBoundedBudget:
 
     def checkpoint(self, label: str = "S3 extension segment") -> None:
         self.parent.checkpoint(label)
-        if self.remaining <= 0.0:
+        if self.remaining <= 0.0 and label == "S3 iteration start":
             raise BudgetExpired(f"{label} reached the absolute segment deadline")
 
 
@@ -1758,7 +1779,15 @@ def run_s3_extension(
     iteration_offset = 0
     stopped_reason = "work_deadline"
     abort_extension = False
-    segment_index = 0
+    logical_segment_index = 0
+    active_rng: Generator | None = None
+    active_acceptor: StrictAcceptor | None = None
+    active_destroy_weights: OperatorWeights | None = None
+    active_repair_weights: OperatorWeights | None = None
+    active_segment_seed = seed
+    active_destroy_scale = 1.0
+    active_restart_policy = "continue"
+    active_batch_iterations = 0
 
     while float(budget.remaining) > 0.0 and not abort_extension:
         try:
@@ -1775,72 +1804,99 @@ def run_s3_extension(
             budget,
             now + profile.segment_seconds,
         )
-        destroy_scale, restart_policy = (
-            (1.0, "continue"),
-            (1.5, "verified_restart"),
-            (2.0, "same_bay_restart"),
-        )[segment_index % 3]
-        segment_seed = seed + 104729 * segment_index
-        segment_profiles.append(
-            S3SegmentProfile(
-                segment_index=segment_index,
-                seed=segment_seed,
-                destroy_scale=destroy_scale,
-                restart_policy=restart_policy,
-            )
-        )
         segments += 1
 
-        if restart_policy != "continue":
-            state = incumbent.snapshot_state(template=state)
-        rng = Generator(PCG64(segment_seed))
-        acceptor = _make_acceptor(profile.acceptor_name, rng, incumbent)
-        destroy_weights = OperatorWeights(
-            operators.destroy_names,
-            adaptive=profile.adaptive,
-        )
-        repair_weights = OperatorWeights(
-            operators.repair_names,
-            adaptive=profile.adaptive,
-        )
-        if restart_policy == "same_bay_restart":
-            try:
-                if same_bay_restart(state, rng, operators, budget=segment_budget):
-                    restarts += 1
-            except BudgetExpired:
-                deadlines += 1
-                if segment_budget.remaining > 0.0:
-                    stopped_reason = "deadline_fault"
-                    abort_extension = True
-
-        batch_index = 0
         while segment_budget.remaining > 0.0 and not abort_extension:
-            rng.integers(0, 2**63, dtype="int64")
-            identity = (
-                _state_solution_sha256(state),
-                _rng_state_sha256(rng),
-                segment_seed,
-                destroy_scale,
-                restart_policy,
+            if active_rng is None:
+                active_destroy_scale, active_restart_policy = (
+                    (1.0, "continue"),
+                    (1.5, "verified_restart"),
+                    (2.0, "same_bay_restart"),
+                )[logical_segment_index % 3]
+                active_segment_seed = seed + 104729 * logical_segment_index
+                if active_restart_policy != "continue":
+                    state = incumbent.snapshot_state(template=state)
+                active_rng = Generator(PCG64(active_segment_seed))
+                active_acceptor = _make_acceptor(
+                    profile.acceptor_name,
+                    active_rng,
+                    incumbent,
+                )
+                active_destroy_weights = OperatorWeights(
+                    operators.destroy_names,
+                    adaptive=profile.adaptive,
+                )
+                active_repair_weights = OperatorWeights(
+                    operators.repair_names,
+                    adaptive=profile.adaptive,
+                )
+                if active_restart_policy == "same_bay_restart":
+                    try:
+                        if same_bay_restart(
+                            state,
+                            active_rng,
+                            operators,
+                            budget=segment_budget,
+                        ):
+                            restarts += 1
+                    except BudgetExpired:
+                        deadlines += 1
+                        stopped_reason = (
+                            "deadline_fault"
+                            if float(budget.remaining) > 0.0
+                            else "work_deadline"
+                        )
+                        last_verified_checkpoint = incumbent.export_checkpoint()
+                        state = incumbent.snapshot_state(template=state)
+                        abort_extension = True
+                        break
+                active_rng.integers(0, 2**63, dtype="int64")
+                identity = (
+                    _state_solution_sha256(state),
+                    _rng_state_sha256(active_rng),
+                    active_segment_seed,
+                    active_destroy_scale,
+                    active_restart_policy,
+                )
+                if identity in visited:
+                    duplicate_skips += 1
+                    stopped_reason = "stalled"
+                    abort_extension = True
+                    break
+                visited.add(identity)
+                segment_profiles.append(
+                    S3SegmentProfile(
+                        segment_index=logical_segment_index,
+                        seed=active_segment_seed,
+                        destroy_scale=active_destroy_scale,
+                        restart_policy=active_restart_policy,
+                    )
+                )
+                batches += 1
+                active_batch_iterations = 0
+                if segment_budget.remaining <= 0.0:
+                    break
+
+            if (
+                active_acceptor is None
+                or active_destroy_weights is None
+                or active_repair_weights is None
+            ):
+                raise AssertionError("logical S3 batch context is incomplete")
+            remaining_iterations = (
+                profile.iterations_per_batch - active_batch_iterations
             )
-            if identity in visited:
-                duplicate_skips += 1
-                stopped_reason = "stalled"
-                abort_extension = True
-                break
-            visited.add(identity)
-            batches += 1
-            remaining_before_batch = segment_budget.remaining
-            trace_count_before_batch = len(logical_trace)
+            remaining_before_slice = segment_budget.remaining
+            trace_count_before_slice = len(logical_trace)
 
             def record(event: ALNSIterationEvent) -> None:
                 shifted = S3ExtensionEvent(
-                    segment_index=segment_index,
-                    batch_index=batch_index,
+                    segment_index=logical_segment_index,
+                    batch_index=0,
                     iteration=iteration_offset + event.iteration,
-                    seed=segment_seed,
-                    destroy_scale=destroy_scale,
-                    restart_policy=restart_policy,
+                    seed=active_segment_seed,
+                    destroy_scale=active_destroy_scale,
+                    restart_policy=active_restart_policy,
                     destroy_name=event.destroy_name,
                     repair_name=event.repair_name,
                     previous_cur_obj=event.previous_cur_obj,
@@ -1857,23 +1913,27 @@ def run_s3_extension(
                 batch_result = run_alns(
                     state,
                     incumbent,
-                    rng,
-                    max_iterations=profile.iterations_per_batch,
+                    active_rng,
+                    max_iterations=remaining_iterations,
                     registry=operators,
                     remove_count=profile.remove_count,
-                    acceptor=acceptor,
+                    acceptor=active_acceptor,
                     safety_sample_interval=profile.safety_sample_interval,
                     budget=segment_budget,
                     on_event=record,
-                    destroy_weights=destroy_weights,
-                    repair_weights=repair_weights,
+                    destroy_weights=active_destroy_weights,
+                    repair_weights=active_repair_weights,
                     retime_trigger=retime_trigger,
                     retime_callback=retime_callback,
                     retime_wall_policy=retime_wall_policy,
                     timelimit_seconds=profile.segment_seconds,
-                    elapsed_offset_seconds=segment_index * profile.segment_seconds,
+                    elapsed_offset_seconds=(
+                        logical_segment_index * profile.segment_seconds
+                    ),
                     fault_hook=fault_hook,
-                    initial_destroy_scale=destroy_scale,
+                    initial_destroy_scale=active_destroy_scale,
+                    logical_iteration_offset=active_batch_iterations,
+                    logical_iteration_total=profile.iterations_per_batch,
                 )
             except BudgetExpired:
                 deadlines += 1
@@ -1894,6 +1954,9 @@ def run_s3_extension(
                 abort_extension = True
                 break
             _merge_metrics(combined_metrics, batch_result.metrics)
+            completed_iterations = batch_result.metrics.iterations
+            if batch_result.stopped_reason == "deadline" and completed_iterations > 0:
+                completed_iterations -= 1
             for item in batch_result.incumbent_trace[1:]:
                 incumbent_trace.append(
                     IncumbentTraceEntry(
@@ -1906,8 +1969,8 @@ def run_s3_extension(
                         solution_sha256=item.solution_sha256,
                     )
                 )
-            iteration_offset += batch_result.metrics.iterations
-            batch_index += 1
+            iteration_offset += completed_iterations
+            active_batch_iterations += completed_iterations
             last_verified_checkpoint = incumbent.export_checkpoint()
 
             try:
@@ -1932,21 +1995,29 @@ def run_s3_extension(
                 break
             if batch_result.stopped_reason == "deadline":
                 deadlines += 1
-                if segment_budget.remaining > 0.0:
+                if float(budget.remaining) <= 0.0:
+                    stopped_reason = "work_deadline"
+                elif segment_budget.remaining > 0.0:
                     stopped_reason = "deadline_fault"
                     abort_extension = True
                 break
-            if batch_result.metrics.iterations <= 0 or (
-                segment_budget.remaining >= remaining_before_batch
-                and len(logical_trace) == trace_count_before_batch
+            if completed_iterations <= 0 or (
+                segment_budget.remaining >= remaining_before_slice
+                and len(logical_trace) == trace_count_before_slice
             ):
                 duplicate_skips += 1
                 stopped_reason = "stalled"
                 abort_extension = True
                 break
+            if active_batch_iterations >= profile.iterations_per_batch:
+                logical_segment_index += 1
+                active_rng = None
+                active_acceptor = None
+                active_destroy_weights = None
+                active_repair_weights = None
+                active_batch_iterations = 0
 
         last_verified_checkpoint = incumbent.export_checkpoint()
-        segment_index += 1
 
     anchor_objective = original_anchor.checker_result.objective
     final_objective = last_verified_checkpoint.checker_result.objective

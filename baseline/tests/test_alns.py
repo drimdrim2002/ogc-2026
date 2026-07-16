@@ -1190,6 +1190,157 @@ class S3ExtensionTests(unittest.TestCase):
         self.assertTrue(checked.feasible, checked.violations)
         self.assertEqual(99.0, checked.objective)
 
+    def test_throughput_jitter_cannot_change_full_logical_prefix(self):
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        checkpoint = incumbent.export_checkpoint()
+        profile = self._profile(segment_seconds=1.0, iterations_per_batch=4)
+
+        def run(limit, cadence):
+            clock = self.FakeClock()
+            parent = Budget(limit, clock=clock, reserve=0.0)
+
+            def fake_batch(_state, active_incumbent, rng, **kwargs):
+                for iteration in range(1, kwargs["max_iterations"] + 1):
+                    draw = int(rng.integers(0, 2**31, dtype="int64"))
+                    kwargs["on_event"](
+                        alns.ALNSIterationEvent(
+                            iteration=iteration,
+                            destroy_name=f"d{draw % 5}",
+                            repair_name=f"r{draw % 3}",
+                            previous_cur_obj=float(draw),
+                            new_obj=float(draw),
+                            outcome="current_equal",
+                            accepted=False,
+                            potential_incumbent=False,
+                        )
+                    )
+                return alns.ALNSRunResult(
+                    solution=active_incumbent.solution,
+                    metrics=alns.ALNSMetrics(
+                        iterations=kwargs["max_iterations"]
+                    ),
+                    incumbent_trace=(),
+                    stopped_reason="max_iterations",
+                )
+
+            with (
+                patch("solver.alns.run_alns", side_effect=fake_batch),
+                patch("solver.alns.same_bay_restart", return_value=False),
+            ):
+                result = alns.run_s3_extension(
+                    checkpoint,
+                    parent,
+                    profile,
+                    20260710,
+                    {},
+                    prob_info=prob_info,
+                    on_event=lambda _event: clock.advance(cadence),
+                )
+            return parent, clock, result
+
+        short_parent, short_clock, short = run(2.0, 0.125)
+        long_parent, long_clock, long = run(4.0, 0.0625)
+
+        self.assertEqual("work_deadline", short.stopped_reason)
+        self.assertEqual("work_deadline", long.stopped_reason)
+        self.assertEqual(2, short.metrics.segments_started)
+        self.assertEqual(4, long.metrics.segments_started)
+        self.assertEqual(short_parent.deadline, short_clock.now)
+        self.assertEqual(long_parent.deadline, long_clock.now)
+        self.assertGreater(len(long.trace), len(short.trace))
+
+        mismatch = next(
+            (
+                index
+                for index, (short_event, long_event) in enumerate(
+                    zip(short.trace, long.trace)
+                )
+                if short_event != long_event
+            ),
+            None,
+        )
+        detail = None
+        if mismatch is not None:
+            detail = {
+                "index": mismatch,
+                "short": short.trace[mismatch],
+                "long": long.trace[mismatch],
+            }
+        self.assertIsNone(
+            mismatch,
+            "wall-clock throughput changed the logical schedule: "
+            f"{detail}",
+        )
+        self.assertEqual(short.trace, long.trace[: len(short.trace)])
+
+    def test_operational_boundary_resumes_partial_logical_batch(self):
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        checkpoint = incumbent.export_checkpoint()
+        profile = self._profile(segment_seconds=1.0, iterations_per_batch=6)
+
+        def run(limit, cadence):
+            clock = self.FakeClock()
+            parent = Budget(limit, clock=clock, reserve=0.0)
+
+            def sliced_batch(_state, active_incumbent, rng, **kwargs):
+                metrics = alns.ALNSMetrics()
+                stopped_reason = "max_iterations"
+                for iteration in range(1, kwargs["max_iterations"] + 1):
+                    metrics.iterations += 1
+                    try:
+                        kwargs["budget"].checkpoint("S3 iteration start")
+                    except BudgetExpired:
+                        metrics.deadlines += 1
+                        stopped_reason = "deadline"
+                        break
+                    draw = int(rng.integers(0, 2**31, dtype="int64"))
+                    kwargs["on_event"](
+                        alns.ALNSIterationEvent(
+                            iteration=iteration,
+                            destroy_name=f"d{draw % 5}",
+                            repair_name=f"r{draw % 3}",
+                            previous_cur_obj=float(draw),
+                            new_obj=float(draw),
+                            outcome="current_equal",
+                            accepted=False,
+                            potential_incumbent=False,
+                        )
+                    )
+                return alns.ALNSRunResult(
+                    solution=active_incumbent.solution,
+                    metrics=metrics,
+                    incumbent_trace=(),
+                    stopped_reason=stopped_reason,
+                )
+
+            with (
+                patch("solver.alns.run_alns", side_effect=sliced_batch),
+                patch("solver.alns.same_bay_restart", return_value=False),
+            ):
+                result = alns.run_s3_extension(
+                    checkpoint,
+                    parent,
+                    profile,
+                    20260710,
+                    {},
+                    prob_info=prob_info,
+                    on_event=lambda _event: clock.advance(cadence),
+                )
+            return parent, clock, result
+
+        short_parent, short_clock, short = run(2.0, 0.125)
+        long_parent, long_clock, long = run(4.0, 0.0625)
+
+        self.assertEqual(2, short.metrics.segments_started)
+        self.assertEqual(4, long.metrics.segments_started)
+        self.assertEqual(short_parent.deadline, short_clock.now)
+        self.assertEqual(long_parent.deadline, long_clock.now)
+        self.assertEqual(short.trace, long.trace[: len(short.trace)])
+
     def test_seeded_prefix_final_sha_and_assignment_are_deterministic(self):
         def run(limit):
             prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
