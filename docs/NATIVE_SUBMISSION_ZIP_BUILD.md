@@ -140,7 +140,9 @@ sha256sum "$ZIP"
 unzip -l "$ZIP"
 ```
 
-최종 ZIP은 다음 runtime 파일만 포함해야 한다.
+최종 ZIP은 실행에 필요한 runtime 파일과 코드 심사를 위한 native 알고리즘
+원본을 함께 포함한다. 평가 서버의 실행은 미리 빌드된 `.so`를 사용하며,
+포함된 `.cpp`/`.hpp`를 서버에서 다시 컴파일하지 않는다.
 
 ```text
 myalgorithm.py
@@ -149,12 +151,25 @@ solver/*.py
 solver/_ogc_native.cpython-312-<x86_64-linux-tag>.so
 solver/lib/libgeos_c.so.1
 solver/lib/libgeos.so.*
+native/ogc_native/src/bindings.cpp
+native/ogc_native/src/exact_geometry.cpp
+native/ogc_native/src/exact_geometry.hpp
+native/ogc_native/src/repair_kernel.cpp
+native/ogc_native/src/repair_kernel.hpp
+native/ogc_native/src/types.hpp
 ```
 
-다음 항목은 최종 ZIP에 없어야 한다.
+native source 포함 목적은 알고리즘 구현의 투명성과 코드 검토 가능성을
+확보하는 것이다. source는 실행 의존성이 아니며 `.so` 누락이나 서버 측
+컴파일을 정당화하지 않는다. 허용되는 native source 경로는
+`native/ogc_native/src/*.cpp`와 `native/ogc_native/src/*.hpp`로 제한한다.
 
-- `native/` source 및 C/C++ header/source
-- build 디렉터리와 CMake 파일
+다음 항목은 계속 최종 ZIP에 없어야 한다.
+
+- `native/ogc_native/CMakeLists.txt` 및 기타 CMake 파일
+- `native/ogc_native/third_party/`와 pybind11 tarball/source
+- 허용된 `native/ogc_native/src/*.cpp`, `*.hpp` 외의 native/build 파일
+- build 디렉터리와 object/debug 파일
 - test, data, experiments, artifacts
 - README, license, `SHA256SUMS`, `THIRD_PARTY_LICENSES`
 - `__pycache__`, `.pyc`, `.git` 관련 파일
@@ -243,6 +258,7 @@ unzip -t "$ZIP"
 - 파일 크기 `15,000,000 bytes` 이하
 - ZIP integrity PASS
 - 최상위에 `myalgorithm.py`, `utils.py` 존재
+- 위 6개 native `.cpp`/`.hpp` source 존재
 - `solver._ogc_native` import PASS
 - 공유 라이브러리 `not found` 없음
 - absolute RPATH/RUNPATH 없음
