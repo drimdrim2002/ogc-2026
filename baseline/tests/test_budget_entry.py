@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import hashlib
 import json
 import math
 import unittest
 from unittest.mock import patch
 
+import myalgorithm
 from solver import alns
 from solver.budget import Budget, BudgetExpired, deadline_reserve
 from solver.checker_adapter import official_check
@@ -192,7 +194,7 @@ class EntryAnytimeFillTests(unittest.TestCase):
             weights={"w1": 1.0, "w2": 0.0, "w3": 0.0},
         )
 
-    def _feature_off_snapshot(self, explicit):
+    def _wiring_snapshot(self, explicit, *, public_entry=False):
         prob_info = self._prob_info()
         clock = _FakeClock()
         parent = _FakeParentBudget(300.0, clock)
@@ -217,6 +219,14 @@ class EntryAnytimeFillTests(unittest.TestCase):
             clock.now += 1.0
             return _anchor_result(incumbent, iterations=legacy_iterations)
 
+        def fake_extension(checkpoint, _active_budget, *_args, **_kwargs):
+            return alns.S3ExtensionResult(
+                checkpoint=checkpoint,
+                metrics=alns.S3ExtensionMetrics(0, 0, 0, 0, 0, 0, 0, 0, 0),
+                trace=(),
+                stopped_reason="work_deadline",
+            )
+
         solve_kwargs = {
             "_constructor": False,
             "_retime": False,
@@ -224,14 +234,28 @@ class EntryAnytimeFillTests(unittest.TestCase):
         }
         if explicit is not None:
             solve_kwargs["_s3_anytime_fill"] = explicit
+        selected_config = replace(
+            DEFAULT_CONFIG,
+            constructor=False,
+            exact_retime=False,
+        )
         with (
+            patch("solver.entry.DEFAULT_CONFIG", selected_config),
             patch("solver.entry.Budget", return_value=parent),
             patch("solver.entry.time.monotonic", side_effect=clock),
             patch("solver.entry.run_anytime_epochs", side_effect=fake_anchor),
-            patch("solver.entry.run_s3_extension", create=True) as extension,
+            patch(
+                "solver.entry.run_s3_extension", side_effect=fake_extension
+            ) as extension,
         ):
-            solution = solve(prob_info, 300.0, **solve_kwargs)
-        self.assertFalse(extension.called)
+            solution = (
+                myalgorithm.algorithm(prob_info, 300.0)
+                if public_entry
+                else solve(prob_info, 300.0, **solve_kwargs)
+            )
+        checked = official_check(prob_info, solution)
+        self.assertTrue(checked.feasible, checked.violations)
+        self.assertEqual(5, checked.stage)
         payload = {
             "anchor_calls": anchor_calls,
             "solution": solution,
@@ -240,7 +264,7 @@ class EntryAnytimeFillTests(unittest.TestCase):
         digest = hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()
-        return solution, telemetry, anchor_calls, digest
+        return solution, telemetry, anchor_calls, digest, extension.call_count
 
     def _run_fill_with_fake_clock(self, timelimit):
         prob_info = self._prob_info()
@@ -354,17 +378,29 @@ class EntryAnytimeFillTests(unittest.TestCase):
             )
         return prob_info, anchors[0], solution, telemetry
 
-    def test_s3_anytime_fill_defaults_false(self):
-        self.assertIs(False, DEFAULT_CONFIG.s3_anytime_fill)
+    def test_s3_anytime_fill_defaults_to_qualified_candidate(self):
+        self.assertIs(True, DEFAULT_CONFIG.s3_anytime_fill)
+
+    def test_public_default_matches_candidate_and_explicit_off_remains_available(self):
+        public_default = self._wiring_snapshot(None, public_entry=True)
+        explicit_candidate = self._wiring_snapshot(True)
+        explicit_off = self._wiring_snapshot(False)
+
+        self.assertEqual(
+            (explicit_candidate[0], explicit_candidate[2], explicit_candidate[4]),
+            (public_default[0], public_default[2], public_default[4]),
+        )
+        self.assertEqual(1, public_default[4])
+        self.assertEqual(0, explicit_off[4])
 
     def test_feature_off_result_event_and_telemetry_sha_is_unchanged(self):
-        default = self._feature_off_snapshot(None)
-        explicit_false = self._feature_off_snapshot(False)
+        explicit_false = self._wiring_snapshot(False)
+        repeated_false = self._wiring_snapshot(False)
 
-        self.assertEqual(default, explicit_false)
-        self.assertEqual(EXPECTED_FEATURE_OFF_SHA256, default[3])
-        self.assertEqual(304, default[1]["alns_metrics"]["iterations"])
-        self.assertEqual(1, default[2][0]["continuation_iterations_per_epoch"])
+        self.assertEqual(explicit_false, repeated_false)
+        self.assertEqual(EXPECTED_FEATURE_OFF_SHA256, explicit_false[3])
+        self.assertEqual(304, explicit_false[1]["alns_metrics"]["iterations"])
+        self.assertEqual(1, explicit_false[2][0]["continuation_iterations_per_epoch"])
 
     def test_feature_on_uses_one_qualified_anchor_and_same_parent_deadline(self):
         observed = self._run_fill_with_fake_clock(300.0)

@@ -471,17 +471,29 @@ class S3AnytimeQualificationTests(unittest.TestCase):
                 self.assertEqual("INCOMPLETE", report["decision"])
                 self.assertFalse(any(gate["passed"] for gate in report["gates"].values()))
 
-    def test_public_and_default_are_false_and_only_candidate_is_true(self):
-        self.assertFalse(DEFAULT_CONFIG.s3_anytime_fill)
-        self.assertFalse(PUBLIC_PROFILE.s3_anytime_fill)
-        self.assertFalse(DEFAULT_PROFILE.s3_anytime_fill)
-        self.assertTrue(CANDIDATE_PROFILE.s3_anytime_fill)
-        enabled = {
-            name
-            for name in (PUBLIC_PROFILE.name, DEFAULT_PROFILE.name, CANDIDATE_PROFILE.name)
-            if profile_by_name(name).s3_anytime_fill
+    def test_selected_profiles_match_qualified_candidate_feature_set(self):
+        qualified = {"s3_anytime_fill": "true"}
+        selected = {
+            "DEFAULT_CONFIG": {
+                "s3_anytime_fill": str(DEFAULT_CONFIG.s3_anytime_fill).lower()
+            },
+            PUBLIC_PROFILE.name: {
+                "s3_anytime_fill": str(DEFAULT_CONFIG.s3_anytime_fill).lower()
+            },
+            DEFAULT_PROFILE.name: {
+                "s3_anytime_fill": str(DEFAULT_CONFIG.s3_anytime_fill).lower()
+            },
+            CANDIDATE_PROFILE.name: dict(CANDIDATE_PROFILE.features),
         }
-        self.assertEqual({"s3-anytime-fill-candidate"}, enabled)
+
+        self.assertEqual(
+            qualified,
+            dict(profile_by_name(CANDIDATE_PROFILE.name).features),
+        )
+        self.assertEqual(
+            {tuple(sorted(qualified.items()))},
+            {tuple(sorted(features.items())) for features in selected.values()},
+        )
 
     def test_timing_intervals_are_union_accounted_and_exclusions_not_useful(self):
         summary = summarize_timing_intervals(

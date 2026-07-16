@@ -30,7 +30,7 @@ class SolverConfig:
     retime_threads: int = 1
     retime_final_sweep: bool = True
     alns: bool = True
-    s3_anytime_fill: bool = False
+    s3_anytime_fill: bool = True
     alns_destroy_min_fraction: float = 0.02
     alns_destroy_max_fraction: float = 0.06
     alns_destroy_cap_fraction: float = 0.15
