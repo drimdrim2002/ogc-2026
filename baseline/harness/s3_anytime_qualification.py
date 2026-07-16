@@ -8,15 +8,17 @@ import json
 import math
 from pathlib import Path
 import statistics
+import subprocess
 from types import MappingProxyType
 from typing import Any, Iterable, Mapping, Sequence
 
-from .selectors import REPO_ROOT
+from .selectors import InstanceRef, REPO_ROOT
 
 
 CANDIDATE_MANIFEST_PATH = Path(
     "benchmarks/manifests/s3-anytime-fill-candidate.json"
 )
+FROZEN_STATUS = "FROZEN_UNQUALIFIED"
 S3_ANYTIME_TELEMETRY_FIELDS = (
     "run_id",
     "commit",
@@ -142,8 +144,12 @@ def canonical_sha256(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def load_candidate_manifest(path: Path | None = None) -> dict[str, Any]:
-    """Load and verify the AF-04 draft without treating it as an AF-05 freeze."""
+def load_candidate_manifest(
+    path: Path | None = None,
+    *,
+    require_frozen: bool = False,
+) -> dict[str, Any]:
+    """Load the AF-04 draft or AF-05 freeze without executing qualification."""
     relative = CANDIDATE_MANIFEST_PATH if path is None else Path(path)
     absolute = relative if relative.is_absolute() else REPO_ROOT / relative
     payload = json.loads(absolute.read_text(encoding="utf-8"))
@@ -152,8 +158,11 @@ def load_candidate_manifest(path: Path | None = None) -> dict[str, Any]:
         raise ValueError("S3 anytime qualification contract is missing")
     if canonical_sha256(contract) != payload.get("qualification_contract_sha256"):
         raise ValueError("S3 anytime qualification contract hash mismatch")
-    if payload.get("status") != "UNQUALIFIED_DRAFT":
-        raise ValueError("AF-04 manifest must remain UNQUALIFIED_DRAFT")
+    status = payload.get("status")
+    if status not in {"UNQUALIFIED_DRAFT", FROZEN_STATUS}:
+        raise ValueError("unknown S3 anytime candidate manifest status")
+    if require_frozen and status != FROZEN_STATUS:
+        raise ValueError("AF-06 requires the AF-05 frozen candidate manifest")
     if payload.get("source_path") != CANDIDATE_MANIFEST_PATH.as_posix():
         raise ValueError("S3 anytime candidate manifest source path changed")
     candidate = payload.get("candidate", {})
@@ -162,7 +171,7 @@ def load_candidate_manifest(path: Path | None = None) -> dict[str, Any]:
     if candidate.get("features") != dict(CANDIDATE_PROFILE.features):
         raise ValueError("S3 anytime candidate feature set changed")
     if candidate.get("public_default") is not False:
-        raise ValueError("AF-04 public default must remain false")
+        raise ValueError("S3 anytime public default must remain false")
     if tuple(contract.get("expected_record_ids", ())) != EXPECTED_RECORD_IDS:
         raise ValueError("S3 anytime expected record plan changed")
     if contract.get("thresholds") != dict(QUALIFICATION_THRESHOLDS):
@@ -171,7 +180,113 @@ def load_candidate_manifest(path: Path | None = None) -> dict[str, Any]:
         raise ValueError("S3 anytime telemetry schema changed")
     if tuple(contract.get("required_evidence_fields", ())) != S3_ANYTIME_EVIDENCE_FIELDS:
         raise ValueError("S3 anytime evidence schema changed")
+    qualification = payload.get("qualification", {})
+    if status == "UNQUALIFIED_DRAFT":
+        if payload.get("phase_id") != "AF-04":
+            raise ValueError("draft candidate manifest must remain owned by AF-04")
+        if candidate.get("source_identity") is not None:
+            raise ValueError("AF-04 draft cannot claim a source identity")
+        if qualification.get("command") is not None:
+            raise ValueError("AF-04 draft cannot claim a qualification command")
+    else:
+        if payload.get("phase_id") != "AF-05":
+            raise ValueError("frozen candidate manifest must be owned by AF-05")
+        if not isinstance(candidate.get("source_identity"), dict):
+            raise ValueError("AF-05 source identity is missing")
+        if not isinstance(qualification.get("command"), list):
+            raise ValueError("AF-05 qualification command is missing")
+        if qualification.get("real_wall_clock_executed") is not False:
+            raise ValueError("AF-05 must not claim real qualification execution")
     return payload
+
+
+def load_frozen_workload(
+    manifest: Mapping[str, Any] | None = None,
+) -> tuple[tuple[InstanceRef, float, int], ...]:
+    """Load the ordered AF-06 workload and verify every input byte identity."""
+    frozen = (
+        load_candidate_manifest(require_frozen=True)
+        if manifest is None
+        else dict(manifest)
+    )
+    if frozen.get("status") != FROZEN_STATUS:
+        raise ValueError("AF-06 workload requires a frozen manifest")
+    rows = frozen.get("qualification", {}).get("workload", ())
+    expected = tuple(frozen["qualification_contract"]["expected_record_ids"])
+    if tuple(str(row.get("record_id")) for row in rows) != expected:
+        raise ValueError("AF-06 workload order differs from the frozen contract")
+    loaded: list[tuple[InstanceRef, float, int]] = []
+    for row in rows:
+        path = Path(str(row.get("input_path", "")))
+        if not path.is_absolute() or not path.is_file():
+            raise ValueError(f"missing frozen qualification input: {path}")
+        encoded = path.read_bytes()
+        digest = hashlib.sha256(encoded).hexdigest()
+        if digest != row.get("instance_sha"):
+            raise ValueError(f"frozen qualification input hash mismatch: {path}")
+        instance_id = str(row["instance_id"])
+        timelimit = float(row["timelimit"])
+        seed = int(row["seed"])
+        if str(row["record_id"]) != f"{instance_id}|tl={timelimit:g}":
+            raise ValueError("AF-06 record id does not match its workload row")
+        loaded.append(
+            (
+                InstanceRef(
+                    instance_id=instance_id,
+                    path=path,
+                    sha256=digest,
+                    prob_info=json.loads(encoded),
+                ),
+                timelimit,
+                seed,
+            )
+        )
+    return tuple(loaded)
+
+
+def verify_frozen_candidate_source(
+    manifest: Mapping[str, Any] | None = None,
+) -> dict[str, str]:
+    """Require clean AF-05 HEAD and unchanged AF-04 algorithm bytes."""
+    frozen = (
+        load_candidate_manifest(require_frozen=True)
+        if manifest is None
+        else dict(manifest)
+    )
+    identity = frozen.get("candidate", {}).get("source_identity", {})
+    expected_parent = str(identity.get("freeze_parent_commit", ""))
+    expected_message = str(identity.get("freeze_commit_message", ""))
+    algorithm_commit = str(identity.get("algorithm_commit", ""))
+    algorithm_scope = tuple(str(item) for item in identity.get("algorithm_scope", ()))
+    status = _git("status", "--porcelain=v1")
+    head = _git("rev-parse", "HEAD")
+    parent = _git("rev-parse", "HEAD^")
+    message = _git("log", "-1", "--format=%s")
+    if status:
+        raise ValueError("AF-06 requires a clean frozen worktree")
+    if parent != expected_parent or message != expected_message:
+        raise ValueError("AF-05 freeze commit identity mismatch")
+    if not algorithm_scope:
+        raise ValueError("frozen algorithm scope is empty")
+    unchanged = subprocess.run(
+        ["git", "diff", "--quiet", algorithm_commit, "HEAD", "--", *algorithm_scope],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    if unchanged.returncode != 0:
+        raise ValueError("frozen algorithm scope differs from AF-04")
+    return {"head": head, "parent": parent, "message": message}
+
+
+def _git(*args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def summarize_timing_intervals(

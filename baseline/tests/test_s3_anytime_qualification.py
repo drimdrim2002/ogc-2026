@@ -6,18 +6,22 @@ from copy import deepcopy
 import hashlib
 import unittest
 
+from harness.cli import build_parser
 from harness.s3_anytime_qualification import (
     CANDIDATE_MANIFEST_PATH,
     CANDIDATE_PROFILE,
     DEFAULT_PROFILE,
+    FROZEN_STATUS,
     PUBLIC_PROFILE,
     S3_ANYTIME_TELEMETRY_FIELDS,
     canonical_sha256,
     evaluate_s3_anytime_qualification,
     load_candidate_manifest,
+    load_frozen_workload,
     profile_by_name,
     summarize_timing_intervals,
 )
+from harness.s3_anytime_worker import PROFILE as WORKER_PROFILE, _parser as worker_parser
 from solver.config import DEFAULT_CONFIG
 
 
@@ -139,17 +143,59 @@ class S3AnytimeQualificationTests(unittest.TestCase):
             CANDIDATE_MANIFEST_PATH.as_posix(),
         )
 
-    def test_candidate_manifest_is_a_hashed_unqualified_af04_draft(self):
+    def test_candidate_manifest_is_hashed_and_never_claims_real_q(self):
         manifest = load_candidate_manifest()
-        self.assertEqual("AF-04", manifest["phase_id"])
-        self.assertEqual("UNQUALIFIED_DRAFT", manifest["status"])
-        self.assertIsNone(manifest["candidate"]["source_identity"])
-        self.assertIsNone(manifest["qualification"]["command"])
         self.assertFalse(manifest["qualification"]["real_wall_clock_executed"])
         self.assertEqual(
             manifest["qualification_contract_sha256"],
             canonical_sha256(manifest["qualification_contract"]),
         )
+        if manifest["status"] == "UNQUALIFIED_DRAFT":
+            self.assertEqual("AF-04", manifest["phase_id"])
+            self.assertIsNone(manifest["candidate"]["source_identity"])
+            self.assertIsNone(manifest["qualification"]["command"])
+        else:
+            self.assertEqual(FROZEN_STATUS, manifest["status"])
+            self.assertEqual("AF-05", manifest["phase_id"])
+            self.assertIsInstance(manifest["candidate"]["source_identity"], dict)
+            self.assertIsInstance(manifest["qualification"]["command"], list)
+            workload = load_frozen_workload(manifest)
+            self.assertEqual(
+                tuple(manifest["qualification_contract"]["expected_record_ids"]),
+                tuple(f"{ref.instance_id}|tl={timelimit:g}" for ref, timelimit, _ in workload),
+            )
+
+    def test_candidate_cli_and_public_worker_profiles_are_explicit(self):
+        parser = build_parser()
+        synthetic = parser.parse_args(
+            [
+                "qualify-s3-anytime",
+                "--profile",
+                CANDIDATE_PROFILE.name,
+                "--records",
+                "synthetic.json",
+            ]
+        )
+        frozen = parser.parse_args(
+            ["qualify-s3-anytime", "--profile", CANDIDATE_PROFILE.name]
+        )
+        self.assertEqual("synthetic.json", synthetic.records)
+        self.assertIsNone(frozen.records)
+        worker = worker_parser().parse_args(
+            [
+                "--input",
+                "fixture.json",
+                "--timelimit",
+                "12",
+                "--seed",
+                "20260710",
+                "--algorithm-root",
+                "baseline",
+                "--profile",
+                CANDIDATE_PROFILE.name,
+            ]
+        )
+        self.assertEqual(WORKER_PROFILE, worker.profile)
 
     def test_valid_synthetic_records_pass(self):
         report = evaluate_s3_anytime_qualification(self._passing_records())

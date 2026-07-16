@@ -1,8 +1,9 @@
 {
   "schema_version": 1,
   "plan_id": "S3-AF",
-  "phase_id": "AF-04",
-  "status": "UNQUALIFIED_DRAFT",
+  "phase_id": "AF-05",
+  "attempt_id": "20260716T033756Z-af05-01",
+  "status": "FROZEN_UNQUALIFIED",
   "source_path": "benchmarks/manifests/s3-anytime-fill-candidate.json",
   "base_manifest": "benchmarks/manifests/s3-anytime-fill-base.json",
   "candidate": {
@@ -11,8 +12,161 @@
       "s3_anytime_fill": "true"
     },
     "public_default": false,
-    "source_identity": null,
+    "source_identity": {
+      "algorithm_commit": "8b36b4d60e183e278ee3ca87ae77b93a9be216c7",
+      "algorithm_dirty_diff_hash": "clean",
+      "algorithm_scope": [
+        "baseline/solver",
+        "baseline/myalgorithm.py"
+      ],
+      "algorithm_solver_tree_oid": "aa191e4efa5f3dd2edcb84431363eaa8720c123e",
+      "public_entry_blob_oid": "d296fc29c8824b090716cca30be64c360e286497",
+      "algorithm_repository_tree_oid": "319a4f126aed37078575607a2b1a3e9795f982f9",
+      "freeze_parent_commit": "8b36b4d60e183e278ee3ca87ae77b93a9be216c7",
+      "freeze_commit_message": "chore(anytime): freeze s3 deadline-fill candidate",
+      "freeze_commit_resolution": "AF-06 must use clean HEAD whose parent and exact message match this contract",
+      "pre_freeze_harness_dirty_diff_hash": "4f76184934c44c0de0b75455958f34f430b38c270061b4cfb4c794f1c6f65740"
+    },
     "source_identity_owner": "AF-05"
+  },
+  "configuration": {
+    "seed": 20260710,
+    "jobs": 1,
+    "acceptor": "sa",
+    "adaptive_weights": false,
+    "segment_seconds": 8.0,
+    "iterations_per_batch": 24,
+    "safety_sample_interval": 8,
+    "deadline_reserve": "clamp(0.05 * timelimit, 3s, 60s), with the existing short-budget rule below 3s",
+    "qualification_timelimits_seconds": [
+      120.0,
+      120.0,
+      120.0,
+      120.0,
+      120.0,
+      60.0,
+      300.0
+    ]
+  },
+  "hard_5_inputs": {
+    "source_root": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train",
+    "order": [
+      "prob_21",
+      "prob_22",
+      "prob_23",
+      "prob_24",
+      "prob_25"
+    ],
+    "sha256": {
+      "prob_21": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b",
+      "prob_22": "798f79582b85ca8b312b70b5b6dcbedf4ab1610807c027b9fadf68af6b2d3d12",
+      "prob_23": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+      "prob_24": "b236dc3e0a3326bf25af9762754fdb9ac8cd2277cc5eb030c37162c51d111e60",
+      "prob_25": "bc05276709763260f8412c37742106d34f44991e0d6ecf163c5e183727057fb5"
+    }
+  },
+  "runtime": {
+    "python_executable": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "python_version": "3.12.13",
+    "platform": "macOS-26.5.2-arm64-arm-64bit",
+    "packages": {
+      "gurobipy": "13.0.2",
+      "numpy": "2.1.3",
+      "ortools": "9.15.6755",
+      "psutil": "7.2.2",
+      "shapely": "2.1.2"
+    }
+  },
+  "protected_files": {
+    "baseline/utils.py": "d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75",
+    "baseline/baseline_greedy.py": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b"
+  },
+  "tier_s": {
+    "status": "PASS",
+    "passing_identity": "r3",
+    "superseded_failures": [
+      {
+        "identity": "r1",
+        "classification": "ENVIRONMENT",
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-r1-failure.json"
+      },
+      {
+        "identity": "r2",
+        "classification": "ENVIRONMENT",
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-r2-failure.json"
+      }
+    ],
+    "results": [
+      {
+        "step": 1,
+        "name": "affected S3/checkpoint/entry/harness/package tests",
+        "tests_run": 62,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-r3-01-affected.txt"
+      },
+      {
+        "step": 2,
+        "name": "full unittest discovery",
+        "tests_run": 117,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-r3-02-full-discovery.txt"
+      },
+      {
+        "step": 3,
+        "name": "Algorithm Tester-style public loader parity",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-03-public-loader.txt"
+      },
+      {
+        "step": 4,
+        "name": "package allowlist and isolated extraction",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-04-package.txt"
+      },
+      {
+        "step": 5,
+        "name": "feature-off tracked example parity",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-05-feature-off.txt"
+      },
+      {
+        "step": 6,
+        "name": "feature-on 5 second smoke",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-06-smoke-5s.txt"
+      },
+      {
+        "step": 7,
+        "name": "feature-on 12 second smoke",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-07-smoke-12s.txt"
+      },
+      {
+        "step": 8,
+        "name": "official checker Stage 5 and hard deadline",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-08-checker-deadline.txt"
+      },
+      {
+        "step": 9,
+        "name": "remaining child/process count",
+        "exit_code": 0,
+        "remaining_processes": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-09-processes.txt"
+      }
+    ]
+  },
+  "package_preflight": {
+    "archive_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/package-preflight-r3/submission.zip",
+    "archive_sha256": "2879ea06b07f6798fe95b82595c14799972d6964cc129d69eff9f6241a8a3372",
+    "archive_size_bytes": 61972,
+    "manifest_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/package-preflight-r3/submission-manifest.json",
+    "manifest_sha256": "5e5d7d37445c784ae215582b9b242017b205e906b2e591e20f6a52a4c78ea1e8",
+    "entry_count": 20,
+    "import_smoke_stage": 5,
+    "isolated_extraction_stage": 5,
+    "isolated_solution_sha256": "ecba5bb356f983ad3aafc402ec627240b0339518b280ef413b916ca2f9686752",
+    "process_leaks": 0
   },
   "qualification_contract_sha256": "5d769ed2e1d7bc288084cbc1ef7b15097cbfd611711f68565c1bbff3f5ed76a2",
   "qualification_contract": {
@@ -138,8 +292,96 @@
     ]
   },
   "qualification": {
-    "command": null,
-    "command_status": "TO_BE_FROZEN_BY_AF-05",
-    "real_wall_clock_executed": false
+    "command": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "baseline.harness.cli",
+      "qualify-s3-anytime",
+      "--profile",
+      "s3-anytime-fill-candidate",
+      "--manifest",
+      "benchmarks/manifests/s3-anytime-fill-candidate.json",
+      "--evidence-root",
+      "benchmarks/evidence/s3-anytime-fill",
+      "--run-id",
+      "20260716T033756Z-af05-01-q1",
+      "--seed",
+      "20260710",
+      "--jobs",
+      "1"
+    ],
+    "command_status": "FROZEN_NOT_EXECUTED",
+    "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T033756Z-af05-01-q1",
+    "automatic_resume": false,
+    "automatic_rerun": false,
+    "execution_order": "strictly sequential",
+    "workload": [
+      {
+        "record_id": "prob_21|tl=120",
+        "instance_id": "prob_21",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_21.json",
+        "instance_sha": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b",
+        "timelimit": 120.0,
+        "seed": 20260710,
+        "jobs": 1
+      },
+      {
+        "record_id": "prob_22|tl=120",
+        "instance_id": "prob_22",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_22.json",
+        "instance_sha": "798f79582b85ca8b312b70b5b6dcbedf4ab1610807c027b9fadf68af6b2d3d12",
+        "timelimit": 120.0,
+        "seed": 20260710,
+        "jobs": 1
+      },
+      {
+        "record_id": "prob_23|tl=120",
+        "instance_id": "prob_23",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_23.json",
+        "instance_sha": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+        "timelimit": 120.0,
+        "seed": 20260710,
+        "jobs": 1
+      },
+      {
+        "record_id": "prob_24|tl=120",
+        "instance_id": "prob_24",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_24.json",
+        "instance_sha": "b236dc3e0a3326bf25af9762754fdb9ac8cd2277cc5eb030c37162c51d111e60",
+        "timelimit": 120.0,
+        "seed": 20260710,
+        "jobs": 1
+      },
+      {
+        "record_id": "prob_25|tl=120",
+        "instance_id": "prob_25",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_25.json",
+        "instance_sha": "bc05276709763260f8412c37742106d34f44991e0d6ecf163c5e183727057fb5",
+        "timelimit": 120.0,
+        "seed": 20260710,
+        "jobs": 1
+      },
+      {
+        "record_id": "prob_21|tl=60",
+        "instance_id": "prob_21",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_21.json",
+        "instance_sha": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b",
+        "timelimit": 60.0,
+        "seed": 20260710,
+        "jobs": 1
+      },
+      {
+        "record_id": "prob_21|tl=300",
+        "instance_id": "prob_21",
+        "input_path": "/Users/brown/workspace/ogc/fable-native-s3-stabilization/data/train/prob_21.json",
+        "instance_sha": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b",
+        "timelimit": 300.0,
+        "seed": 20260710,
+        "jobs": 1
+      }
+    ],
+    "real_wall_clock_executed": false,
+    "result": null,
+    "decision": null
   }
 }

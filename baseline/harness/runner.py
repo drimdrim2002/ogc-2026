@@ -9,6 +9,7 @@ import hashlib
 import itertools
 import json
 import math
+import os
 from pathlib import Path
 import random
 import resource
@@ -1421,6 +1422,174 @@ def run_s3_integrated_case(
         "crash": False,
         "exception": None,
         "_epoch_solutions": telemetry.get("alns_epoch_solutions", []),
+    }
+
+
+def run_s3_anytime_candidate_case(
+    ref: InstanceRef,
+    *,
+    timelimit: float,
+    seed: int,
+    profile: str,
+    features: Mapping[str, str],
+    run_id: str,
+) -> dict[str, Any]:
+    """Run one bounded candidate through the public submission loader."""
+    provenance = repository_provenance()
+    identity = record_identity(
+        commit=provenance["commit"],
+        dirty_diff_hash=provenance["dirty_diff_hash"],
+        instance_sha=ref.sha256,
+        solver="native-s3-anytime-public-entry",
+        timelimit=timelimit,
+        seed=seed,
+        features=features,
+    )
+    environment = dict(os.environ)
+    environment.pop("PYTHONPATH", None)
+    result = run_process(
+        [
+            sys.executable,
+            "-m",
+            "baseline.harness.s3_anytime_worker",
+            "--input",
+            str(ref.path),
+            "--timelimit",
+            f"{timelimit:g}",
+            "--seed",
+            str(seed),
+            "--algorithm-root",
+            str(REPO_ROOT / "baseline"),
+            "--profile",
+            profile,
+        ],
+        timeout=timelimit + 5.0,
+        terminate_grace=2.0,
+        cwd=str(REPO_ROOT),
+        env=environment,
+    )
+    payload = _last_json_object(result.stdout)
+    telemetry = payload.get("telemetry", {})
+    if not isinstance(telemetry, dict):
+        telemetry = {}
+    checker = payload.get("checker", {})
+    if not isinstance(checker, dict):
+        checker = {}
+    algorithm_wall = max(0.0, float(payload.get("algorithm_wall_seconds", 0.0)))
+    anchor_seconds = sum(
+        max(0.0, float(telemetry.get(field, 0.0)))
+        for field in (
+            "t0_and_verify_seconds",
+            "constructor_seconds",
+            "retime_seconds",
+            "alns_seconds",
+        )
+    )
+    fill_seconds = max(0.0, algorithm_wall - anchor_seconds)
+    anchor_trace = telemetry.get("alns_incumbent_trace", ())
+    anchor_objective = None
+    if isinstance(anchor_trace, list) and anchor_trace:
+        anchor_objective = anchor_trace[-1].get("objective")
+    final_objective = checker.get("objective")
+    objective_trace: list[float] = []
+    if anchor_objective is not None:
+        objective_trace.append(float(anchor_objective))
+    if final_objective is not None and (
+        not objective_trace or float(final_objective) != objective_trace[-1]
+    ):
+        objective_trace.append(float(final_objective))
+    improved = (
+        anchor_objective is not None
+        and final_objective is not None
+        and float(final_objective) < float(anchor_objective) - 1e-6
+    )
+    selected_config = payload.get("selected_config")
+    expected_config = {"s3_anytime_fill": True, "entry_mode": "public"}
+    fallback_reason = telemetry.get("fallback_reason")
+    passed = (
+        result.exit_code == 0
+        and result.signal is None
+        and not result.timed_out
+        and not result.group_leak_detected
+        and not result.group_alive_after_cleanup
+        and checker.get("feasible") is True
+        and checker.get("stage") == 5
+        and algorithm_wall <= timelimit
+        and payload.get("profile") == profile
+        and selected_config == expected_config
+        and payload.get("temporary_cwd_cleaned") is True
+        and fallback_reason in {None, ""}
+    )
+    stopped_reason = telemetry.get("s3_extension_stopped_reason", "not_started")
+    solution_sha = payload.get("solution_sha256")
+    return {
+        "record_id": f"{ref.instance_id}|tl={timelimit:g}",
+        "identity": identity,
+        "complete": True,
+        "status": "passed" if passed else (
+            "timeout" if result.timed_out else "checker_failed"
+        ),
+        "run_id": run_id,
+        "timestamp": datetime.now().astimezone().isoformat(),
+        **provenance,
+        "interpreter": sys.executable,
+        "argv": list(result.argv),
+        "cwd": str(REPO_ROOT),
+        "profile": profile,
+        "features": dict(sorted(features.items())),
+        "instance_id": ref.instance_id,
+        "instance_path": str(ref.path),
+        "instance_sha": ref.sha256,
+        "seed": seed,
+        "timelimit": timelimit,
+        "wall_seconds": algorithm_wall,
+        "process_wall_seconds": result.wall_seconds,
+        "work_deadline_seconds": timelimit - deadline_reserve(timelimit),
+        "hard_deadline_seconds": timelimit,
+        "anchor_seconds": anchor_seconds,
+        "anchor_objective": anchor_objective,
+        "anchor_solution_sha256": telemetry.get("s3_extension_input_sha256"),
+        "s3_fill_seconds": fill_seconds,
+        "s3_fill_useful_seconds": fill_seconds,
+        "idle_seconds": 0.0,
+        "finalization_seconds": 0.0,
+        "s3_fill_segments": int(telemetry.get("s3_extension_segments", 0)),
+        "s3_fill_batches": int(telemetry.get("s3_extension_batches", 0)),
+        "s3_fill_iterations": int(telemetry.get("s3_extension_iterations", 0)),
+        "s3_fill_accepted": int(telemetry.get("s3_extension_accepted", 0)),
+        "s3_fill_improvements": int(telemetry.get("s3_extension_improvements", 0)),
+        "s3_fill_restarts": int(telemetry.get("s3_extension_restarts", 0)),
+        "s3_fill_deadlines": int(telemetry.get("s3_extension_deadlines", 0)),
+        "s3_fill_faults": int(telemetry.get("s3_extension_faults", 0)),
+        "s3_fill_stopped_reason": stopped_reason,
+        "time_to_best_seconds": algorithm_wall if improved else anchor_seconds,
+        "late_improvement_count": int(improved),
+        "checker_stage": checker.get("stage"),
+        "feasible": checker.get("feasible"),
+        "objective": final_objective,
+        "obj1": checker.get("obj1"),
+        "obj2": checker.get("obj2"),
+        "obj3": checker.get("obj3"),
+        "final_solution_sha256": solution_sha,
+        "checker_solution_sha256": payload.get("checker_solution_sha256"),
+        "verification_count": telemetry.get("incumbent_verification_count", 0),
+        "termination_reason": stopped_reason,
+        "fallback_reason": fallback_reason,
+        "incumbent_objective_trace": objective_trace,
+        "algorithm_module": payload.get("algorithm_module"),
+        "algorithm_root": payload.get("algorithm_root"),
+        "public_loader_parity": selected_config == expected_config,
+        "subprocess_pid": result.pid,
+        "subprocess_exit": result.exit_code,
+        "signal": result.signal,
+        "timeout": result.timed_out,
+        "term_sent": result.term_sent,
+        "kill_sent": result.kill_sent,
+        "group_leak_detected": result.group_leak_detected,
+        "group_alive_after_cleanup": result.group_alive_after_cleanup,
+        "temporary_cwd_cleaned": payload.get("temporary_cwd_cleaned", False),
+        "stderr": result.stderr,
+        "worker_exception": payload.get("exception"),
     }
 
 

@@ -40,6 +40,8 @@ from .s3_anytime_qualification import (
     CANDIDATE_PROFILE,
     evaluate_s3_anytime_qualification,
     load_candidate_manifest,
+    load_frozen_workload,
+    verify_frozen_candidate_source,
 )
 from .runner import (
     make_escalation_stress_ref,
@@ -55,6 +57,7 @@ from .runner import (
     run_s3_operator_case,
     run_s3_control_case,
     run_s3_integrated_case,
+    run_s3_anytime_candidate_case,
     s3_prefix_record,
     run_s2_entry_case,
     run_s2_matrix_records,
@@ -169,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     qualify = subparsers.add_parser("qualify-s3-anytime")
     _common(qualify)
     qualify.add_argument("--profile", choices=(CANDIDATE_PROFILE.name,), required=True)
-    qualify.add_argument("--records", required=True)
+    qualify.add_argument("--records")
     qualify.add_argument("--manifest", default=CANDIDATE_MANIFEST_PATH.as_posix())
     return parser
 
@@ -3443,19 +3446,19 @@ def _report(args: argparse.Namespace) -> int:
 
 
 def _qualify_s3_anytime(args: argparse.Namespace) -> int:
-    """Evaluate pre-captured candidate records; this command never runs a solver."""
+    """Evaluate synthetic records or execute the exact frozen AF-06 workload."""
     if args.profile != CANDIDATE_PROFILE.name:
         raise SelectorError(f"unknown frozen candidate profile: {args.profile}")
+    manifest = load_candidate_manifest(
+        Path(args.manifest), require_frozen=args.records is None
+    )
+    if args.records is None:
+        return _run_frozen_s3_anytime_qualification(args, manifest)
     records_path = Path(args.records)
     records_payload = json.loads(records_path.read_text(encoding="utf-8"))
-    records = (
-        records_payload.get("records", ())
-        if isinstance(records_payload, dict)
-        else records_payload
-    )
+    records = records_payload.get("records", ()) if isinstance(records_payload, dict) else records_payload
     if not isinstance(records, list):
         raise SelectorError("S3 anytime records input must be a JSON array")
-    manifest = load_candidate_manifest(Path(args.manifest))
     report = evaluate_s3_anytime_qualification(records, manifest)
     record_id = "s3-anytime-qualification"
     run, _ = _start_stage_run(
@@ -3478,6 +3481,74 @@ def _qualify_s3_anytime(args: argparse.Namespace) -> int:
             "decision_reasons": report["decision_reasons"],
         }
     )
+    (run.run_dir / "qualification.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    run.finalize(
+        {
+            "command": "qualify-s3-anytime",
+            "stage": "s3-anytime-fill",
+            **report,
+        }
+    )
+    _announce(run, report)
+    return EXIT_PASS if report["status"] == "passed" else EXIT_GATE_FAILURE
+
+
+def _run_frozen_s3_anytime_qualification(
+    args: argparse.Namespace,
+    manifest: Mapping[str, Any],
+) -> int:
+    if args.feature or args.resume or args.rerun:
+        raise SelectorError(
+            "AF-06 accepts no feature override, resume, or rerun"
+        )
+    if args.run_id == "auto":
+        raise SelectorError("AF-06 requires the exact frozen run id")
+    seed = _single_seed(args.seed)
+    contract = manifest["qualification_contract"]
+    if seed != int(contract["seed"]) or args.jobs != int(contract["jobs"]):
+        raise SelectorError("AF-06 seed/jobs differ from the frozen contract")
+    source = verify_frozen_candidate_source(manifest)
+    workload = load_frozen_workload(manifest)
+    expected = tuple(str(row[0].instance_id) + f"|tl={row[1]:g}" for row in workload)
+    if expected != tuple(contract["expected_record_ids"]):
+        raise SelectorError("AF-06 workload differs from the qualification contract")
+    run_dir = _evidence_root(args) / "qualification" / args.run_id
+    expected_relative = str(run_dir.relative_to(REPO_ROOT))
+    if expected_relative != manifest["qualification"]["expected_evidence_directory"]:
+        raise SelectorError("AF-06 evidence directory differs from the frozen path")
+    provenance = repository_provenance()
+    run = EvidenceRun.start(
+        run_dir,
+        command=[sys.executable, "-m", "baseline.harness.cli", *sys.argv[1:]],
+        expected_record_ids=expected,
+        metadata={
+            **provenance,
+            "stage": "s3-anytime-fill",
+            "phase": "AF-06",
+            "profile": CANDIDATE_PROFILE.name,
+            "features": dict(CANDIDATE_PROFILE.features),
+            "source_identity": source,
+            "manifest": str(args.manifest),
+            "qualification_contract_sha256": manifest["qualification_contract_sha256"],
+            "seed": seed,
+            "jobs": args.jobs,
+        },
+    )
+    for ref, timelimit, row_seed in workload:
+        run.append_record(
+            run_s3_anytime_candidate_case(
+                ref,
+                timelimit=timelimit,
+                seed=row_seed,
+                profile=CANDIDATE_PROFILE.name,
+                features=dict(CANDIDATE_PROFILE.features),
+                run_id=args.run_id,
+            )
+        )
+    report = evaluate_s3_anytime_qualification(run.records, manifest)
     (run.run_dir / "qualification.json").write_text(
         json.dumps(report, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
