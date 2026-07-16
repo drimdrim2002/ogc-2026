@@ -1,22 +1,69 @@
 {
   "schema_version": 3,
   "plan_id": "S3-AF",
-  "phase_id": "AF-04",
-  "attempt_id": "20260716T081606Z-af04-recovery-02",
-  "status": "UNQUALIFIED_DRAFT",
+  "phase_id": "AF-05",
+  "attempt_id": "20260716T083046Z-af05-recovery-identity-c-01",
+  "status": "FROZEN_UNQUALIFIED",
   "source_path": "benchmarks/manifests/s3-anytime-fill-candidate.json",
   "base_manifest": "benchmarks/manifests/s3-anytime-fill-base.json",
   "candidate": {
-    "identity_label": null,
-    "candidate_identity": null,
-    "candidate_identity_contract": null,
-    "candidate_identity_contract_sha256": null,
+    "identity_label": "C",
+    "candidate_identity": "25a66ff8dcc0827183e01066f83df881a3010e9359c2c9fa987835f6591d6143",
+    "candidate_identity_contract": {
+      "candidate_label": "C",
+      "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T083046Z-af05-recovery-identity-c-01-q1",
+      "jobs": 1,
+      "package_archive_sha256": "a67462c4763523dfb5b2b970a6d5244404e33594a23622d9f0497af5628e5633",
+      "package_manifest_sha256": "0535870796d2dbbb4acb88c5e1d77dcf1a1872f7bb50323ecb236c7178678f04",
+      "profile": "s3-anytime-fill-candidate",
+      "q_run_id": "20260716T083046Z-af05-recovery-identity-c-01-q1",
+      "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
+      "recovered_source_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+      "seed": 20260710,
+      "source_dirty_diff_hash": "clean",
+      "tier_s_identity": "20260716T083046Z-af05-recovery-identity-c-01-s1"
+    },
+    "candidate_identity_contract_sha256": "25a66ff8dcc0827183e01066f83df881a3010e9359c2c9fa987835f6591d6143",
     "profile": "s3-anytime-fill-candidate",
     "features": {
       "s3_anytime_fill": "true"
     },
     "public_default": false,
-    "source_identity": null,
+    "source_identity": {
+      "algorithm_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+      "recovered_source_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+      "algorithm_dirty_diff_hash": "clean",
+      "algorithm_scope": [
+        "baseline/solver",
+        "baseline/myalgorithm.py",
+        "baseline/harness/cli.py",
+        "baseline/harness/runner.py",
+        "baseline/harness/s3_anytime_qualification.py",
+        "baseline/tests/test_s3_anytime_qualification.py"
+      ],
+      "algorithm_solver_tree_oid": "d0cf28cb5c487815898bef2b24d6bed2f986790b",
+      "public_entry_blob_oid": "d296fc29c8824b090716cca30be64c360e286497",
+      "algorithm_repository_tree_oid": "8540fdedb54efa561144a8cae94817aaea1d38cc",
+      "qualification_contract_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+      "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
+      "qualification_contract_blob_oids": {
+        "baseline/harness/cli.py": "3867551b72d8a3246d77c250c8aaf82a69ef8afe",
+        "baseline/harness/runner.py": "e1cd814268dddcf1e38628219c9e2f1c358be8ce",
+        "baseline/harness/s3_anytime_qualification.py": "3120be424ad2d2b9027750f36cd819b9a26830be",
+        "baseline/tests/test_s3_anytime_qualification.py": "ff3a9e07646eb9190e6d642cd4f149c3fe0d36d4"
+      },
+      "source_lineage": {
+        "algorithm_recovery_commit": "224b3606fb6a2f9d0fd30ffa8ccb723692605032",
+        "entry_validation_commit": "115f2fc8c6c7fd5e2e77ccafc30dda3903070295",
+        "qualification_draft_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9"
+      },
+      "tier_s_identity": "20260716T083046Z-af05-recovery-identity-c-01-s1",
+      "tier_s_evidence_root": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01",
+      "freeze_parent_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+      "freeze_commit_message": "chore(anytime): freeze s3 deadline-fill candidate",
+      "freeze_commit_resolution": "AF-06 identity C must use a clean HEAD whose parent and exact message match this contract",
+      "manifest_sha256_before_freeze": "1a08f372ba9b0844e401b9d37907889377e57c6fba0c983077c63cdfed53c3ff"
+    },
     "candidate_identity_owner": "AF-05-recovery-identity-C",
     "source_identity_owner": "AF-05-recovery-identity-C"
   },
@@ -24,13 +71,15 @@
     "recovery_of": [
       "AF-06/20260716T065410Z-af06-identity-b-01",
       "AF-02/20260716T072305Z-af02-recovery-02",
-      "AF-03/20260716T080654Z-af03-recovery-validation-01"
+      "AF-03/20260716T080654Z-af03-recovery-validation-01",
+      "AF-04/20260716T081606Z-af04-recovery-02"
     ],
     "af02_recovery_commit": "224b3606fb6a2f9d0fd30ffa8ccb723692605032",
     "af03_validation_commit": "115f2fc8c6c7fd5e2e77ccafc30dda3903070295",
-    "current_recovered_source_commit": "115f2fc8c6c7fd5e2e77ccafc30dda3903070295",
-    "candidate_source_identity": null,
-    "candidate_source_identity_frozen": false,
+    "af04_contract_draft_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+    "current_recovered_source_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+    "candidate_source_identity": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+    "candidate_source_identity_frozen": true,
     "freeze_owner": "AF-05-recovery-identity-C"
   },
   "superseded_identities": [
@@ -342,8 +391,8 @@
       "B"
     ],
     "identities_a_b_selectable": false,
-    "next_identity_label": "C",
-    "next_identity_status": "UNQUALIFIED_DRAFT",
+    "current_identity_label": "C",
+    "current_identity_status": "FROZEN_UNQUALIFIED",
     "selection_owner": "AF-05-recovery-identity-C"
   },
   "configuration": {
@@ -400,29 +449,221 @@
     "baseline/harness/s3_anytime_worker.py": "a135e5e8c28f0a6fc18034df06269cee26bf0ca1c337c04c8136f49c20a7a7f2"
   },
   "protected_git_oids": {
-    "baseline/solver": "aa191e4efa5f3dd2edcb84431363eaa8720c123e",
+    "baseline/solver": "d0cf28cb5c487815898bef2b24d6bed2f986790b",
     "baseline/myalgorithm.py": "d296fc29c8824b090716cca30be64c360e286497",
     "baseline/harness/s3_anytime_worker.py": "cb5e984ecca97b5b5c2c9f4c4a04eeaf833a5bb4"
   },
   "tier_s": {
-    "status": "NOT_RUN",
-    "passing_identity": null,
-    "source_commit": null,
-    "source_dirty_diff_hash": null,
-    "evidence_root": null,
-    "required_next_phase": "AF-05-recovery-identity-C",
-    "prior_results_disposition": "SUPERSEDED_PREVIOUS_IDENTITY",
-    "prior_results_location": "superseded_identities[B].tier_s_history"
+    "status": "PASS",
+    "passing_identity": "20260716T083046Z-af05-recovery-identity-c-01-s1",
+    "source_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+    "source_dirty_diff_hash": "clean",
+    "evidence_root": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01",
+    "required_next_phase": "AF-06-identity-C",
+    "prior_results_disposition": "SUPERSEDED_PREVIOUS_IDENTITIES",
+    "prior_results_location": "superseded_identities[A|B].tier_s_history",
+    "different_cadence_regression": {
+      "anchor_policy": {
+        "acceptor_name": "sa",
+        "adaptive": false,
+        "continuation_iterations_per_epoch": 1,
+        "epoch_seconds": 60.0,
+        "iterations_per_epoch": 300,
+        "safety_sample_interval": 8
+      },
+      "anchor_policy_equal": true,
+      "cadences": [
+        0.125,
+        0.0625
+      ],
+      "checker_stage": 5,
+      "feasible": true,
+      "long": {
+        "batches": 190,
+        "iterations": 4569,
+        "segments": 36,
+        "stopped_reason": "work_deadline",
+        "trace_events": 4544
+      },
+      "long_logical_schedule": {
+        "logical_segment_count": 190,
+        "logical_segment_indices_contiguous": true,
+        "profile_rotation": [
+          {
+            "destroy_scale": 1.0,
+            "restart_policy": "continue"
+          },
+          {
+            "destroy_scale": 1.5,
+            "restart_policy": "verified_restart"
+          },
+          {
+            "destroy_scale": 2.0,
+            "restart_policy": "same_bay_restart"
+          }
+        ],
+        "seed_formula": "20260710 + 104729 * logical_segment_index",
+        "valid": true,
+        "wall_segment_driven_seed_or_restart_divergence": false
+      },
+      "phase_id": "AF-05",
+      "plan_id": "S3-AF",
+      "public_return_schema_equal": true,
+      "same_parent_absolute_deadline": true,
+      "short": {
+        "batches": 19,
+        "iterations": 453,
+        "segments": 7,
+        "stopped_reason": "work_deadline",
+        "trace_events": 448
+      },
+      "short_exact_prefix_of_long": true,
+      "short_logical_schedule": {
+        "logical_segment_count": 19,
+        "logical_segment_indices_contiguous": true,
+        "profile_rotation": [
+          {
+            "destroy_scale": 1.0,
+            "restart_policy": "continue"
+          },
+          {
+            "destroy_scale": 1.5,
+            "restart_policy": "verified_restart"
+          },
+          {
+            "destroy_scale": 2.0,
+            "restart_policy": "same_bay_restart"
+          }
+        ],
+        "seed_formula": "20260710 + 104729 * logical_segment_index",
+        "valid": true,
+        "wall_segment_driven_seed_or_restart_divergence": false
+      },
+      "source_commit": "b3007dec946dc66cc63bfac4cede8034b7b212d9",
+      "status": "PASS",
+      "tier_s_identity": "20260716T083046Z-af05-recovery-identity-c-01-s1",
+      "timelimits": [
+        60.0,
+        300.0
+      ]
+    },
+    "results": [
+      {
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-01-affected.txt",
+        "evidence_sha256": "5be44cf624725cf17efc14c06813ac87f4da2200e79a6dbec1652cae0d9fab56",
+        "exit_code": 0,
+        "name": "affected S3/checkpoint/entry/harness/package tests",
+        "step": 1,
+        "tests_run": 70
+      },
+      {
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-02-full-discovery.txt",
+        "evidence_sha256": "68f71ae9ba49f017fa0a3e8cdcdf8133a0aee4c282890e2f7dd9d3e84846b9b8",
+        "exit_code": 0,
+        "name": "full unittest discovery",
+        "step": 2,
+        "tests_run": 125
+      },
+      {
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-03-public-loader.txt",
+        "evidence_sha256": "5c36591a3e2dfe82077ecd84a3983a3e2780c22c8a7071d3482be14dd47f15b9",
+        "exit_code": 0,
+        "name": "Algorithm Tester-style public loader parity",
+        "step": 3
+      },
+      {
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-04-package.txt",
+        "evidence_sha256": "60304b5bfd0d76e09dd521077f10c158310286b494db586e92239e3a658ec05a",
+        "exit_code": 0,
+        "name": "package allowlist and isolated extraction smoke",
+        "step": 4
+      },
+      {
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-05-feature-off.txt",
+        "evidence_sha256": "9ee86f9064057f8ec8102b1e44031801ff04679595e4d9b55cd69dc4242bf84e",
+        "exit_code": 0,
+        "name": "feature-off tracked example parity",
+        "solution_sha256": "50a8d7e6731fcbd7fbe9945e263e9a7c427eec64eb6803b0f093cf5fbf4f7cdc",
+        "step": 5
+      },
+      {
+        "batches": 94,
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-06-smoke-5s.txt",
+        "evidence_sha256": "233bfa48d56e828fd02fa376e4a0a17f0d029064112169bcd91326944e8ffdc5",
+        "exit_code": 0,
+        "hard_deadline_seconds": 5.0,
+        "idle_seconds": 0,
+        "iterations": 2252,
+        "logical_event_count": 2552,
+        "logical_event_trace_sha256": "cd9afa1f6f471fa300080cc2bfbfbac2cf24d80d6a2c95503b603e449d18b011",
+        "logical_schedule_metadata_valid": true,
+        "name": "feature-on 5-second smoke and recovered timing/full-trace contract",
+        "segments": 1,
+        "step": 6,
+        "total_useful_seconds": 2.0016627080040053,
+        "wall_seconds": 2.0016627080040053,
+        "work_deadline_seconds": 2.0
+      },
+      {
+        "batches": 509,
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-07-smoke-12s.txt",
+        "evidence_sha256": "41ef3de306e1ff11e6be2e550102348bf624a754661442acb6c45162e1d5eb5c",
+        "exit_code": 0,
+        "hard_deadline_seconds": 12.0,
+        "idle_seconds": 0,
+        "iterations": 12214,
+        "logical_event_count": 12513,
+        "logical_event_trace_sha256": "e2b0271c77307817661cbff1e2991acd72d9bf662195aa0a41548c717e045033",
+        "logical_schedule_metadata_valid": true,
+        "name": "feature-on 12-second smoke and recovered timing/full-trace contract",
+        "segments": 2,
+        "step": 7,
+        "total_useful_seconds": 9.00216245802585,
+        "wall_seconds": 9.00216245802585,
+        "work_deadline_seconds": 9.0
+      },
+      {
+        "cadence_evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-cadence-prefix.txt",
+        "cadence_evidence_sha256": "70655485b90b29c1edd3bb6eb598d75be1fa84bef1c20c3acdb1ba5aa418f4a6",
+        "checker_stage": 5,
+        "different_cadence_exact_prefix": true,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-08-checker-deadline-contract.txt",
+        "evidence_sha256": "dfb6d781f8bb13947b64bbfec6f91cde4b787a8c8bc1578a1c027f02deab90e0",
+        "exit_code": 0,
+        "name": "official checker Stage 5, hard deadline, timing union, full trace, and cadence-prefix verification",
+        "operational_scaling_12_gt_5": true,
+        "step": 8
+      },
+      {
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/tier-s-s1-09-processes.txt",
+        "evidence_sha256": "4a03d1cd4e250fc9fe54b0ddbc3594098bc07d4a237efc1eb6c7c537e9992efe",
+        "exit_code": 0,
+        "name": "remaining child/worker/Q process count",
+        "q_execution_count": 0,
+        "remaining_processes": 0,
+        "step": 9
+      }
+    ]
   },
   "package_preflight": {
-    "status": "NOT_RUN",
-    "disposition": "SUPERSEDED_PREVIOUS_IDENTITY",
-    "required_next_phase": "AF-05-recovery-identity-C",
-    "archive_path": null,
-    "archive_sha256": null,
-    "manifest_path": null,
-    "manifest_sha256": null,
-    "prior_results_location": "superseded_identities[B].package_preflight_history"
+    "status": "PASS",
+    "tier_s_identity": "20260716T083046Z-af05-recovery-identity-c-01-s1",
+    "required_next_phase": "AF-06-identity-C",
+    "archive_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/package-preflight-s1/submission.zip",
+    "archive_sha256": "a67462c4763523dfb5b2b970a6d5244404e33594a23622d9f0497af5628e5633",
+    "archive_size_bytes": 62558,
+    "manifest_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T083046Z-af05-recovery-identity-c-01/package-preflight-s1/submission-manifest.json",
+    "manifest_sha256": "0535870796d2dbbb4acb88c5e1d77dcf1a1872f7bb50323ecb236c7178678f04",
+    "entry_count": 20,
+    "import_smoke_stage": 5,
+    "isolated_extraction_stage": 5,
+    "isolated_solution_sha256": "ecba5bb356f983ad3aafc402ec627240b0339518b280ef413b916ca2f9686752",
+    "process_leaks": 0
   },
   "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
   "qualification_contract": {
@@ -445,8 +686,8 @@
       "scaling_short_timelimit_seconds": 60.0,
       "scaling_long_timelimit_seconds": 300.0,
       "late_improvements_minimum": 1,
-      "objective_relative_tolerance": 1E-9,
-      "objective_absolute_tolerance": 0.000001
+      "objective_relative_tolerance": 1e-09,
+      "objective_absolute_tolerance": 1e-06
     },
     "required_telemetry_fields": [
       "run_id",
@@ -563,17 +804,34 @@
     ]
   },
   "qualification": {
-    "command": null,
-    "command_status": "DRAFT_REQUIRES_AF05_RECOVERY_FREEZE",
-    "q_run_id": null,
+    "command": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "baseline.harness.cli",
+      "qualify-s3-anytime",
+      "--profile",
+      "s3-anytime-fill-candidate",
+      "--manifest",
+      "benchmarks/manifests/s3-anytime-fill-candidate.json",
+      "--evidence-root",
+      "benchmarks/evidence/s3-anytime-fill",
+      "--run-id",
+      "20260716T083046Z-af05-recovery-identity-c-01-q1",
+      "--seed",
+      "20260710",
+      "--jobs",
+      "1"
+    ],
+    "command_status": "FROZEN_NOT_EXECUTED",
+    "q_run_id": "20260716T083046Z-af05-recovery-identity-c-01-q1",
     "q_execution_count": 0,
     "real_q_executed": false,
-    "expected_evidence_directory": null,
-    "expected_evidence_directory_confirmed_absent": null,
-    "candidate_identity": null,
-    "candidate_identity_label": null,
+    "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T083046Z-af05-recovery-identity-c-01-q1",
+    "expected_evidence_directory_confirmed_absent": true,
+    "candidate_identity": "25a66ff8dcc0827183e01066f83df881a3010e9359c2c9fa987835f6591d6143",
+    "candidate_identity_label": "C",
     "freeze_owner": "AF-05-recovery-identity-C",
-    "execution_owner": null,
+    "execution_owner": "AF-06-identity-C",
     "automatic_resume": false,
     "automatic_rerun": false,
     "execution_order": "strictly sequential",
@@ -649,6 +907,11 @@
     "prohibited_identity_labels": [
       "A",
       "B"
-    ]
+    ],
+    "supersedes_q_run_ids": [
+      "20260716T033756Z-af05-01-q1",
+      "20260716T062856Z-af05-recovery-01-q1"
+    ],
+    "superseded_q_runs_eligible_for_execution": false
   }
 }
