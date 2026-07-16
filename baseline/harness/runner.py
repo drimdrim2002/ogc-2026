@@ -24,6 +24,7 @@ from .checker import checker_payload
 from .process import run_process
 from .schema import record_identity
 from .selectors import InstanceRef, REPO_ROOT
+from .s3_anytime_qualification import canonical_sha256, summarize_timing_intervals
 
 try:
     from baseline.solver.alns import (
@@ -1425,6 +1426,92 @@ def run_s3_integrated_case(
     }
 
 
+def _s3_anytime_timing_intervals(
+    telemetry: Mapping[str, Any], algorithm_wall: float
+) -> list[dict[str, Any]]:
+    """Materialize sequential actual phase durations on one wall-clock axis."""
+    phase_fields = (
+        ("t0_and_verify_seconds", "anchor", "checker"),
+        ("constructor_seconds", "anchor", "candidate"),
+        ("retime_seconds", "anchor", "retime"),
+        ("alns_seconds", "anchor", "repair"),
+    )
+    rows: list[dict[str, Any]] = []
+    cursor = 0.0
+    for field, phase, category in phase_fields:
+        duration = max(0.0, float(telemetry.get(field, 0.0)))
+        if duration <= 0.0:
+            continue
+        rows.append(
+            {
+                "phase": phase,
+                "category": category,
+                "start": cursor,
+                "end": cursor + duration,
+            }
+        )
+        cursor += duration
+    if cursor > algorithm_wall + 1e-6:
+        raise ValueError("anchor phase durations exceed algorithm wall time")
+    if algorithm_wall > cursor:
+        rows.append(
+            {
+                "phase": "tail",
+                "category": "candidate",
+                "start": cursor,
+                "end": algorithm_wall,
+            }
+        )
+    if not rows:
+        raise ValueError("candidate run exposed no timed work intervals")
+    return rows
+
+
+def _s3_anytime_logical_trace(
+    payload: Mapping[str, Any], *, seed: int
+) -> list[dict[str, Any]]:
+    """Normalize every captured anchor and extension iteration for evidence."""
+    trace: list[dict[str, Any]] = []
+    anchor_events = payload.get("anchor_logical_event_trace", ())
+    tail_events = payload.get("tail_logical_event_trace", ())
+    if not isinstance(anchor_events, list) or not isinstance(tail_events, list):
+        return trace
+
+    def append_event(
+        event: Mapping[str, Any], *, phase: str, sequence_index: int
+    ) -> None:
+        is_anchor = phase == "anchor"
+        trace.append(
+            {
+                "sequence_index": sequence_index,
+                "phase": phase,
+                "segment_index": -1 if is_anchor else int(event["segment_index"]),
+                "batch_index": 0 if is_anchor else int(event["batch_index"]),
+                "iteration": int(event["iteration"]),
+                "seed": seed if is_anchor else int(event["seed"]),
+                "destroy_scale": 1.0 if is_anchor else float(event["destroy_scale"]),
+                "restart_policy": "anchor" if is_anchor else str(event["restart_policy"]),
+                "destroy_name": str(event["destroy_name"]),
+                "repair_name": str(event["repair_name"]),
+                "previous_cur_obj": float(event["previous_cur_obj"]),
+                "new_obj": float(event["new_obj"]),
+                "outcome": str(event["outcome"]),
+                "accepted": bool(event["accepted"]),
+                "potential_incumbent": bool(event["potential_incumbent"]),
+            }
+        )
+
+    for raw in anchor_events:
+        if not isinstance(raw, Mapping):
+            return []
+        append_event(raw, phase="anchor", sequence_index=len(trace))
+    for raw in tail_events:
+        if not isinstance(raw, Mapping):
+            return []
+        append_event(raw, phase="tail", sequence_index=len(trace))
+    return trace
+
+
 def run_s3_anytime_candidate_case(
     ref: InstanceRef,
     *,
@@ -1451,7 +1538,8 @@ def run_s3_anytime_candidate_case(
         [
             sys.executable,
             "-m",
-            "baseline.harness.s3_anytime_worker",
+            "baseline.harness.cli",
+            "_s3-anytime-trace-worker",
             "--input",
             str(ref.path),
             "--timelimit",
@@ -1476,16 +1564,9 @@ def run_s3_anytime_candidate_case(
     if not isinstance(checker, dict):
         checker = {}
     algorithm_wall = max(0.0, float(payload.get("algorithm_wall_seconds", 0.0)))
-    anchor_seconds = sum(
-        max(0.0, float(telemetry.get(field, 0.0)))
-        for field in (
-            "t0_and_verify_seconds",
-            "constructor_seconds",
-            "retime_seconds",
-            "alns_seconds",
-        )
-    )
-    fill_seconds = max(0.0, algorithm_wall - anchor_seconds)
+    timing_intervals = _s3_anytime_timing_intervals(telemetry, algorithm_wall)
+    timing = summarize_timing_intervals(timing_intervals)
+    logical_trace = _s3_anytime_logical_trace(payload, seed=seed)
     anchor_trace = telemetry.get("alns_incumbent_trace", ())
     anchor_objective = None
     if isinstance(anchor_trace, list) and anchor_trace:
@@ -1546,13 +1627,14 @@ def run_s3_anytime_candidate_case(
         "process_wall_seconds": result.wall_seconds,
         "work_deadline_seconds": timelimit - deadline_reserve(timelimit),
         "hard_deadline_seconds": timelimit,
-        "anchor_seconds": anchor_seconds,
+        "anchor_seconds": timing["anchor_seconds"],
         "anchor_objective": anchor_objective,
         "anchor_solution_sha256": telemetry.get("s3_extension_input_sha256"),
-        "s3_fill_seconds": fill_seconds,
-        "s3_fill_useful_seconds": fill_seconds,
-        "idle_seconds": 0.0,
-        "finalization_seconds": 0.0,
+        "s3_fill_seconds": timing["s3_fill_seconds"],
+        "s3_fill_useful_seconds": timing["s3_fill_useful_seconds"],
+        "total_useful_seconds": timing["total_useful_seconds"],
+        "idle_seconds": timing["idle_seconds"],
+        "finalization_seconds": timing["finalization_seconds"],
         "s3_fill_segments": int(telemetry.get("s3_extension_segments", 0)),
         "s3_fill_batches": int(telemetry.get("s3_extension_batches", 0)),
         "s3_fill_iterations": int(telemetry.get("s3_extension_iterations", 0)),
@@ -1562,7 +1644,9 @@ def run_s3_anytime_candidate_case(
         "s3_fill_deadlines": int(telemetry.get("s3_extension_deadlines", 0)),
         "s3_fill_faults": int(telemetry.get("s3_extension_faults", 0)),
         "s3_fill_stopped_reason": stopped_reason,
-        "time_to_best_seconds": algorithm_wall if improved else anchor_seconds,
+        "time_to_best_seconds": (
+            algorithm_wall if improved else timing["anchor_seconds"]
+        ),
         "late_improvement_count": int(improved),
         "checker_stage": checker.get("stage"),
         "feasible": checker.get("feasible"),
@@ -1576,6 +1660,9 @@ def run_s3_anytime_candidate_case(
         "termination_reason": stopped_reason,
         "fallback_reason": fallback_reason,
         "incumbent_objective_trace": objective_trace,
+        "timing_intervals": timing_intervals,
+        "logical_event_trace": logical_trace,
+        "logical_event_trace_sha256": canonical_sha256(logical_trace),
         "algorithm_module": payload.get("algorithm_module"),
         "algorithm_root": payload.get("algorithm_root"),
         "public_loader_parity": selected_config == expected_config,

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import redirect_stdout
 from dataclasses import asdict
 from datetime import datetime
 import hashlib
+from io import StringIO
 import json
 import os
 from pathlib import Path
@@ -174,6 +176,17 @@ def build_parser() -> argparse.ArgumentParser:
     qualify.add_argument("--profile", choices=(CANDIDATE_PROFILE.name,), required=True)
     qualify.add_argument("--records")
     qualify.add_argument("--manifest", default=CANDIDATE_MANIFEST_PATH.as_posix())
+
+    trace_worker = subparsers.add_parser(
+        "_s3-anytime-trace-worker", help=argparse.SUPPRESS
+    )
+    trace_worker.add_argument("--input", type=Path, required=True)
+    trace_worker.add_argument("--timelimit", type=float, required=True)
+    trace_worker.add_argument("--seed", type=int, required=True)
+    trace_worker.add_argument("--algorithm-root", type=Path, required=True)
+    trace_worker.add_argument(
+        "--profile", choices=(CANDIDATE_PROFILE.name,), required=True
+    )
     return parser
 
 
@@ -190,6 +203,8 @@ def _common(parser: argparse.ArgumentParser) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
+        if args.command == "_s3-anytime-trace-worker":
+            return _s3_anytime_trace_worker(args)
         if args.jobs != 1:
             raise SelectorError("the harness supports --jobs 1 only")
         if args.command == "contract":
@@ -219,6 +234,70 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"harness runtime failure: {type(exc).__name__}: {exc}", file=sys.stderr)
         return EXIT_RUNTIME
+
+
+def _s3_anytime_trace_worker(args: argparse.Namespace) -> int:
+    """Run the existing public worker while capturing complete ALNS events."""
+    from . import s3_anytime_worker
+    from solver import entry
+
+    anchor_events: list[dict[str, Any]] = []
+    tail_events: list[dict[str, Any]] = []
+    native_epochs = entry.run_anytime_epochs
+    native_extension = entry.run_s3_extension
+
+    def traced_epochs(*epoch_args, **epoch_kwargs):
+        prior = epoch_kwargs.get("on_event")
+
+        def record(event):
+            anchor_events.append(asdict(event))
+            if prior is not None:
+                prior(event)
+
+        epoch_kwargs["on_event"] = record
+        return native_epochs(*epoch_args, **epoch_kwargs)
+
+    def traced_extension(*extension_args, **extension_kwargs):
+        prior = extension_kwargs.get("on_event")
+
+        def record(event):
+            tail_events.append(asdict(event))
+            if prior is not None:
+                prior(event)
+
+        extension_kwargs["on_event"] = record
+        return native_extension(*extension_args, **extension_kwargs)
+
+    entry.run_anytime_epochs = traced_epochs
+    entry.run_s3_extension = traced_extension
+    captured = StringIO()
+    try:
+        with redirect_stdout(captured):
+            exit_code = s3_anytime_worker.main(
+                [
+                    "--input",
+                    str(args.input),
+                    "--timelimit",
+                    f"{args.timelimit:g}",
+                    "--seed",
+                    str(args.seed),
+                    "--algorithm-root",
+                    str(args.algorithm_root),
+                    "--profile",
+                    args.profile,
+                ]
+            )
+    finally:
+        entry.run_anytime_epochs = native_epochs
+        entry.run_s3_extension = native_extension
+    lines = [line for line in captured.getvalue().splitlines() if line.strip()]
+    if not lines:
+        raise RuntimeError("S3 anytime worker produced no JSON payload")
+    payload = json.loads(lines[-1])
+    payload["anchor_logical_event_trace"] = anchor_events
+    payload["tail_logical_event_trace"] = tail_events
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    return exit_code
 
 
 def _contract(args: argparse.Namespace) -> int:

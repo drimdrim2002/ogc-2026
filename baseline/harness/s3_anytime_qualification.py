@@ -10,7 +10,7 @@ from pathlib import Path
 import statistics
 import subprocess
 from types import MappingProxyType
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from .selectors import InstanceRef, REPO_ROOT
 
@@ -35,6 +35,7 @@ S3_ANYTIME_TELEMETRY_FIELDS = (
     "anchor_solution_sha256",
     "s3_fill_seconds",
     "s3_fill_useful_seconds",
+    "total_useful_seconds",
     "idle_seconds",
     "finalization_seconds",
     "s3_fill_segments",
@@ -67,6 +68,9 @@ S3_ANYTIME_EVIDENCE_FIELDS = (
     "features",
     "incumbent_objective_trace",
     "checker_solution_sha256",
+    "timing_intervals",
+    "logical_event_trace",
+    "logical_event_trace_sha256",
 )
 EXPECTED_RECORD_IDS = (
     "prob_21|tl=120",
@@ -94,11 +98,24 @@ QUALIFICATION_THRESHOLDS = MappingProxyType(
 _USEFUL_CATEGORIES = frozenset({"candidate", "repair", "retime", "checker"})
 _IDLE_CATEGORIES = frozenset({"idle", "no_op", "sleep"})
 _FINALIZATION_CATEGORIES = frozenset({"finalization", "serialization"})
-_ALLOWED_CATEGORIES = (
-    frozenset({"anchor"})
-    | _USEFUL_CATEGORIES
-    | _IDLE_CATEGORIES
-    | _FINALIZATION_CATEGORIES
+_ALLOWED_CATEGORIES = _USEFUL_CATEGORIES | _IDLE_CATEGORIES | _FINALIZATION_CATEGORIES
+_PHASE_ORDER = {"anchor": 0, "tail": 1, "finalization": 2}
+_LOGICAL_EVENT_FIELDS = (
+    "sequence_index",
+    "phase",
+    "segment_index",
+    "batch_index",
+    "iteration",
+    "seed",
+    "destroy_scale",
+    "restart_policy",
+    "destroy_name",
+    "repair_name",
+    "previous_cur_obj",
+    "new_obj",
+    "outcome",
+    "accepted",
+    "potential_incumbent",
 )
 _HEX = frozenset("0123456789abcdef")
 
@@ -137,9 +154,9 @@ def profile_by_name(name: str) -> HarnessProfile:
         raise ValueError(f"unknown S3 anytime profile: {name}") from exc
 
 
-def canonical_sha256(payload: Mapping[str, Any]) -> str:
+def canonical_sha256(payload: Any) -> str:
     encoded = json.dumps(
-        dict(payload), sort_keys=True, separators=(",", ":")
+        payload, sort_keys=True, separators=(",", ":")
     ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
@@ -292,45 +309,72 @@ def _git(*args: str) -> str:
 def summarize_timing_intervals(
     intervals: Sequence[Mapping[str, Any]],
 ) -> dict[str, float]:
-    """Union actual wall intervals; sleep/no-op/serialization are never useful."""
-    by_category: dict[str, list[tuple[float, float]]] = {}
+    """Validate sequential wall phases and derive useful time from their union."""
+    rows: list[tuple[float, float, str, str]] = []
     for index, item in enumerate(intervals):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"timing interval at index {index} is not an object")
+        phase = str(item.get("phase", ""))
         category = str(item.get("category", ""))
+        if phase not in _PHASE_ORDER:
+            raise ValueError(f"unknown timing phase at index {index}: {phase}")
         if category not in _ALLOWED_CATEGORIES:
             raise ValueError(f"unknown timing category at index {index}: {category}")
+        if phase == "finalization" and category not in _FINALIZATION_CATEGORIES:
+            raise ValueError("finalization phase contains useful or idle work")
+        if phase != "finalization" and category in _FINALIZATION_CATEGORIES:
+            raise ValueError("serialization/finalization is outside finalization phase")
         start = _finite_float(item.get("start"))
         end = _finite_float(item.get("end"))
-        if start is None or end is None or end < start:
+        if start is None or end is None or start < 0.0 or end <= start:
             raise ValueError(f"invalid timing interval at index {index}")
-        if end > start:
-            by_category.setdefault(category, []).append((start, end))
+        rows.append((start, end, phase, category))
+    if not rows:
+        raise ValueError("timing intervals are empty")
+    rows.sort(key=lambda item: (item[0], item[1]))
+    if not math.isclose(rows[0][0], 0.0, abs_tol=1e-9):
+        raise ValueError("timing intervals must start at wall zero")
+    prior_end = 0.0
+    prior_phase = 0
+    for start, end, phase, _category in rows:
+        if start < prior_end - 1e-9:
+            raise ValueError("timing intervals overlap")
+        if not math.isclose(start, prior_end, abs_tol=1e-9):
+            raise ValueError("timing intervals have an unclassified gap")
+        phase_order = _PHASE_ORDER[phase]
+        if phase_order < prior_phase:
+            raise ValueError("timing phases are not sequential")
+        prior_phase = phase_order
+        prior_end = end
 
-    anchor = _merge(by_category.get("anchor", ()))
-    finalization_raw = _merge(
-        interval
-        for category in _FINALIZATION_CATEGORIES
-        for interval in by_category.get(category, ())
-    )
-    finalization = _subtract(finalization_raw, anchor)
-    useful_raw = _merge(
-        interval
-        for category in _USEFUL_CATEGORIES
-        for interval in by_category.get(category, ())
-    )
-    idle_raw = _merge(
-        interval
-        for category in _IDLE_CATEGORIES
-        for interval in by_category.get(category, ())
-    )
-    fill = _subtract(_merge((*useful_raw, *idle_raw)), (*anchor, *finalization))
-    idle = _intersection(idle_raw, fill)
-    useful = _subtract(_intersection(useful_raw, fill), idle)
+    def duration(*, phases: frozenset[str], categories: frozenset[str]) -> float:
+        return sum(
+            end - start
+            for start, end, phase, category in rows
+            if phase in phases and category in categories
+        )
+
+    work_phases = frozenset({"anchor", "tail"})
+    work_categories = _USEFUL_CATEGORIES | _IDLE_CATEGORIES
     return {
-        "anchor_seconds": _duration(anchor),
-        "s3_fill_seconds": _duration(fill),
-        "s3_fill_useful_seconds": _duration(useful),
-        "idle_seconds": _duration(idle),
-        "finalization_seconds": _duration(finalization),
+        "anchor_seconds": duration(
+            phases=frozenset({"anchor"}), categories=work_categories
+        ),
+        "s3_fill_seconds": duration(
+            phases=frozenset({"tail"}), categories=work_categories
+        ),
+        "s3_fill_useful_seconds": duration(
+            phases=frozenset({"tail"}), categories=_USEFUL_CATEGORIES
+        ),
+        "total_useful_seconds": duration(
+            phases=work_phases, categories=_USEFUL_CATEGORIES
+        ),
+        "idle_seconds": duration(phases=work_phases, categories=_IDLE_CATEGORIES),
+        "finalization_seconds": duration(
+            phases=frozenset({"finalization"}),
+            categories=_FINALIZATION_CATEGORIES,
+        ),
+        "wall_seconds": prior_end,
     }
 
 
@@ -379,6 +423,7 @@ def evaluate_s3_anytime_qualification(
     late_improvements = 0
     run_ids: set[str] = set()
     commits: set[str] = set()
+    validated_traces: dict[str, tuple[dict[str, Any], ...]] = {}
 
     for row in rows:
         record_id = str(row["record_id"])
@@ -415,6 +460,11 @@ def evaluate_s3_anytime_qualification(
         if row["fallback_reason"] not in {None, ""}:
             _failure(safety, "FALLBACK_USED", record_id)
 
+        try:
+            validated_traces[record_id] = _validated_logical_trace(row)
+        except ValueError as exc:
+            _failure(scaling, "INVALID_LOGICAL_EVENT_TRACE", record_id, str(exc))
+
         timelimit = _number(row["timelimit"])
         wall = _number(row["wall_seconds"])
         work_deadline = _number(row["work_deadline_seconds"])
@@ -422,6 +472,7 @@ def evaluate_s3_anytime_qualification(
         anchor_seconds = _number(row["anchor_seconds"])
         fill_seconds = _number(row["s3_fill_seconds"])
         useful_seconds = _number(row["s3_fill_useful_seconds"])
+        total_useful_seconds = _number(row["total_useful_seconds"])
         idle_seconds = _number(row["idle_seconds"])
         finalization_seconds = _number(row["finalization_seconds"])
         time_to_best = _number(row["time_to_best_seconds"])
@@ -433,6 +484,7 @@ def evaluate_s3_anytime_qualification(
             anchor_seconds,
             fill_seconds,
             useful_seconds,
+            total_useful_seconds,
             idle_seconds,
             finalization_seconds,
             time_to_best,
@@ -447,6 +499,7 @@ def evaluate_s3_anytime_qualification(
             assert anchor_seconds is not None
             assert fill_seconds is not None
             assert useful_seconds is not None
+            assert total_useful_seconds is not None
             assert idle_seconds is not None
             assert finalization_seconds is not None
             expected_work = timelimit - _deadline_reserve(timelimit)
@@ -456,15 +509,35 @@ def evaluate_s3_anytime_qualification(
                 _failure(safety, "HARD_DEADLINE_MISMATCH", record_id)
             if wall > hard_deadline + 1e-9:
                 _failure(safety, "HARD_DEADLINE_OVERRUN", record_id)
-            if anchor_seconds + fill_seconds + finalization_seconds > wall + 1e-6:
-                _failure(time_failures, "PHASE_TIME_DOUBLE_COUNT", record_id)
-            if useful_seconds + idle_seconds > fill_seconds + 1e-6:
-                _failure(time_failures, "FILL_TIME_DOUBLE_COUNT", record_id)
+            try:
+                timing = summarize_timing_intervals(row["timing_intervals"])
+            except (TypeError, ValueError) as exc:
+                _failure(time_failures, "INVALID_TIMING_INTERVALS", record_id, str(exc))
+            else:
+                reported = {
+                    "wall_seconds": wall,
+                    "anchor_seconds": anchor_seconds,
+                    "s3_fill_seconds": fill_seconds,
+                    "s3_fill_useful_seconds": useful_seconds,
+                    "total_useful_seconds": total_useful_seconds,
+                    "idle_seconds": idle_seconds,
+                    "finalization_seconds": finalization_seconds,
+                }
+                for field, value in reported.items():
+                    if not math.isclose(
+                        timing[field], value, rel_tol=0.0, abs_tol=1e-6
+                    ):
+                        _failure(
+                            time_failures,
+                            "TIME_ACCOUNTING_MISMATCH",
+                            record_id,
+                            field,
+                        )
             minimum_useful = (
                 float(thresholds["minimum_useful_fraction_of_work_deadline"])
                 * work_deadline
             )
-            if useful_seconds + 1e-9 < minimum_useful:
+            if total_useful_seconds + 1e-9 < minimum_useful:
                 _failure(time_failures, "USEFUL_TIME_BELOW_MINIMUM", record_id)
             if (
                 row["s3_fill_stopped_reason"] == "max_iterations"
@@ -526,6 +599,17 @@ def evaluate_s3_anytime_qualification(
     for field in ("s3_fill_segments", "s3_fill_batches", "s3_fill_iterations"):
         if int(long[field]) <= int(short[field]):
             _failure(scaling, "LONG_RUN_DID_NOT_SCALE", str(long["record_id"]), field)
+    short_trace = validated_traces.get(str(short["record_id"]))
+    long_trace = validated_traces.get(str(long["record_id"]))
+    if short_trace is not None and long_trace is not None and (
+        len(short_trace) > len(long_trace)
+        or short_trace != long_trace[: len(short_trace)]
+    ):
+        _failure(
+            scaling,
+            "FULL_LOGICAL_TRACE_PREFIX_MISMATCH",
+            str(long["record_id"]),
+        )
     short_objective = _number(short["objective"])
     long_objective = _number(long["objective"])
     if (
@@ -576,6 +660,16 @@ def evaluate_s3_anytime_qualification(
             "scaling_long": {
                 field: long[field]
                 for field in ("s3_fill_segments", "s3_fill_batches", "s3_fill_iterations", "objective")
+            },
+            "scaling_trace": {
+                "short_event_count": 0 if short_trace is None else len(short_trace),
+                "long_event_count": 0 if long_trace is None else len(long_trace),
+                "exact_prefix": (
+                    short_trace is not None
+                    and long_trace is not None
+                    and len(short_trace) <= len(long_trace)
+                    and short_trace == long_trace[: len(short_trace)]
+                ),
             },
         },
     }
@@ -644,58 +738,62 @@ def _trace_is_nonincreasing(raw: Any) -> bool:
     )
 
 
-def _merge(intervals: Iterable[tuple[float, float]]) -> list[tuple[float, float]]:
-    merged: list[tuple[float, float]] = []
-    for start, end in sorted(intervals):
-        if not merged or start > merged[-1][1]:
-            merged.append((start, end))
-        else:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
-    return merged
-
-
-def _subtract(
-    intervals: Iterable[tuple[float, float]],
-    blockers: Iterable[tuple[float, float]],
-) -> list[tuple[float, float]]:
-    result: list[tuple[float, float]] = []
-    blocked = _merge(blockers)
-    for start, end in _merge(intervals):
-        cursor = start
-        for block_start, block_end in blocked:
-            if block_end <= cursor:
-                continue
-            if block_start >= end:
-                break
-            if block_start > cursor:
-                result.append((cursor, min(block_start, end)))
-            cursor = max(cursor, block_end)
-            if cursor >= end:
-                break
-        if cursor < end:
-            result.append((cursor, end))
-    return result
-
-
-def _intersection(
-    left: Iterable[tuple[float, float]],
-    right: Iterable[tuple[float, float]],
-) -> list[tuple[float, float]]:
-    result: list[tuple[float, float]] = []
-    left_rows = _merge(left)
-    right_rows = _merge(right)
-    i = j = 0
-    while i < len(left_rows) and j < len(right_rows):
-        start = max(left_rows[i][0], right_rows[j][0])
-        end = min(left_rows[i][1], right_rows[j][1])
-        if start < end:
-            result.append((start, end))
-        if left_rows[i][1] <= right_rows[j][1]:
-            i += 1
-        else:
-            j += 1
-    return result
-
-
-def _duration(intervals: Iterable[tuple[float, float]]) -> float:
-    return sum(end - start for start, end in _merge(intervals))
+def _validated_logical_trace(
+    row: Mapping[str, Any],
+) -> tuple[dict[str, Any], ...]:
+    raw = row.get("logical_event_trace")
+    if not isinstance(raw, (list, tuple)) or not raw:
+        raise ValueError("trace is missing or empty")
+    if canonical_sha256(raw) != row.get("logical_event_trace_sha256"):
+        raise ValueError("trace SHA-256 mismatch")
+    parsed: list[dict[str, Any]] = []
+    prior_phase = 0
+    phases: set[str] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, Mapping):
+            raise ValueError(f"event {index} is not an object")
+        if len(item) != len(_LOGICAL_EVENT_FIELDS) or set(item) != set(
+            _LOGICAL_EVENT_FIELDS
+        ):
+            raise ValueError(f"event {index} schema mismatch")
+        if _nonnegative_int(item["sequence_index"]) != index:
+            raise ValueError(f"event {index} sequence is not contiguous")
+        phase = str(item["phase"])
+        if phase not in {"anchor", "tail"}:
+            raise ValueError(f"event {index} phase is invalid")
+        phase_order = 0 if phase == "anchor" else 1
+        if phase_order < prior_phase:
+            raise ValueError(f"event {index} phase order regressed")
+        prior_phase = phase_order
+        for field in ("batch_index", "iteration"):
+            if _nonnegative_int(item[field]) is None:
+                raise ValueError(f"event {index} {field} is invalid")
+        segment_index = item["segment_index"]
+        if (
+            isinstance(segment_index, bool)
+            or not isinstance(segment_index, int)
+            or segment_index < -1
+        ):
+            raise ValueError(f"event {index} segment_index is invalid")
+        seed = item["seed"]
+        if isinstance(seed, bool) or not isinstance(seed, int):
+            raise ValueError(f"event {index} seed is invalid")
+        for field in ("destroy_scale", "previous_cur_obj", "new_obj"):
+            if _number(item[field]) is None:
+                raise ValueError(f"event {index} {field} is invalid")
+        for field in (
+            "restart_policy",
+            "destroy_name",
+            "repair_name",
+            "outcome",
+        ):
+            if not isinstance(item[field], str) or not item[field]:
+                raise ValueError(f"event {index} {field} is invalid")
+        for field in ("accepted", "potential_incumbent"):
+            if not isinstance(item[field], bool):
+                raise ValueError(f"event {index} {field} is invalid")
+        phases.add(phase)
+        parsed.append(dict(item))
+    if phases != {"anchor", "tail"}:
+        raise ValueError("trace must contain anchor and tail logical events")
+    return tuple(parsed)
