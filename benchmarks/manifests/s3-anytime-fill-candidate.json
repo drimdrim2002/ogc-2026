@@ -1,22 +1,69 @@
 {
   "schema_version": 3,
   "plan_id": "S3-AF",
-  "phase_id": "AF-04",
-  "attempt_id": "20260716T094925Z-af04-recovery-03",
-  "status": "UNQUALIFIED_DRAFT",
+  "phase_id": "AF-05",
+  "attempt_id": "20260716T100018Z-af05-recovery-identity-d-01",
+  "status": "FROZEN_UNQUALIFIED",
   "source_path": "benchmarks/manifests/s3-anytime-fill-candidate.json",
   "base_manifest": "benchmarks/manifests/s3-anytime-fill-base.json",
   "candidate": {
-    "identity_label": null,
-    "candidate_identity": null,
-    "candidate_identity_contract": null,
-    "candidate_identity_contract_sha256": null,
+    "identity_label": "D",
+    "candidate_identity": "bb6fa80d93c50770906555b14abb8208060b5c9bac3252d34ccba0116054589c",
+    "candidate_identity_contract": {
+      "candidate_label": "D",
+      "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T100018Z-af05-recovery-identity-d-01-q1",
+      "jobs": 1,
+      "package_archive_sha256": "4ff92990fb68c744426dc2f334a26e2e060884ce3ba1b0919e38e0696f6e9c2e",
+      "package_manifest_sha256": "67a561879785753bd5810aaf5828833b17ccf10f847239204edfe0b23514d907",
+      "profile": "s3-anytime-fill-candidate",
+      "q_run_id": "20260716T100018Z-af05-recovery-identity-d-01-q1",
+      "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
+      "recovered_source_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+      "seed": 20260710,
+      "source_dirty_diff_hash": "clean",
+      "tier_s_identity": "20260716T100018Z-af05-recovery-identity-d-01-s1"
+    },
+    "candidate_identity_contract_sha256": "bb6fa80d93c50770906555b14abb8208060b5c9bac3252d34ccba0116054589c",
     "profile": "s3-anytime-fill-candidate",
     "features": {
       "s3_anytime_fill": "true"
     },
     "public_default": false,
-    "source_identity": null,
+    "source_identity": {
+      "algorithm_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+      "recovered_source_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+      "algorithm_dirty_diff_hash": "clean",
+      "algorithm_scope": [
+        "baseline/solver",
+        "baseline/myalgorithm.py",
+        "baseline/harness/cli.py",
+        "baseline/harness/runner.py",
+        "baseline/harness/s3_anytime_qualification.py",
+        "baseline/tests/test_s3_anytime_qualification.py"
+      ],
+      "algorithm_solver_tree_oid": "bbfaf092656458c89e61a3bbb2bf5c77cf90699b",
+      "public_entry_blob_oid": "d296fc29c8824b090716cca30be64c360e286497",
+      "algorithm_repository_tree_oid": "394f5134eceb1716ba344613ec953f9ecb7882d7",
+      "qualification_contract_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+      "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
+      "qualification_contract_blob_oids": {
+        "baseline/harness/cli.py": "3867551b72d8a3246d77c250c8aaf82a69ef8afe",
+        "baseline/harness/runner.py": "e1cd814268dddcf1e38628219c9e2f1c358be8ce",
+        "baseline/harness/s3_anytime_qualification.py": "3120be424ad2d2b9027750f36cd819b9a26830be",
+        "baseline/tests/test_s3_anytime_qualification.py": "ff3a9e07646eb9190e6d642cd4f149c3fe0d36d4"
+      },
+      "source_lineage": {
+        "algorithm_recovery_commit": "9658296dd1d51eb8c46d9d993823263a9d606a37",
+        "entry_validation_commit": "127075d0400d3529fb20af7fd9fca0e31b23662c",
+        "qualification_draft_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346"
+      },
+      "tier_s_identity": "20260716T100018Z-af05-recovery-identity-d-01-s1",
+      "tier_s_evidence_root": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01",
+      "freeze_parent_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+      "freeze_commit_message": "chore(anytime): freeze s3 deadline-fill candidate",
+      "freeze_commit_resolution": "AF-06 identity D must use a clean HEAD whose parent and exact message match this contract",
+      "manifest_sha256_before_freeze": "c7b25ab336a333fd93db9e096b5e55411f3120afe41d87d3cf4853ce73658c97"
+    },
     "candidate_identity_owner": "AF-05-recovery-identity-D",
     "source_identity_owner": "AF-05-recovery-identity-D"
   },
@@ -24,14 +71,16 @@
     "recovery_of": [
       "AF-06/20260716T084956Z-af06-identity-c-01",
       "AF-02/20260716T092326Z-af02-recovery-03",
-      "AF-03/20260716T094044Z-af03-recovery-validation-02"
+      "AF-03/20260716T094044Z-af03-recovery-validation-02",
+      "AF-04/20260716T094925Z-af04-recovery-03"
     ],
     "af02_recovery_commit": "9658296dd1d51eb8c46d9d993823263a9d606a37",
     "af03_validation_commit": "127075d0400d3529fb20af7fd9fca0e31b23662c",
-    "current_recovered_source_commit": "127075d0400d3529fb20af7fd9fca0e31b23662c",
-    "candidate_source_identity": null,
-    "candidate_source_identity_frozen": false,
-    "freeze_owner": "AF-05-recovery-identity-D"
+    "current_recovered_source_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+    "candidate_source_identity": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+    "candidate_source_identity_frozen": true,
+    "freeze_owner": "AF-05-recovery-identity-D",
+    "af04_contract_draft_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346"
   },
   "superseded_identities": [
     {
@@ -637,8 +686,8 @@
       "C"
     ],
     "identities_a_b_c_selectable": false,
-    "next_identity_label": "D",
-    "next_identity_status": "UNQUALIFIED_DRAFT",
+    "current_identity_label": "D",
+    "current_identity_status": "FROZEN_UNQUALIFIED",
     "selection_owner": "AF-05-recovery-identity-D"
   },
   "configuration": {
@@ -695,29 +744,271 @@
     "baseline/harness/s3_anytime_worker.py": "a135e5e8c28f0a6fc18034df06269cee26bf0ca1c337c04c8136f49c20a7a7f2"
   },
   "protected_git_oids": {
-    "baseline/solver": "d0cf28cb5c487815898bef2b24d6bed2f986790b",
+    "baseline/solver": "bbfaf092656458c89e61a3bbb2bf5c77cf90699b",
     "baseline/myalgorithm.py": "d296fc29c8824b090716cca30be64c360e286497",
     "baseline/harness/s3_anytime_worker.py": "cb5e984ecca97b5b5c2c9f4c4a04eeaf833a5bb4"
   },
   "tier_s": {
-    "status": "NOT_RUN",
-    "passing_identity": null,
-    "source_commit": null,
-    "source_dirty_diff_hash": null,
-    "evidence_root": null,
-    "required_next_phase": "AF-05-recovery-identity-D",
-    "prior_results_disposition": "SUPERSEDED_PREVIOUS_IDENTITY",
-    "prior_results_location": "superseded_identities[C].tier_s_history"
+    "status": "PASS",
+    "passing_identity": "20260716T100018Z-af05-recovery-identity-d-01-s1",
+    "source_commit": "4f7dbf5cf7871ab40b9924ce4364e6c563425346",
+    "source_dirty_diff_hash": "clean",
+    "evidence_root": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01",
+    "required_next_phase": "AF-06-identity-D",
+    "prior_results_disposition": "SUPERSEDED_PREVIOUS_IDENTITIES",
+    "prior_results_location": "superseded_identities[A|B|C].tier_s_history",
+    "different_cadence_regression": {
+      "actual_path": [
+        "solver.entry.solve",
+        "run_anytime_epochs",
+        "run_s3_extension",
+        "run_alns",
+        "_run_guarded_retime",
+        "retime_bay",
+        "deadline_bounded_call",
+        "validate_result/apply_retime_copy",
+        "official_check"
+      ],
+      "anchor_policy": {
+        "acceptor_name": "sa",
+        "adaptive": false,
+        "continuation_iterations_per_epoch": 1,
+        "epoch_seconds": 60.0,
+        "iterations_per_epoch": 300,
+        "safety_sample_interval": 8
+      },
+      "anchor_policy_equal": true,
+      "feature_default_false": true,
+      "feature_off_iterations": 304,
+      "feature_off_public_explicit_parity": true,
+      "long": {
+        "anchor_objective": 99.0,
+        "backend_call_event_prefix": [
+          8,
+          9,
+          10,
+          13,
+          16,
+          19,
+          22,
+          24,
+          28,
+          31,
+          34,
+          37
+        ],
+        "backend_calls_in_extension": 349,
+        "backend_calls_total": 350,
+        "batches": 44,
+        "cadence": {
+          "backend_seconds": 0.1,
+          "logical_event_seconds": 0.24
+        },
+        "checker_stage": 5,
+        "deadline_reserve_seconds": 15.0,
+        "deadlines": 28,
+        "extension_deadline": 385.0,
+        "extension_elapsed_seconds": 284.9,
+        "extension_received_parent_identity": true,
+        "faults": 0,
+        "feasible": true,
+        "final_objective": 50.0,
+        "guarded_retime_calls": 1056,
+        "hard_deadline": 400.0,
+        "iterations": 1078,
+        "logical_state_objective": 99.0,
+        "parent_deadline": 385.0,
+        "publication_objective": 50.0,
+        "retime_attempts": 1043,
+        "retime_bay_calls": 349,
+        "retime_full_checks": 1399,
+        "retime_improvements": 349,
+        "segments": 36,
+        "stopped_reason": "work_deadline",
+        "timelimit": 300.0,
+        "trace_events": 1051,
+        "useful_interval_count": 1400,
+        "useful_interval_sum_seconds": 284.9,
+        "useful_interval_union_seconds": 284.9
+      },
+      "long_objective_not_worse": true,
+      "long_work_units_strictly_greater": true,
+      "public_entry": "myalgorithm.algorithm",
+      "publication_does_not_contaminate_logical_state": true,
+      "retime_backend_shared_prefix_before_live_cap": 39,
+      "retime_backend_tail_divergence": "permitted by live absolute deadline cap",
+      "short": {
+        "anchor_objective": 99.0,
+        "backend_call_event_prefix": [
+          8,
+          9,
+          10,
+          13,
+          16,
+          19,
+          22,
+          24,
+          28,
+          31,
+          34,
+          37
+        ],
+        "backend_calls_in_extension": 113,
+        "backend_calls_total": 114,
+        "batches": 15,
+        "cadence": {
+          "backend_seconds": 0.05,
+          "logical_event_seconds": 0.15
+        },
+        "checker_stage": 5,
+        "deadline_reserve_seconds": 3.0,
+        "deadlines": 8,
+        "extension_deadline": 157.0,
+        "extension_elapsed_seconds": 56.95,
+        "extension_received_parent_identity": true,
+        "faults": 0,
+        "feasible": true,
+        "final_objective": 50.0,
+        "guarded_retime_calls": 348,
+        "hard_deadline": 160.0,
+        "iterations": 350,
+        "logical_state_objective": 99.0,
+        "parent_deadline": 157.0,
+        "publication_objective": 50.0,
+        "retime_attempts": 335,
+        "retime_bay_calls": 113,
+        "retime_full_checks": 455,
+        "retime_improvements": 113,
+        "segments": 8,
+        "stopped_reason": "work_deadline",
+        "timelimit": 60.0,
+        "trace_events": 343,
+        "useful_interval_count": 456,
+        "useful_interval_sum_seconds": 56.95,
+        "useful_interval_union_seconds": 56.95
+      },
+      "short_full_trace_exact_prefix_of_long": true,
+      "status": "PASS",
+      "timing_interval_union_and_deadline_semantics": true
+    },
+    "results": [
+      {
+        "step": 1,
+        "name": "affected S3/checkpoint/entry/harness/package tests",
+        "tests_run": 71,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-01-affected.txt",
+        "evidence_sha256": "770f7ddea47b46a12ee05128f7fe0ddf85c24c88226754f908048ee72fa49d8b"
+      },
+      {
+        "step": 2,
+        "name": "full unittest discovery",
+        "tests_run": 126,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-02-full-discovery.txt",
+        "evidence_sha256": "bf22eebd6d8c4e117b9bc79c3e5bb37be6c28ba41bd26687b72ee7f5ba810f9f"
+      },
+      {
+        "step": 3,
+        "name": "Algorithm Tester-style public loader parity",
+        "checker_stage": 5,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-03-public-loader.txt",
+        "evidence_sha256": "66a4897050d33606f10954542aef9b286bb0c938be2b4b9ac366711bb88aeb61"
+      },
+      {
+        "step": 4,
+        "name": "package allowlist and isolated extraction smoke",
+        "checker_stage": 5,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-04-package.txt",
+        "evidence_sha256": "2252c90aca384d0d6eda7d3cf7494487b98816ddfa57beaa1082cba4b822e525"
+      },
+      {
+        "step": 5,
+        "name": "feature-off tracked example parity",
+        "checker_stage": 5,
+        "solution_sha256": "50a8d7e6731fcbd7fbe9945e263e9a7c427eec64eb6803b0f093cf5fbf4f7cdc",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-05-feature-off.txt",
+        "evidence_sha256": "1beccf6e9fac3f9660eb05c787a2763a35d001b2b40f5292e4d087e8f6d04916"
+      },
+      {
+        "step": 6,
+        "name": "feature-on 5-second smoke with timing-union/useful semantics",
+        "checker_stage": 5,
+        "wall_seconds": 2.0023565409937873,
+        "work_deadline_seconds": 2.0,
+        "hard_deadline_seconds": 5.0,
+        "total_useful_seconds": 2.0023565409937873,
+        "idle_seconds": 0,
+        "segments": 1,
+        "batches": 94,
+        "iterations": 2233,
+        "logical_event_count": 2533,
+        "logical_event_trace_sha256": "3a6e0842db882f95a2cf4563e66e1a3746d5d0b494ff12096bd0d38d0b038d81",
+        "logical_schedule_metadata_valid": true,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-06-smoke-5s.txt",
+        "evidence_sha256": "b3a1fd19aea0093115b729b93efe3f01ee3ddd10c0dbcd15e311635db43f80a2"
+      },
+      {
+        "step": 7,
+        "name": "feature-on 12-second smoke with timing-union/useful semantics",
+        "checker_stage": 5,
+        "wall_seconds": 9.002897583995946,
+        "work_deadline_seconds": 9.0,
+        "hard_deadline_seconds": 12.0,
+        "total_useful_seconds": 9.002897583995946,
+        "idle_seconds": 0,
+        "segments": 2,
+        "batches": 507,
+        "iterations": 12153,
+        "logical_event_count": 12451,
+        "logical_event_trace_sha256": "f92f89340065d9ada9f9f503f9ee91198a7bbb469d8d0b7156b511a04d02a8fd",
+        "logical_schedule_metadata_valid": true,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-07-smoke-12s.txt",
+        "evidence_sha256": "0cb5106c669021985802f1f8e3ffdb88dc39e2680895f3e428caee1e69185ee6"
+      },
+      {
+        "step": 8,
+        "name": "official checker Stage 5, hard deadline, actual guarded-retime cadence, exact full prefix, timing union",
+        "checker_stage": 5,
+        "different_cadence_exact_prefix": true,
+        "actual_guarded_retime_executed": true,
+        "operational_scaling_12_gt_5": true,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-08-checker-deadline-contract.txt",
+        "cadence_evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-cadence-prefix.txt",
+        "evidence_sha256": "868af87e2e791ba2213bc9c1dcb534768123a15997b7ee041cb47b2d2a8b2bf6",
+        "cadence_evidence_sha256": "d80adcddc5f3bb980a8d70003c07b992fbee63dac6678bac121201be8067199a"
+      },
+      {
+        "step": 9,
+        "name": "remaining child/worker/Q process count",
+        "remaining_processes": 0,
+        "q_execution_count": 0,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/tier-s-s1-09-processes.txt",
+        "evidence_sha256": "25bfd9823b4e866e96e61e1be43558b50060b5538a6a1c87f614977c86cbfbf0"
+      }
+    ]
   },
   "package_preflight": {
-    "status": "NOT_RUN",
-    "disposition": "SUPERSEDED_PREVIOUS_IDENTITY",
-    "required_next_phase": "AF-05-recovery-identity-D",
-    "archive_path": null,
-    "archive_sha256": null,
-    "manifest_path": null,
-    "manifest_sha256": null,
-    "prior_results_location": "superseded_identities[C].package_preflight_history"
+    "status": "PASS",
+    "tier_s_identity": "20260716T100018Z-af05-recovery-identity-d-01-s1",
+    "required_next_phase": "AF-06-identity-D",
+    "archive_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/package-preflight-s1/submission.zip",
+    "archive_sha256": "4ff92990fb68c744426dc2f334a26e2e060884ce3ba1b0919e38e0696f6e9c2e",
+    "archive_size_bytes": 63135,
+    "manifest_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01/package-preflight-s1/submission-manifest.json",
+    "manifest_sha256": "67a561879785753bd5810aaf5828833b17ccf10f847239204edfe0b23514d907",
+    "entry_count": 20,
+    "import_smoke_stage": 5,
+    "isolated_extraction_stage": 5,
+    "isolated_solution_sha256": "ecba5bb356f983ad3aafc402ec627240b0339518b280ef413b916ca2f9686752",
+    "process_leaks": 0
   },
   "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
   "qualification_contract": {
@@ -740,8 +1031,8 @@
       "scaling_short_timelimit_seconds": 60.0,
       "scaling_long_timelimit_seconds": 300.0,
       "late_improvements_minimum": 1,
-      "objective_relative_tolerance": 1E-9,
-      "objective_absolute_tolerance": 0.000001
+      "objective_relative_tolerance": 1e-09,
+      "objective_absolute_tolerance": 1e-06
     },
     "required_telemetry_fields": [
       "run_id",
@@ -858,17 +1149,34 @@
     ]
   },
   "qualification": {
-    "command": null,
-    "command_status": "DRAFT_REQUIRES_AF05_RECOVERY_FREEZE",
-    "q_run_id": null,
+    "command": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "baseline.harness.cli",
+      "qualify-s3-anytime",
+      "--profile",
+      "s3-anytime-fill-candidate",
+      "--manifest",
+      "benchmarks/manifests/s3-anytime-fill-candidate.json",
+      "--evidence-root",
+      "benchmarks/evidence/s3-anytime-fill",
+      "--run-id",
+      "20260716T100018Z-af05-recovery-identity-d-01-q1",
+      "--seed",
+      "20260710",
+      "--jobs",
+      "1"
+    ],
+    "command_status": "FROZEN_NOT_EXECUTED",
+    "q_run_id": "20260716T100018Z-af05-recovery-identity-d-01-q1",
     "q_execution_count": 0,
     "real_q_executed": false,
-    "expected_evidence_directory": null,
-    "expected_evidence_directory_confirmed_absent": null,
-    "candidate_identity": null,
-    "candidate_identity_label": null,
+    "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T100018Z-af05-recovery-identity-d-01-q1",
+    "expected_evidence_directory_confirmed_absent": true,
+    "candidate_identity": "bb6fa80d93c50770906555b14abb8208060b5c9bac3252d34ccba0116054589c",
+    "candidate_identity_label": "D",
     "freeze_owner": "AF-05-recovery-identity-D",
-    "execution_owner": null,
+    "execution_owner": "AF-06-identity-D",
     "automatic_resume": false,
     "automatic_rerun": false,
     "execution_order": "strictly sequential",
@@ -945,6 +1253,12 @@
       "A",
       "B",
       "C"
-    ]
+    ],
+    "supersedes_q_run_ids": [
+      "20260716T033756Z-af05-01-q1",
+      "20260716T062856Z-af05-recovery-01-q1",
+      "20260716T083046Z-af05-recovery-identity-c-01-q1"
+    ],
+    "superseded_q_runs_eligible_for_execution": false
   }
 }

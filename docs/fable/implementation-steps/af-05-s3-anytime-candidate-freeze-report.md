@@ -1,92 +1,58 @@
-# S3 Anytime Candidate History and Identity D Draft
+# S3 Anytime Candidate Freeze — Identity D
 
 Date: 2026-07-16 (Asia/Seoul)
 
-Status: `UNQUALIFIED_DRAFT`
+Status: `FROZEN_UNQUALIFIED`
 
-AF-04 recovery-03 reset the candidate manifest after the algorithm recovery at
-commit `127075d0400d3529fb20af7fd9fca0e31b23662c`. Identity D is only the next
-label; no D identity, source identity, Tier-S result, package, Q command, Q
-run-id, or expected Q evidence directory is frozen here. Public/default
-`s3_anytime_fill` remains `false`; only the named
-`s3-anytime-fill-candidate` profile selects `true`.
+AF-05 recovery identity D froze a new clean candidate from source commit
+`4f7dbf5cf7871ab40b9924ce4364e6c563425346` after a fresh Tier-S run. It does not claim that Tier-Q ran:
+`q_execution_count=0`, `real_q_executed=false`, and the reserved evidence
+directory `benchmarks/evidence/s3-anytime-fill/qualification/20260716T100018Z-af05-recovery-identity-d-01-q1` is absent.
 
-AF-05 recovery-identity-D must run a new Tier-S and package preflight from the
-new algorithm HEAD, then freeze a new candidate identity D. It must not reuse
-any A, B, or C source/package/Q identity.
+## Identity D
 
-## Consumed immutable identities
+- candidate identity: `bb6fa80d93c50770906555b14abb8208060b5c9bac3252d34ccba0116054589c`
+- source identity / clean source commit: `4f7dbf5cf7871ab40b9924ce4364e6c563425346`
+- Tier-S identity: `20260716T100018Z-af05-recovery-identity-d-01-s1`
+- Tier-S evidence: `benchmarks/evidence/s3-anytime-fill/af-05/20260716T100018Z-af05-recovery-identity-d-01`
+- package archive SHA-256: `4ff92990fb68c744426dc2f334a26e2e060884ce3ba1b0919e38e0696f6e9c2e`
+- package manifest SHA-256: `67a561879785753bd5810aaf5828833b17ccf10f847239204edfe0b23514d907`
+- qualification contract SHA-256: `8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de`
+- Q run-id: `20260716T100018Z-af05-recovery-identity-d-01-q1`
+- profile / seed / jobs: `s3-anytime-fill-candidate` / `20260710` / `1`
 
-Identities A, B, and C are consumed, immutable, ineligible for selection, and
-prohibited from rerun, resume, or repair.
+Fresh Tier-S passed affected `71/71`, full discovery `126/126`, public loader,
+isolated package build/import/extraction, feature-off exact parity, 5-second and
+12-second candidate-only smoke, official Stage 5, hard deadlines, non-overlapping
+timing-union/useful accounting, actual guarded-retime execution under different
+60/300 cadences with an exact full logical prefix, and zero process leaks.
 
-| Identity | Candidate identity | Frozen Q run | Raw evaluator | Authority | First trace mismatch |
-|---|---|---|---|---|---:|
-| A | not assigned in schema v1 | `20260716T033756Z-af05-01-q1` | `GATE_FAILED_TIME` | `GATE_FAILED_TIME` | n/a |
-| B | `85da9be5aba2529986d6f8cb6ea76e211d5005398df8b888013febfee1260c3a` | `20260716T062856Z-af05-recovery-01-q1` | `GATE_FAILED_SCALING` | `GATE_FAILED_TIME` | 710 |
-| C | `25a66ff8dcc0827183e01066f83df881a3010e9359c2c9fa987835f6591d6143` | `20260716T083046Z-af05-recovery-identity-c-01-q1` | `GATE_FAILED_SCALING` | `GATE_FAILED_TIME` | 478 |
+Short metrics were 5s `1/94/2233`
+and 12s `2/507/12153`
+(segments/batches/iterations). The actual-retime synthetic ran Stage 5 at both
+60s and 300s, with `8/15/350`
+versus `36/44/1078`.
 
-The B and C raw failures are
-`FULL_LOGICAL_TRACE_PREFIX_MISMATCH:prob_21|tl=300`. The execution plan maps
-the raw scaling taxonomy to the authority disposition `GATE_FAILED_TIME`.
-Safety, useful-time/deadline, Stage 5, and quality sub-gates passed for both B
-and C; exact full logical-prefix did not.
+## Consumed immutable history
 
-Immutable identity C Q evidence SHA-256 values are:
+Identities A, B, and C remain consumed, immutable, unselectable, and prohibited
+from rerun, resume, repair, or reuse. Their candidate/source/Tier-S/package/Q
+history and all immutable Q hashes are preserved byte-for-byte under
+`superseded_identities`. Identity C remains
+`25a66ff8dcc0827183e01066f83df881a3010e9359c2c9fa987835f6591d6143`
+with Q run `20260716T083046Z-af05-recovery-identity-c-01-q1`.
 
-- `records.jsonl`: `98f147f1df39529fb5d72100c408f3cc36e04c29dbfb5f24fc2acd40cd7812af`
-- `qualification.json`: `69718e3acf394087c36e0928bbc4244a4ed2f9929b292d16f4bc68723669e293`
-- `summary.json`: `da9855a82541399cea087f4f6305ba1f1628a88aece51eaf31efd24267779378`
-- `run.json`: `cfab831b68925553968cb7296a0697ae70a4264465dc353637bd3a15eb335ac2`
-- `command.txt`: `3790e34bfd17373ce08cc4cd092a6e19ded6249fcb2ab7cdd6e4bcff58c69d54`
-- `versions.json`: `9055d045fd1461eb54d43fc5b703861ddad901ac61d4ecca26f162bc411b472c`
+No source/test, qualification contract, workload, thresholds, hard-5 input, or
+protected file changed. Public/default `s3_anytime_fill` remains false; only the
+candidate profile enables it.
 
-The manifest retains the complete A/B/C candidate contracts, source identity
-history, Tier-S history, package history, Q outcomes, and immutable Q hashes
-under `superseded_identities`.
+## Frozen AF-06 command — do not execute in AF-05
 
-## AF-04 recovered-contract validation
+```text
+/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python -m baseline.harness.cli qualify-s3-anytime --profile s3-anytime-fill-candidate --manifest benchmarks/manifests/s3-anytime-fill-candidate.json --evidence-root benchmarks/evidence/s3-anytime-fill --run-id 20260716T100018Z-af05-recovery-identity-d-01-q1 --seed 20260710 --jobs 1
+```
 
-Synthetic validation exercised the public `myalgorithm.algorithm` path through
-the actual guarded-retime flow. The recovered 60/300 schedule was accepted by
-the unchanged evaluator with an exact full logical prefix, Stage 5 at both
-limits, strictly greater long work units, a non-worse long objective, the same
-parent deadline, timing-interval union accounting, and publication isolated
-from logical state.
-
-The immutable B and C records were read only and independently rejected at
-their exact first mismatches, indices 710 and 478. The regression matrix also
-retained telemetry completeness, candidate-only profile selection, useful-time
-exclusions, work-deadline semantics, scaling work units, long objective,
-Stage 5, anchor/trace quality, and raw-to-authority taxonomy mapping.
-
-No qualification contract, evaluator, source test, workload, threshold,
-hard-5 input, protected source, or frozen Q evidence was changed. No discovery,
-hard-5, real wall-clock Q, full qualification, AF-05, or later phase ran.
-
-## Identity D draft contract
-
-The current manifest is AF-04-owned `UNQUALIFIED_DRAFT`:
-
-- candidate identity label and hash: `null`
-- source identity: `null`
-- Tier-S status: `NOT_RUN`
-- package preflight status: `NOT_RUN`
-- Q command/run-id/evidence directory/result/decision: `null`
-- Q execution count: `0`
-- real Q executed: `false`
-- next candidate label: `D`
-- prohibited labels: `A`, `B`, `C`
-- next owner: `AF-05-recovery-identity-D`
-
-The qualification contract SHA-256 remains
-`8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de`.
-Seed `20260710`, jobs `1`, hard-5 order/hashes, timelimits, profile,
-configuration, telemetry fields, thresholds, workload, and gate precedence are
-unchanged.
-
-Protected SHA-256 values remain:
-
-- `baseline/utils.py`: `d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75`
-- `baseline/baseline_greedy.py`: `8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b`
-- `baseline/harness/s3_anytime_worker.py`: `a135e5e8c28f0a6fc18034df06269cee26bf0ca1c337c04c8136f49c20a7a7f2`
+AF-06 identity D may execute that command exactly once only after verifying the
+clean freeze commit, manifest/candidate identity, package hashes, hard-5 hashes,
+protected hashes/OIDs, immutable A/B/C Q hashes, and absence of the expected D
+Q directory. Automatic rerun/resume is forbidden.
