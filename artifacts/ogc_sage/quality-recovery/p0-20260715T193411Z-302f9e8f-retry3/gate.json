@@ -1,0 +1,22 @@
+{
+  "dataset_manifest_pass": true,
+  "frozen_python_completed_runs": 0,
+  "frozen_python_matrix": "NOT_RUN",
+  "frozen_python_planned_runs": 30,
+  "full_tests_count": 204,
+  "full_tests_pass": true,
+  "hard10_manifest_pass": true,
+  "native_mip_interlock": "OFF",
+  "next_phase_allowed": false,
+  "partial_matrix_promoted": false,
+  "phase": 0,
+  "prob23_completed_runs": 0,
+  "prob23_pair": "NOT_RUN",
+  "prob23_planned_runs": 4,
+  "production_default": "python",
+  "protected_hashes_pass": true,
+  "reason": "persistent external PID >=25% in both required CPU snapshots",
+  "required_state_change": "a fresh Phase 0 retry in a window with no persistent external PID >=25%",
+  "solver_algorithm_or_default_changed_by_phase0": false,
+  "status": "BLOCKED"
+}

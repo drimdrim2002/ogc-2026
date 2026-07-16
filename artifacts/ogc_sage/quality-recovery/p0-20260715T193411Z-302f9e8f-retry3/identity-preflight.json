@@ -1,0 +1,239 @@
+{
+  "architecture": "arm64",
+  "config": {
+    "assignment_enabled": true,
+    "constructor_enabled": true,
+    "constructor_selection_policy": "eager_regret",
+    "interlock_enabled": false,
+    "lns_enabled": true,
+    "mip_enabled": false,
+    "native_prefilter_enabled": false,
+    "neighborhood_policy": "legacy",
+    "repair_backend": "python",
+    "retime_enabled": true,
+    "retime_exact_z1_skip": false,
+    "seed": 20260710
+  },
+  "config_sha256": "f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a",
+  "cpu": {
+    "brand": null,
+    "logical": 10,
+    "physical": 10
+  },
+  "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f",
+  "fixed_time_cpu_audit": "pending",
+  "hard10_manifest_sha256": "5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7",
+  "hostname": "brownui-Macmini.local",
+  "native_binary": {
+    "api": {
+      "api_version": 1,
+      "name": "ogc_native_empty_kernel",
+      "repair_api_version": 2
+    },
+    "available": true,
+    "loaded_path": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native/_ogc_native.cpython-312-darwin.so",
+    "repair_api_version": 2,
+    "requested_path": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native/_ogc_native.cpython-312-darwin.so",
+    "sha256": "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d",
+    "size_bytes": 282160
+  },
+  "os": "macOS-26.5.2-arm64-arm-64bit",
+  "protected": {
+    "baseline/baseline_greedy.py": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b",
+    "baseline/utils.py": "d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94",
+    "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md": "7c083a6238c11ed8c84712c22c879d26205094cd8048ca6ac3c4363bc3c6597d",
+    "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md": "b1dddfa9fe5059574ef477f87f6468f1c8e5bd8a74e26eb51d1af9e1e81360fe"
+  },
+  "ram_bytes": 25769803776,
+  "recorded_at": {
+    "kst": "2026-07-16T04:38:44.997727+09:00",
+    "utc": "2026-07-15T19:38:44.997727+00:00"
+  },
+  "schema_version": 1,
+  "source": {
+    "branch": "codex/performance-optimization-plan",
+    "current_tracked_diff_sha256": "0f4ce0a9ed087ed371590becd0e42fc3682d8ba1d1bd6cc2c5adadc19ecd15dc",
+    "execution_files": [
+      {
+        "path": "baseline/solver/__init__.py",
+        "sha256": "8265192c7ca7313c3db0a36a58e943383fb54f2ef7db251cb79bb16c09a0766a"
+      },
+      {
+        "path": "baseline/solver/alns.py",
+        "sha256": "0dda505e4191c90add23d66004dde49b7e50be0830d73ec3046503bf007d94d8"
+      },
+      {
+        "path": "baseline/solver/assignment.py",
+        "sha256": "b91a57c68da13cb0d18d7dbd90caa6448c7d320b26c7bce6c46b3012a8e94a37"
+      },
+      {
+        "path": "baseline/solver/budget.py",
+        "sha256": "8a752b245d1fbd687e67969da1d56dfae1b22613314fef9597c43993452be400"
+      },
+      {
+        "path": "baseline/solver/construct.py",
+        "sha256": "fe6e82d212af3e9a03a4e2ba51fc46a4ba9e38cb9ba55be79e9251d4ec7d55a3"
+      },
+      {
+        "path": "baseline/solver/entry.py",
+        "sha256": "107148983091a413df39be733a139d705df00c4a53bfe807482fcc599303e5e7"
+      },
+      {
+        "path": "baseline/solver/fallback.py",
+        "sha256": "6a85e5e5af2a5cccbecd9cdc5c96680ea69e8104907924c2a845d52b7705f6f6"
+      },
+      {
+        "path": "baseline/solver/geometry.py",
+        "sha256": "c3ac24c8f5c2d74068630783bf5b5422e6dfb1ad14b60a901ceb692b662c8579"
+      },
+      {
+        "path": "baseline/solver/instance.py",
+        "sha256": "b7083814a8fd5aa46a5ff89b24968e86f4027e7bf8fadf6a584faa0fbea94f06"
+      },
+      {
+        "path": "baseline/solver/interlock.py",
+        "sha256": "763cd25bf63510b971f237033cefbdeb7f51cd0cc251f53c875d262f780d187f"
+      },
+      {
+        "path": "baseline/solver/native_repair.py",
+        "sha256": "3026d192febc391a799e76a13d8549794ab5f51e79670cdddf3e6228a6ed069d"
+      },
+      {
+        "path": "baseline/solver/neighborhoods.py",
+        "sha256": "2bb9caca3e5e0457da93af7f89d51288214229f80b5a509a913f5a3c536b7ed7"
+      },
+      {
+        "path": "baseline/solver/repair_mip.py",
+        "sha256": "2440d72911fc10fa0c4f1371dd37053c70180385918b9c06ae0b32972af24797"
+      },
+      {
+        "path": "baseline/solver/retime.py",
+        "sha256": "cc17179e67a758ae4f03f31c5a1c95ffaae1937e5c2107924d75d3feb2654ebb"
+      },
+      {
+        "path": "baseline/solver/runtime.py",
+        "sha256": "98c1740a22ffa0d3f585dc1e1ebfa2438bfed732803905faf90cfa841612218d"
+      },
+      {
+        "path": "baseline/solver/serialize.py",
+        "sha256": "f4c7a42759cf13dedf5a26da485230120617b23e934145c28197f862145aa4b8"
+      },
+      {
+        "path": "baseline/solver/state.py",
+        "sha256": "7322b2708a3f141727dc7ef2e950a6a42d1bfa8af33910fd1b4c73ceb02f77a9"
+      },
+      {
+        "path": "experiments/ogc_sage/benchmark_ogc_sage.py",
+        "sha256": "3f11bffd338491b3df09d6b933c51f24a1900e27e1db05d1b34ab9fad49e4b59"
+      },
+      {
+        "path": "experiments/ogc_sage/verify_quality_p0.py",
+        "sha256": "a4b6e6525a4ba971957a01c39243065f6422a33c6fd965a3ad9a0f9afa186599"
+      },
+      {
+        "path": "native/ogc_native/CMakeLists.txt",
+        "sha256": "f3c5c4272ee0a48cd3f9a20aed3b355cf3d46d2cf1f3eb091817f6e0a54b9a7f"
+      },
+      {
+        "path": "native/ogc_native/src/bindings.cpp",
+        "sha256": "57d4d8a7d8474318abe3443b79677737ae3400f870b552879f5cb891f32ed63a"
+      },
+      {
+        "path": "native/ogc_native/src/repair_kernel.cpp",
+        "sha256": "5fa7bac6026d78d8d17219715cf1b8bf645abd98f359e243b3e5897492370bbf"
+      },
+      {
+        "path": "native/ogc_native/src/repair_kernel.hpp",
+        "sha256": "ca2ce47dd15b9168efec4e85e5ba76f1f969d8b2d7e765146e91b391e5916076"
+      },
+      {
+        "path": "native/ogc_native/src/types.hpp",
+        "sha256": "fd88d81be759cf8f81584f44bc03a500ad6024f6fba6e7be888e84d00263b0df"
+      },
+      {
+        "path": "native/ogc_native/third_party/PYBIND11.lock.json",
+        "sha256": "c863852e9d00d1288d2f109f553896a336e516c96d21a4624196ef83b1d3ca05"
+      },
+      {
+        "path": "native/ogc_native/third_party/pybind11-2.13.6.tar.gz",
+        "sha256": "ba6af10348c12b24e92fa086b39cfba0eff619b61ac77c406167d813b096d39a"
+      }
+    ],
+    "execution_files_sha256": "85792d7b66d56fa89942768fa4e7d11ba03037a5257e0bfdfbbe1c9a36d05d2d",
+    "git_status_porcelain_v1": [
+      "M baseline/solver/alns.py",
+      " M baseline/solver/construct.py",
+      " M baseline/solver/entry.py",
+      " M baseline/solver/neighborhoods.py",
+      " M baseline/solver/runtime.py",
+      " M docs/OGC2026_Problem_Analysis.md",
+      " M docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md",
+      " M experiments/ogc_sage/benchmark_ogc_sage.py",
+      "?? artifacts/ogc_sage/quality-recovery/",
+      "?? baseline/solver/native_repair.py",
+      "?? baseline/tests/test_native_import_fallback.py",
+      "?? baseline/tests/test_native_repair_integration.py",
+      "?? dist/",
+      "?? docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
+      "?? docs/implementation/sol/quality-recovery/",
+      "?? experiments/ogc_sage/generate_native_repair_fixture.py",
+      "?? experiments/ogc_sage/verify_native_p3_fixture.py",
+      "?? experiments/ogc_sage/verify_native_p4_prefilter.py",
+      "?? experiments/ogc_sage/verify_native_p5_integration.py",
+      "?? experiments/ogc_sage/verify_native_p7_fix1.py",
+      "?? experiments/ogc_sage/verify_native_p7_fixed_time.py",
+      "?? experiments/ogc_sage/verify_quality_p0.py",
+      "?? native/",
+      "?? scripts/build_native_linux.sh",
+      "?? scripts/build_native_local.py"
+    ],
+    "head": "302f9e8f0d3cd5eba8f68f633d1a2ba9013396aa",
+    "phase0_changes_at_prepare": [
+      "experiments/ogc_sage/benchmark_ogc_sage.py",
+      "experiments/ogc_sage/verify_quality_p0.py"
+    ],
+    "preexisting_tracked": [
+      "baseline/solver/alns.py",
+      "baseline/solver/construct.py",
+      "baseline/solver/entry.py",
+      "baseline/solver/neighborhoods.py",
+      "baseline/solver/runtime.py",
+      "docs/OGC2026_Problem_Analysis.md",
+      "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md"
+    ],
+    "preexisting_tracked_diff_sha256": "6a58859c54e4254704c8eab190ff22a76bfeeb4c05b5577f252536c1d58dc6ce",
+    "preexisting_untracked": [
+      "baseline/solver/native_repair.py",
+      "baseline/tests/test_native_import_fallback.py",
+      "baseline/tests/test_native_repair_integration.py",
+      "dist/",
+      "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
+      "docs/implementation/sol/quality-recovery/",
+      "experiments/ogc_sage/generate_native_repair_fixture.py",
+      "experiments/ogc_sage/verify_native_p3_fixture.py",
+      "experiments/ogc_sage/verify_native_p4_prefilter.py",
+      "experiments/ogc_sage/verify_native_p5_integration.py",
+      "experiments/ogc_sage/verify_native_p7_fix1.py",
+      "experiments/ogc_sage/verify_native_p7_fixed_time.py",
+      "native/",
+      "scripts/build_native_linux.sh",
+      "scripts/build_native_local.py"
+    ],
+    "source_snapshot_sha256": "0462447baa88578c214630c9651d8650cb3f3fa6d480e3e2b2b175815a1546da",
+    "upstream_left_right": "0\t3"
+  },
+  "versions": {
+    "cmake": null,
+    "geos": "3.13.1",
+    "gurobi": "13.0.2",
+    "gurobi_license": {
+      "available": true,
+      "error": null
+    },
+    "pybind11": "vendored-2.13.6",
+    "python": "3.12.13",
+    "python_compiler": "Clang 19.1.7 ",
+    "python_executable": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "shapely": "2.1.2"
+  }
+}

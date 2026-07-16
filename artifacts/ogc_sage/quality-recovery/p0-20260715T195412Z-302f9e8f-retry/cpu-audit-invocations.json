@@ -1,0 +1,26 @@
+{
+  "attempts": [
+    {
+      "argv": [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "experiments/ogc_sage/verify_quality_p0.py",
+        "cpu-audit",
+        "--artifact-root",
+        "artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry"
+      ],
+      "fixed_time_started": false,
+      "result": "sandbox PermissionError before snapshot or artifact write"
+    },
+    {
+      "argv": [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "experiments/ogc_sage/verify_quality_p0.py",
+        "cpu-audit",
+        "--artifact-root",
+        "artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry"
+      ],
+      "fixed_time_started": false,
+      "result": "completed read-only process audit with required escalation"
+    }
+  ]
+}

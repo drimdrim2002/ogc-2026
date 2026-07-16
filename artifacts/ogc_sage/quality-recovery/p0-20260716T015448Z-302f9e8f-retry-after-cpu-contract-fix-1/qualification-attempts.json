@@ -1,0 +1,34 @@
+{
+  "attempts": [
+    {
+      "ordinal": 1,
+      "sandbox": "workspace",
+      "returncode": 1,
+      "cpu_qualification_written": false,
+      "fixed_time_started": false,
+      "failure": "PermissionError: [Errno 1] Operation not permitted: 'ps'",
+      "classification": "diagnostic-only ps collection sandbox failure; no gate result produced"
+    },
+    {
+      "ordinal": 2,
+      "sandbox": "approved unsandboxed rerun",
+      "returncode": 2,
+      "cpu_qualification_written": true,
+      "fixed_time_started": false,
+      "state": "BLOCKED",
+      "reason": "host_tick_or_process_tree_measurement_impossible",
+      "attempts": 10,
+      "elapsed_seconds": 10.206305542000337,
+      "process_access_coverage": 0.7347503543898202,
+      "temporal_coverage": 1.0,
+      "measurement_subtraction_complete": true,
+      "mean_available_external_capacity": 0.8504318173242258,
+      "mean_external_busy_fraction": 0.14956818267577426,
+      "max_sample_gap_seconds": 1.010131375020137,
+      "classification": "structural process-tree coverage failure; external capacity itself met READY thresholds"
+    }
+  ],
+  "raw_ps_used_as_gate": false,
+  "consecutive_clean_heartbeat_windows_used": false,
+  "external_processes_changed_or_terminated": false
+}

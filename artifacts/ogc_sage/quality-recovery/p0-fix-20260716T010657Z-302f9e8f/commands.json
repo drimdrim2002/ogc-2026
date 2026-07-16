@@ -1,0 +1,34 @@
+{
+  "focused_fixture": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "/tmp/test_quality_p0_fix.py"
+  ],
+  "focused_py_compile": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "-m",
+    "py_compile",
+    "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py"
+  ],
+  "git_diff_check": [
+    "git",
+    "diff",
+    "--check"
+  ],
+  "old_artifact_verification": [
+    [
+      "shasum",
+      "-a",
+      "256",
+      "-c",
+      "SHA256SUMS"
+    ],
+    [
+      "shasum",
+      "-a",
+      "256",
+      "-c",
+      "SHA256SUMS"
+    ]
+  ],
+  "prohibited_commands_run": []
+}

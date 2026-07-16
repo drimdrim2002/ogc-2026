@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "immutable_artifacts": [
+    {
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260715T193411Z-302f9e8f-retry3",
+      "recursive_manifest_pass": true,
+      "sha256sums_self": "83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88"
+    },
+    {
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+      "recursive_manifest_pass": true,
+      "sha256sums_self": "52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d"
+    },
+    {
+      "path": "artifacts/ogc_sage/quality-recovery/p0-fix-20260716T010657Z-302f9e8f",
+      "recursive_manifest_pass": true,
+      "sha256sums_self": "cfb7fc57202a16d2ca2b93eeb38ee9ac889cfee5d4c531a584d962b06c05b229"
+    },
+    {
+      "path": "artifacts/ogc_sage/quality-recovery/p0-cpu-contract-fix-20260716T014245Z-302f9e8f",
+      "recursive_manifest_pass": true,
+      "sha256sums_self": "2c187bd21306d6bb212de0510facf88e7ecc062547b2005af4ae4fe8cc1f1f2b"
+    },
+    {
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260716T015448Z-302f9e8f-retry-after-cpu-contract-fix-1",
+      "recursive_manifest_pass": true,
+      "sha256sums_self": "8f9f23884dbdb29ebbcec97a332e0e6cfba6cf3be7848215be62d2037332a601"
+    }
+  ],
+  "unchanged_identity": {
+    "frozen_config_sha256": "f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a",
+    "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f",
+    "hard10_manifest_sha256": "5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7",
+    "prob23_sha256": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+    "native_binary_sha256": "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d",
+    "benchmark_harness_sha256": "3f11bffd338491b3df09d6b933c51f24a1900e27e1db05d1b34ab9fad49e4b59",
+    "readme_sha256": "3647d5f1363a8546624ee69520e642e16824753ba14e9b4c35b4dd581f203563"
+  }
+}

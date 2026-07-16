@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "branch": "codex/performance-optimization-plan",
+  "head": "302f9e8f0d3cd5eba8f68f633d1a2ba9013396aa",
+  "top_plan_sha256": "fdecaa193a1771b461ae16cacf2289cee67858bf120b2001895d94ed36fad6d2",
+  "scheduler_protocol_sha256": "647d8e17db5e0e02d32cfa6c6ea82872a448fb492425eb12dbd26baaccbf4325",
+  "phase0_contract_sha256": "d6e81e24b410509f0eecbc3b138aea850fbb9df95c3894c982880fc64c553d58",
+  "phase0_harness_sha256": "26da658cc084b2a17558baf32675910c762c53f57e4f5229f2467da8eb8b4753",
+  "execution_aggregate_sha256": "06712feb1f03cbddfdfae478c35dba72faede7336030c19ddae5aa1944e2fa53",
+  "source_snapshot_sha256": "237017a4b5bc3e7881ac993bb9bb5a82c34751aee9babd2d3786721b6fc11c93",
+  "matrix_identity_sha256": "133bf8b47ab851a4726e6803f6949cc8d2a65fd81c8a5f3c3d6691ae1be310c9",
+  "cpu_contract_sha256": "b102f6838e751849727451a681a5650e0621c07f4a3fc8e93c610445dd468fd8",
+  "frozen_config_sha256": "f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a",
+  "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f",
+  "hard10_manifest_sha256": "5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7",
+  "prob23_sha256": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+  "native_binary_sha256": "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d",
+  "benchmark_harness_sha256": "3f11bffd338491b3df09d6b933c51f24a1900e27e1db05d1b34ab9fad49e4b59",
+  "cpu_contract_fix_artifact": "artifacts/ogc_sage/quality-recovery/p0-cpu-contract-fix-20260716T014245Z-302f9e8f",
+  "cpu_contract_fix_sha256s_self": "2c187bd21306d6bb212de0510facf88e7ecc062547b2005af4ae4fe8cc1f1f2b",
+  "cpu_contract_fix_recursive_verification": "14/14 PASS"
+}

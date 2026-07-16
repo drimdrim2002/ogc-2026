@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "commands": [
+    "canonical python -m py_compile experiments/ogc_sage/verify_quality_p0.py",
+    "canonical python /tmp/test_quality_p0_process_coverage.py",
+    "canonical python experiments/ogc_sage/verify_quality_p0.py prepare --artifact-root /tmp/p0-process-coverage-prepare-smoke-20260716T022130Z",
+    "canonical python -m unittest discover -s tests -p test_*.py",
+    "git diff --check",
+    "shasum -a 256 -c SHA256SUMS for five immutable artifacts"
+  ],
+  "prohibited_commands_run": [],
+  "actual_cpu_qualification_run": false,
+  "solver_or_fixed_time_run": false,
+  "hard10_or_prob23_run": false,
+  "cpu_stress_run": false,
+  "phase0_retry_or_phase1_run": false
+}

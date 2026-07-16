@@ -1,0 +1,55 @@
+{
+  "fixture": {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "/tmp/test_quality_p0_fix.py"
+    ],
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": "{\n  \"cases\": {\n    \"checker_changed\": false,\n    \"d0_prepare_finalize_unchanged\": true,\n    \"d1_fresh_preflight_finalize_unchanged\": true,\n    \"greedy_changed\": false,\n    \"pybind_plan_changed\": false,\n    \"same_retry_phase0_changed\": false\n  },\n  \"expected\": {\n    \"checker_changed\": false,\n    \"d0_prepare_finalize_unchanged\": true,\n    \"d1_fresh_preflight_finalize_unchanged\": true,\n    \"greedy_changed\": false,\n    \"pybind_plan_changed\": false,\n    \"same_retry_phase0_changed\": false\n  },\n  \"passed\": true\n}\n"
+  },
+  "fixture_result": {
+    "cases": {
+      "checker_changed": false,
+      "d0_prepare_finalize_unchanged": true,
+      "d1_fresh_preflight_finalize_unchanged": true,
+      "greedy_changed": false,
+      "pybind_plan_changed": false,
+      "same_retry_phase0_changed": false
+    },
+    "expected": {
+      "checker_changed": false,
+      "d0_prepare_finalize_unchanged": true,
+      "d1_fresh_preflight_finalize_unchanged": true,
+      "greedy_changed": false,
+      "pybind_plan_changed": false,
+      "same_retry_phase0_changed": false
+    },
+    "passed": true
+  },
+  "git_diff_check": {
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+  },
+  "interpreter": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+  "py_compile": {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "py_compile",
+      "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py"
+    ],
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+  }
+}

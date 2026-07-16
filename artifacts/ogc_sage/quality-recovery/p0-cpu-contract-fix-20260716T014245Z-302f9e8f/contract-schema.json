@@ -1,0 +1,57 @@
+{
+  "blocked_definition": "host_tick_or_process_tree_measurement_structurally_impossible",
+  "classification": [
+    "measurement",
+    "competing_compute",
+    "os_background",
+    "controller_ui",
+    "unknown"
+  ],
+  "classification_is_allowlist": false,
+  "consecutive_clean_heartbeat_windows": "PROHIBITED",
+  "gate_input": "cumulative_system_cpu_time_delta",
+  "liveness_states": [
+    "READY",
+    "PENDING_ENVIRONMENT",
+    "PASS",
+    "BLOCKED"
+  ],
+  "measurement_exclusion": "pid_create_time_identity_full_descendant_tree_only",
+  "normalization": "logical_cores_x_wall_seconds",
+  "pair": {
+    "atomic": true,
+    "invalid_action": "discard_both_and_rerun_with_new_immutable_pair_id",
+    "mean_external_busy_delta_max_inclusive": 0.05,
+    "orders": {
+      "1": [
+        "python",
+        "native"
+      ],
+      "2": [
+        "native",
+        "python"
+      ]
+    },
+    "p95_external_busy_delta_max_inclusive": 0.1
+  },
+  "pre_run": {
+    "acquisition_limit_seconds": 300.0,
+    "average_available_capacity_min_inclusive": 0.7,
+    "cadence_seconds": 1.0,
+    "qualification_window_seconds": 10.0,
+    "rolling_available_capacity_min_inclusive": 0.5,
+    "rolling_window_seconds": 5.0
+  },
+  "raw_ps_cpu_percent_role": "diagnostic_top_contributors_only_never_gate_input",
+  "runtime_material_overlap": {
+    "average_external_busy_max_exclusive": 0.3,
+    "competing_compute_continuous_seconds": 5.0,
+    "competing_compute_core_equivalent_min_inclusive": 0.5,
+    "coverage_min_inclusive": 0.95,
+    "measurement_subtraction_required": true,
+    "rolling_external_busy_max_exclusive": 0.5,
+    "rolling_window_seconds": 5.0,
+    "sample_gap_max_seconds_inclusive": 2.5
+  },
+  "schema_version": 2
+}

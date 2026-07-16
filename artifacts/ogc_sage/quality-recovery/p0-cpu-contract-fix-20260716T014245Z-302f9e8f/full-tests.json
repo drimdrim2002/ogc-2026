@@ -1,0 +1,21 @@
+{
+  "command": {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests",
+      "-p",
+      "test_*.py",
+      "-v"
+    ],
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/baseline",
+    "returncode": 0
+  },
+  "count": 204,
+  "passed": true,
+  "stderr_sha256": "05b4a492ef1a094314e76f43c58c7b6e8ef8217a2ab8b07d4babb8a21dd7eb21",
+  "stdout_sha256": "a760a6c4e41680f528dd3398fa7b9f3a042dba5b643be5b652810f7e62b5cc27"
+}

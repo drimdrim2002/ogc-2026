@@ -1,0 +1,107 @@
+{
+  "cpu_qualification": {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+      "cpu-qualification",
+      "--artifact-root",
+      "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260716T015448Z-302f9e8f-retry-after-cpu-contract-fix-1"
+    ],
+    "returncode": 0
+  },
+  "fixed_time": {
+    "frozen_python_matrix": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/benchmark_ogc_sage.py",
+      "run",
+      "--gate",
+      "constructor",
+      "--variant",
+      "heuristic_lns",
+      "--budgets",
+      "60",
+      "--seeds",
+      "20260710",
+      "20260711",
+      "20260712",
+      "--instances",
+      "prob_38.json",
+      "prob_23.json",
+      "prob_40.json",
+      "prob_25.json",
+      "prob_27.json",
+      "prob_39.json",
+      "prob_21.json",
+      "prob_33.json",
+      "prob_28.json",
+      "prob_24.json",
+      "--allow-dirty",
+      "--artifact-root",
+      "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260716T015448Z-302f9e8f-retry-after-cpu-contract-fix-1",
+      "--run-id",
+      "baseline"
+    ],
+    "frozen_python_runtime_requirement": "each fixed-time run must use the same 1-second runtime capacity monitor",
+    "prob23_atomic_alternating_pairs": [
+      [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+        "run-pair",
+        "--artifact-root",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260716T015448Z-302f9e8f-retry-after-cpu-contract-fix-1",
+        "--pair-id",
+        "<new-immutable-pair-1-id>",
+        "--pair-ordinal",
+        "1"
+      ],
+      [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+        "run-pair",
+        "--artifact-root",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260716T015448Z-302f9e8f-retry-after-cpu-contract-fix-1",
+        "--pair-id",
+        "<new-immutable-pair-2-id>",
+        "--pair-ordinal",
+        "2"
+      ]
+    ],
+    "status": "NOT_RUN_MEASUREMENT_BLOCKED"
+  },
+  "pre_harness_observation": {
+    "full_tests_then_passed": 204,
+    "native_import_wrong_cwd": "ModuleNotFoundError: baseline (non-gating command setup error)"
+  },
+  "preflight": [
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "argv": [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "count": 204,
+      "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/baseline",
+      "passed": true,
+      "returncode": 0,
+      "stderr_sha256": "058f1cc3fb0b41ac9c5c59dcca4ab26ea8376bc237b92b33a130cf6d621d2539",
+      "stdout_sha256": "a760a6c4e41680f528dd3398fa7b9f3a042dba5b643be5b652810f7e62b5cc27"
+    }
+  ]
+}

@@ -11,6 +11,7 @@ alg_tester/example/train*/
 alg_tester/example/*.zip
 .omo/
 .understand-anything/
+dist/
 artifacts/ogc_sage/step9/*/
 !artifacts/ogc_sage/step9/.gitkeep
 artifacts/ogc_sage/performance/phase0/*/

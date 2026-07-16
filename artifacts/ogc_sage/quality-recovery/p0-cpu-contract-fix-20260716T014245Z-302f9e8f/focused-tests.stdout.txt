@@ -1,0 +1,15 @@
+{
+  "cases": {
+    "aggregate_and_rolling_boundaries": true,
+    "atomic_alternating_pair_invalidation": true,
+    "core_normalization_4_10_16": true,
+    "diagnostic_classification": true,
+    "dispatch_frozen_hash_contract": true,
+    "fairness_5pp_10pp_boundaries": true,
+    "historical_raw_ps_not_gate": true,
+    "liveness_states": true,
+    "runtime_fail_closed": true,
+    "tree_ancestry_and_pid_reuse": true
+  },
+  "passed": true
+}

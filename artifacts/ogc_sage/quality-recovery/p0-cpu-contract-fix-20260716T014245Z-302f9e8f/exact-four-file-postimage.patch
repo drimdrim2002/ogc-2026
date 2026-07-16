@@ -1,0 +1,2325 @@
+# Exact four-file postimage patch.
+# Preimages are identified by scope.json/old-new-hashes.json SHA-256; these files were pre-existing untracked workspace files.
+diff --git a/docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md b/docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md
+--- /dev/null
++++ b/docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md
+@@ -0,0 +1,224 @@
++# OGC-SAGE 해 품질 회복 통합 실행 계획
++
++작성일: 2026-07-16  
++상태: 실행 준비 완료  
++작업공간: `/Users/brown/workspace/ogc/sol-native-implementation`  
++기준 설계: `docs/OGC2026_Competition_Algorithm_Design.md`  
++실행 문서: `docs/implementation/sol/quality-recovery/`
++
++## 1. 목적
++
++이 계획의 목적은 단순한 처리 속도 향상이 아니라, 동일 wall-clock 예산에서 official checker가 인정하는 최종 objective를 안정적으로 낮추는 것이다. 최근 C++ repair kernel은 fixed-work 후보 생성 속도와 parity를 개선했지만, `prob_23` 120초 관측에서 Python 기본 경로 대비 native 경로가 다음과 같이 크게 회귀했다.
++
++| 항목 | Python | Native | 변화 |
++|---|---:|---:|---:|
++| final objective | `49,102,302` | `89,478,006` | `+40,375,704`, 약 `+82.23%` 악화 |
++| ALNS iterations | `50` | `22` | `-56%` |
++
++Objective는 낮을수록 좋다. 이 결과는 C++ micro-kernel 가속만으로 solver 전체의 fixed-time 품질이 개선되지 않으며, candidate/pair 증폭, Python/Shapely exact resolve, pybind 경계, finalize, deadline fallback, ALNS acceptance 의미론을 함께 다뤄야 함을 보여준다.
++
++동시에 전체 solver의 가장 큰 품질 병목은 여전히 P3 초기 constructor다. 기존 계측에서 constructor profile은 모두 50,000 candidate cap에 도달했고, serial safe-tail fallback 비율 중앙값은 약 96%였다. 따라서 이 계획은 다음 우선순위를 고정한다.
++
++1. 초기해 품질을 지배하는 constructor를 먼저 개선한다.
++2. native repair가 fixed-time 탐색량과 품질을 떨어뜨리는 문제를 해결한다.
++3. ALNS trajectory, acceptance, stall, neighborhood 의미론을 seed-robust하게 만든다.
++4. retiming과 assignment를 그 다음에 최적화한다.
++5. MIP/interlock은 잔여 병목 증거가 있을 때만 조건부로 검토한다.
++6. 마지막에 독립 부하 환경에서 통합 및 release matrix를 새 source identity로 재실행한다.
++
++## 2. 현재 고정 사실
++
++- official `baseline/utils.py` SHA-256은 `d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94`다.
++- `baseline/baseline_greedy.py`는 동결 비교 기준이며 수정하지 않는다.
++- production default는 `repair_backend="python"`, native prefilter OFF다.
++- candidate MIP과 interlock은 기본 OFF다.
++- native fixed-work capped/unbounded parity, conservative prefilter, fallback, Stage 5 회귀 테스트는 통과했다.
++- native kernel은 좁은 fixed-work에서 약 18.3배였지만, solver fixed-time 품질 우위는 증명되지 않았다.
++- 현재 native는 P5 heuristic repair에만 연결되며 P3 initial constructor에는 연결되지 않는다.
++- native는 `UNKNOWN` geometry를 Python `GeometryKernel.relation()`과 Shapely에 위임한다.
++- native dominance guard는 Python SA 경로와 다른 trajectory를 만들 수 있다.
++- Python default도 repair telemetry session, snapshot digest, RSS 계측 비용을 부담하므로 이전 release artifact와 동일한 실행 비용이라고 가정하지 않는다.
++- 기존 60/180초×40×3 seed 결과는 최근 dirty/native source의 release evidence가 아니다.
++- 기존 180초 hard-10 final artifact는 외부 benchmark overlap으로 release-ineligible이다.
++- macOS local C++ binary 증거는 Ubuntu/ELF/submission archive 증거가 아니다.
++
++## 3. 문서와 phase 우선순위
++
++아래 순서는 해 품질 영향도와 선행 의존성을 반영한 강제 실행 순서다. 이전 phase의 gate와 controller audit가 끝나기 전에 다음 phase를 시작하지 않는다.
++
++| Phase | 중요도 | 문서 | 목표 | 기본 종료 결정 |
++|---:|---|---|---|---|
++| 0 | 필수 기반 | [00_BASELINE_AND_REGRESSION_CONTRACT.md](quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md) | 현재 source/config/data/환경과 품질 회귀를 재현 가능한 계약으로 동결 | READY/PENDING_ENVIRONMENT/PASS/BLOCKED |
++| 1 | 최우선 | [01_CONSTRUCTOR_INITIAL_SOLUTION_QUALITY.md](quality-recovery/01_CONSTRUCTOR_INITIAL_SOLUTION_QUALITY.md) | 96% serial fallback을 줄이고 시간 gate 안에서 강한 초기해 생성 | constructor variant 승격/기각 |
++| 2 | 최우선 | [02_NATIVE_REPAIR_FIXED_TIME_RECOVERY.md](quality-recovery/02_NATIVE_REPAIR_FIXED_TIME_RECOVERY.md) | `prob_23` native 82% 회귀와 50→22 iteration 감소 해결 | native benchmark GO/NO-GO |
++| 3 | 높음 | [03_ALNS_TRAJECTORY_AND_ACCEPTANCE.md](quality-recovery/03_ALNS_TRAJECTORY_AND_ACCEPTANCE.md) | Python/native acceptance, dominance, stall, cadence를 seed-robust하게 정리 | ALNS 정책 승격/기각 |
++| 4 | 중상 | [04_RETIMING_QUALITY_AND_COST.md](quality-recovery/04_RETIMING_QUALITY_AND_COST.md) | 반복 Gurobi 비용을 줄이면서 Z1 개선 유지 | retime 정책 승격/기각 |
++| 5 | 중간 | [05_ASSIGNMENT_AND_CONGESTION_QUALITY.md](quality-recovery/05_ASSIGNMENT_AND_CONGESTION_QUALITY.md) | assignment/guide가 constructor 및 Z2/Z3에 주는 효과 개선 | assignment 정책 승격/기각 |
++| 6 | 조건부 | [06_MIP_INTERLOCK_CONDITIONAL.md](quality-recovery/06_MIP_INTERLOCK_CONDITIONAL.md) | 잔여 병목이 증명될 때만 MIP/interlock 재검토 | 명시적 ON/OFF 동결 |
++| 7 | 통합 gate | [07_INTEGRATED_HARD10_VALIDATION.md](quality-recovery/07_INTEGRATED_HARD10_VALIDATION.md) | 누적 후보를 hard-10 다중 seed에서 검증 | release matrix 진입/복귀 |
++| 8 | 최종 gate | [08_FINAL_40_RELEASE_VALIDATION.md](quality-recovery/08_FINAL_40_RELEASE_VALIDATION.md) | 40개 competition-aligned matrix와 archive를 검증 | release 승인/기각 |
++
++Scheduler 운영 계약은 [SCHEDULER_PROTOCOL.md](quality-recovery/SCHEDULER_PROTOCOL.md)를 따른다.
++
++## 4. 절대 불변식
++
++모든 phase와 모든 diagnose/fix/retry session은 다음을 지킨다.
++
++- official checker Stage 5가 최종 권위다.
++- internal `Z1`, floored `Z2`, `Z3`, total은 checker와 상대 오차 `<=1e-6`다.
++- validated-best trace는 run 내부에서 non-increasing이다.
++- candidate 변경은 별도 draft와 transactional commit을 사용한다.
++- approximate geometry는 `DEFINITELY_FREE` 또는 reject-only prefilter로만 사용하고 `UNKNOWN`은 exact path로 보낸다.
++- Python/native/Gurobi/import/ABI/timeout/invalid-output 실패 시 이미 검증된 incumbent를 보존한다.
++- `baseline/utils.py`, `baseline/baseline_greedy.py`, training data는 수정하지 않는다.
++- `time.monotonic()` deadline과 checker reserve를 유지한다.
++- `-ffast-math`, 비결정적 parallel reduction, native 내부 임의 멀티스레딩을 사용하지 않는다.
++- 사용자 변경, 기존 dirty/untracked 파일과 immutable artifact를 삭제·덮어쓰기하지 않는다.
++- 한 worker session은 한 phase 또는 한 diagnose/fix/retry 역할만 수행한다.
++- 서로 다른 worker가 같은 working tree에 동시에 쓰지 않는다.
++- commit/push는 사용자가 별도로 승인하지 않으면 수행하지 않는다.
++
++## 5. 비교 원칙
++
++### 5.1 두 비교 기준
++
++- **frozen Python baseline**: Phase 0에서 현재 source의 Python default를 정확한 hash/config로 동결한다.
++- **cumulative candidate**: 직전 phase까지 controller gate를 통과한 구성이다.
++
++각 phase candidate는 과거 artifact가 아니라 같은 source snapshot, dataset, seed, budget, 환경에서 다시 실행한 cumulative baseline과 paired 비교한다.
++
++### 5.2 fixed-work와 fixed-time 분리
++
++- fixed-work는 후보/order/score/RNG/acceptance parity와 순수 처리량을 판정한다.
++- fixed-time은 실제 objective, anytime trace, iterations, accepted/new-best를 판정한다.
++- fixed-work speedup만으로 품질 승격을 선언하지 않는다.
++- profiler 또는 외부 CPU 오염이 있는 fixed-time run은 품질 gate에서 제외한다.
++
++### 5.3 공통 지표
++
++- correctness: Stage, violations, objective/component parity, exception, timeout, trace regression
++- quality: W/T/L, Borda, paired relative delta, median/p90/worst, weighted `Z1/Z2/Z3`
++- anytime: primal integral, time-to-first-improvement, validated-best event 수
++- throughput: ALNS iterations, repair attempts, candidates, pairs, exact calls, accepted/new-best per second
++- phase cost: constructor, repair, exact resolve, finalize, retime build/solve, checker
++- native: requested/actual backend, calls/successes/fallback/deadline/invalid/exception, boundary and copied bytes
++
++## 6. 공통 품질 gate
++
++각 phase 문서의 추가 gate와 함께 다음을 모두 만족해야 승격할 수 있다.
++
++- 모든 비교 run Stage 5, violations 0
++- objective/component parity `<=1e-6`
++- exception, outer timeout, checker failure, trace regression 0
++- candidate Win > Loss
++- median paired relative delta < 0
++- Borda가 baseline보다 나빠지지 않음
++- p90 또는 worst의 중대한 회귀를 평균 개선으로 덮지 않음
++- 같은 seed의 longer-budget regression은 원인 규명 전 release blocker
++- 처리량 개선 phase는 fixed-work뿐 아니라 fixed-time 품질 비열화를 입증
++
++단일 regression instance가 명시된 phase에서는 그 instance가 반드시 non-loss여야 한다. Phase 2의 `prob_23`이 이에 해당한다.
++
++## 7. fixed-time CPU measurement 계약
++
++### 7.1 system-wide capacity와 process tree
++
++- per-PID raw `ps %CPU`는 감쇠 평균인 diagnostic top-contributor 정보로만 기록하며 gate 입력으로 사용하지 않는다.
++- gate는 1초 cadence의 cumulative system CPU time delta를 사용한다. macOS에서는 Mach host tick 또는 이를 native하게 래핑한 `psutil.cpu_times()` delta를 사용한다.
++- 모든 delta는 `logical_cores × wall_seconds` capacity로 정규화한다.
++- `(PID, create_time)` identity와 전체 ancestry/descendant를 추적한다. pair runner, solver, monitor subtree만 `measurement`이며 이 subtree CPU seconds만 system busy에서 차감한다.
++- 나머지는 `competing_compute`, `os_background`, `controller_ui`, `unknown`으로 진단 분류한다. process 이름은 분류 증거일 뿐 aggregate external busy allowlist가 아니다.
++- host tick, process-tree 권한 또는 measurement subtree 차감이 불완전하면 fail-closed다.
++
++### 7.2 pre-run qualification과 liveness
++
++- 최대 300초 동안 10초 qualification window를 탐색한다. sampling cadence는 1초다.
++- 10초 평균 available external capacity가 `>=70%`이고 어떤 5초 rolling available capacity도 `<50%`가 아니면 `READY`다.
++- 유효 window가 없으면 solver 실패가 아닌 `PENDING_ENVIRONMENT`로 정상 종료한다.
++- `BLOCKED`는 host tick/process-tree 측정 권한 또는 구조적 차감 불가에만 사용한다.
++- authoritative contract 밖의 consecutive clean heartbeat 두-window 규칙은 금지한다.
++
++### 7.3 runtime validity
++
++fixed-time run 전체에서 같은 1초 sampling을 지속한다. 다음 중 하나면 material overlap이다.
++
++- run 평균 external busy `>30%`
++- 임의 5초 rolling external busy 평균 `>50%`
++- 알려진 `competing_compute`가 `>=0.5` core-equivalent로 5초 이상 연속 겹침
++- coverage `<95%`
++- sample gap `>2.5초`
++- measurement subtree CPU 차감 불가
++
++pre-run qualification만으로 runtime validity를 판정하지 않는다. 외부 process를 종료하거나 변경하지 않는다.
++
++### 7.4 atomic alternating pair
++
++- pair 1은 Python→Native, pair 2는 Native→Python 순서다.
++- pair 하나가 최소 atomic unit이다. 두 run의 평균 external busy 차이는 `<=5 percentage points`, 1초 sample p95 차이는 `<=10 points`여야 한다.
++- 어느 한 run의 overlap/coverage 또는 fairness가 실패하면 양쪽 모두 폐기하고 새 immutable pair ID로 전체 pair를 재실행한다. 좋은 한쪽만 교체하지 않는다.
++- source/config/data/native binary/measurement contract가 바뀌면 전체 matrix와 모든 pair에 새 identity를 부여한다.
++
++## 8. Artifact와 기록 규칙
++
++각 phase는 다음 root를 새로 만든다.
++
++```text
++artifacts/ogc_sage/quality-recovery/<phase>-<run-id>/
++```
++
++필수 항목:
++
++- `identity.json`: branch, HEAD, dirty diff hash, source/config/data/environment
++- `commands.json`: 실제 실행 명령과 종료 상태
++- `measurement-contract.json`, `cpu-qualification.json`: system-wide capacity 계약과 10초 qualification evidence
++- 각 fixed-time run의 `runtime-capacity.json` 또는 동등한 embedded record: 1초 interval, coverage, subtree 차감, overlap 판정
++- 각 pair의 immutable ID/order, fairness, 양쪽 disposition
++- raw result와 checker result
++- `comparison.json`: paired metrics
++- `gate.json`: READY/PENDING_ENVIRONMENT/PASS/BLOCKED 또는 phase별 NO-GO와 이유
++- recursive `SHA256SUMS`
++
++기존 실패 artifact를 수정하거나 덮어쓰지 않는다. tracked phase 문서에는 artifact 경로, 중요한 수치, gate, SHA-256만 append한다.
++
++## 9. 실패 처리
++
++Phase worker가 실패하거나 결론 불가인 경우 scheduler는 같은 session에서 코드를 고치게 하지 않는다.
++
++```text
++phase worker FAIL/NO-GO/INCONCLUSIVE
++  -> fresh diagnose session (수정 금지)
++  -> controller audit
++  -> fresh fix session (진단된 한 원인만 수정)
++  -> controller audit
++  -> fresh retry session (수정 금지, gate 재검증)
++  -> PASS 또는 반복
++```
++
++원인이 여러 개면 fix를 한 patch에 섞지 않고 중요도순으로 하나씩 처리한다. 외부 상태만이 blocker라면 코드를 바꾸지 않으며, 동일 blocker를 우회하기 위해 품질 gate를 낮추지 않는다.
++
++## 10. 완료 정의
++
++이 계획은 다음 조건을 모두 만족할 때만 완료된다.
++
++- Phase 0~8의 gate와 controller audit 완료
++- `prob_23` native 120초 catastrophic regression 재발 없음
++- constructor time/fallback/quality gate 통과
++- native를 켤 경우 fixed-time 다중 instance/seed에서 Python 대비 non-loss 및 전체 우세
++- native를 끌 경우 그 결정과 Python-only 최종 config를 명시적으로 동결
++- hard-10과 all-40 최종 matrix Stage 5 100%
++- competition-aligned quality 지표 통과
++- current source와 archive allowlist/hash/clean extraction 일치
++- 중앙 진행 문서가 실제 source/test/artifact 상태와 일치
++
++## 11. Scheduler 시작점
++
++새 scheduler session은 가장 먼저 다음 문서를 전체로 읽는다.
++
++1. 이 문서
++2. `quality-recovery/SCHEDULER_PROTOCOL.md`
++3. `quality-recovery/README.md`
++4. Phase 0 문서
++5. 기존 `performance/README.md`
++6. `11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md`의 최신 실행 기록
++
++그 후 Phase 0 worker session 하나만 생성한다. Phase 0 완료·독립 audit 전에는 Phase 1을 생성하지 않는다.
+diff --git a/docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md b/docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md
+--- /dev/null
++++ b/docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md
+@@ -0,0 +1,164 @@
++# 해 품질 회복 Scheduler/Controller 프로토콜
++
++## 1. 역할
++
++Scheduler는 solver를 직접 수정하지 않는다. 사용자에게 보이는 새 Codex session을 한 번에 하나만 생성하고, 각 session이 한 phase 또는 한 diagnose/fix/retry 역할만 수행하도록 관리한다.
++
++Scheduler는 다음 상태 머신을 끝까지 관리한다.
++
++```text
++PREFLIGHT
++  -> DISPATCH_PHASE
++  -> MONITOR
++  -> INDEPENDENT_AUDIT
++     -> PASS: DISPATCH_NEXT_PHASE
++     -> NO-GO/FAIL: DISPATCH_DIAGNOSE
++     -> INCONCLUSIVE: 비교 증거 불완전 원인별 DIAGNOSE
++     -> PENDING_ENVIRONMENT: 유효 capacity window를 얻지 못했음을 기록하고 fresh retry 대기
++     -> BLOCKED: host tick/process-tree 측정 권한·구조 복구 대기
++
++DIAGNOSE PASS
++  -> DISPATCH_FIX
++FIX PASS
++  -> DISPATCH_RETRY
++RETRY PASS
++  -> 원래 phase 완료 처리
++RETRY FAIL
++  -> 새 DIAGNOSE/FIX/RETRY cycle
++```
++
++## 2. 단일 writer 규칙
++
++- 같은 working tree에 쓰는 worker는 항상 하나만 활성 상태여야 한다.
++- 기존 `019f66b6-4a1c-7fb1-b365-ce336f118ce9` pybind controller 또는 그 worker가 active이면, 먼저 상태와 마지막 변경을 읽고 write overlap이 없음을 확인한다.
++- 기존 controller가 아직 파일을 쓰는 중이면 새 quality phase worker를 시작하지 않는다.
++- read-only audit session도 fixed-time CPU 측정과 겹치지 않게 한다.
++
++## 3. 새 session 생성 규칙
++
++모든 worker는 다음 조건으로 생성한다.
++
++- saved project: 현재 `sol-native-implementation`
++- environment: local, 현재 working tree
++- 새 worktree/새 branch를 만들지 않음
++- model/thinking은 사용자가 별도 지정하지 않으면 scheduler 기본값 유지
++- phase 이름과 run 역할을 title/prompt 첫 부분에 명시
++
++권장 이름:
++
++```text
++quality-p0-baseline
++quality-p1-constructor
++quality-p2-native-repair
++quality-p2-diagnose-1
++quality-p2-fix-1
++quality-p2-retry-1
++...
++```
++
++## 4. Worker 공통 prompt
++
++Scheduler는 각 phase 문서의 `Worker 실행 프롬프트`를 그대로 사용하되, 다음 현재 상태를 앞에 추가한다.
++
++- branch/HEAD/dirty state
++- 이전 phase 판정과 artifact/SHA
++- cumulative candidate config hash
++- 사용자 기존 변경과 보존 대상
++- active worker가 없다는 확인
++- 이번 session의 정확한 역할과 수정 가능 여부
++
++Worker는 계획만 작성하고 끝내지 않는다. phase 문서가 허용한 구현, 테스트, benchmark, artifact, 결과 기록까지 수행한다.
++
++## 5. 독립 audit
++
++Worker가 PASS를 보고해도 scheduler는 그대로 다음 phase로 진행하지 않는다. 최소한 다음을 직접 확인한다.
++
++1. worker session 최종 상태와 보고
++2. `git status --short`, branch, HEAD, `git diff --check`
++3. 변경 파일이 phase scope 안인지
++4. 보호 파일 hash
++5. artifact path와 `SHA256SUMS` 전체 검증
++6. `gate.json` 수치와 tracked 문서 기록 일치
++7. Stage 5/parity/trace/timeout hard blocker
++8. pre-run qualification, runtime capacity monitor, atomic-pair fairness 유효성
++9. baseline/candidate source/config/data/seed/budget 동등성
++10. 다음 phase 선행조건 충족 여부
++
++## 6. 실패 분기
++
++### Diagnose session
++
++- 코드를 수정하지 않는다.
++- 실패 최초 지점과 최소 재현을 찾는다.
++- 환경 오염, 측정 오류, 알고리즘 의미론, 구현 결함을 분리한다.
++- 가능한 fix를 중요도순으로 나누고 한 번에 적용할 최소 fix를 지정한다.
++
++### Fix session
++
++- diagnose가 승인한 원인 하나만 수정한다.
++- 다른 phase 개선을 섞지 않는다.
++- fixed-work 및 focused regression까지만 수행한다.
++- 최종 fixed-time 승격 판정은 retry session에 남긴다.
++
++### Retry session
++
++- solver 코드를 수정하지 않는다.
++- 원 phase와 동일한 baseline/candidate 계약으로 gate를 재실행한다.
++- 실패 결과를 좋은 표본으로 덮어쓰지 않는다.
++
++## 7. 외부 blocker
++
++- fixed-time CPU 판정은 1초 system cumulative CPU delta와 `(PID, create_time)` 전체 measurement subtree를 사용한다. raw `ps %CPU`와 process 이름은 diagnostic일 뿐 gate 입력이나 allowlist가 아니다.
++- pre-run은 최대 300초 동안 10초 window를 찾고 평균 available `>=70%`, 모든 5초 rolling available `>=50%`일 때만 `READY`다. consecutive clean heartbeat 두-window 규칙은 금지한다.
++- fixed-time 전체를 같은 cadence로 감시하고 평균 external busy `>30%`, 5초 rolling `>50%`, 알려진 competing compute `>=0.5` core-equivalent 5초 연속, coverage `<95%`, gap `>2.5초`, measurement subtree 차감 실패를 material overlap으로 처리한다.
++- CPU capacity window를 300초 안에 얻지 못하면 `PENDING_ENVIRONMENT`이며 solver `FAIL` 또는 `BLOCKED`가 아니다. `BLOCKED`는 host tick/process-tree 측정이 구조적으로 불가능할 때만 사용한다.
++- CPU 부하, 라이선스, target runtime 같은 외부 상태를 코드 변경으로 우회하지 않는다.
++- 외부 process를 종료하거나 변경하지 않는다.
++- pair 1 Python→Native, pair 2 Native→Python을 atomic하게 실행한다. run 평균 external busy 차이 `<=5pp`, 1초 sample p95 차이 `<=10pp`를 만족하지 못하거나 어느 한 run이 invalid면 양쪽을 폐기하고 새 immutable pair ID를 사용한다.
++- source/config/data/native binary/measurement contract 변경은 전체 matrix/pair identity를 무효화한다. 좋은 한쪽만 교체하지 않는다.
++- 동일 외부 상태가 반복되면 기존 evidence를 보존하고 새 retry를 무한 생성하지 않는다.
++- 상태 변화가 확인되면 fresh retry session을 생성한다.
++
++## 8. Default 및 release 보호
++
++- phase candidate는 benchmark variant로 시작한다.
++- phase gate와 integrated gate 전에는 `SubmissionConfig.from_defaults()`를 바꾸지 않는다.
++- native fixed-time gate 전에는 native default를 ON으로 바꾸지 않는다.
++- MIP/interlock은 Phase 6 결정 전까지 OFF다.
++- 최종 release archive는 Phase 8에서만 만든다.
++
++## 9. Scheduler 완료 조건
++
++Phase 8 controller audit가 PASS일 때만 전체 작업 완료를 선언한다. 완료 보고에는 다음을 포함한다.
++
++- phase별 최종 worker/retry session ID
++- 최종 source/config/data hash
++- phase별 gate와 artifact/SHA
++- 최종 W/T/L, Borda, median/p90/worst, weighted components
++- native ON/OFF 최종 결정
++- submission archive hash/size/smoke
++- 남은 known limitation
++
++## 10. Scheduler 최초 실행 프롬프트
++
++```text
++당신은 OGC-SAGE 해 품질 회복 계획의 scheduler/controller다.
++
++직접 solver를 구현하지 말고 사용자에게 보이는 새 Codex task를 한 번에 하나만 생성해 전체 Phase 0~8을 순차 관리하라. 하나의 task는 하나의 phase 또는 diagnose/fix/retry 역할만 수행한다.
++
++먼저 다음 파일을 전체로 읽어라.
++1. docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md
++2. docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md
++3. docs/implementation/sol/quality-recovery/README.md
++4. docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md
++5. docs/implementation/sol/performance/README.md
++6. docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md
++
++기존 pybind controller `019f66b6-4a1c-7fb1-b365-ce336f118ce9`와 worker 상태를 먼저 확인한다. 동일 working tree에 active writer가 있으면 새 worker를 시작하지 말고 종료/안정 상태를 기다린다.
++
++그 후 Phase 0 worker task 하나만 현재 saved project의 local working tree에 생성한다. worker가 끝나면 branch/HEAD/diff/protected hash/artifact manifest/gate를 독립 감사한다. PASS일 때만 다음 phase worker를 새 task로 만든다.
++
++phase가 FAIL/NO-GO/INCONCLUSIVE이면 같은 task에서 수정하지 않는다. fresh diagnose task, fresh fix task, fresh retry task를 순서대로 생성하고 완전히 해결될 때까지 반복한다. 외부 blocker는 우회하거나 process를 종료하지 말고 필요한 상태 변화를 보고한다.
++
++commit/push는 사용자 승인 없이 하지 않는다. Phase 8 PASS 전에는 전체 완료를 선언하지 않는다.
++```
+diff --git a/docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md b/docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md
+--- /dev/null
++++ b/docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md
+@@ -0,0 +1,295 @@
++# Phase 0 — Baseline 및 회귀 계약 동결
++
++중요도: 필수 기반  
++수정 허용: 계측·benchmark harness·문서만  
++알고리즘/default 변경: 금지
++
++## 1. 목표
++
++현재 working tree의 Python default를 이후 모든 phase가 비교할 **frozen baseline**으로 만든다. 최근 `prob_23` 120초 Python/native 결과가 실제 동일 조건의 회귀인지 source, binary, config, dataset, seed, CPU 상태까지 검증하고, 재현 가능한 regression fixture와 immutable artifact 계약을 만든다.
++
++이 phase는 품질을 개선하지 않는다. 잘못된 baseline이나 오염된 benchmark 위에서 이후 변경을 승격하지 못하게 하는 단계다.
++
++## 2. 선행조건과 보호 범위
++
++- `../12_SOLUTION_QUALITY_RECOVERY_PLAN.md`와 `SCHEDULER_PROTOCOL.md`를 읽는다.
++- 기존 pybind controller `019f66b6-4a1c-7fb1-b365-ce336f118ce9`가 같은 working tree에 쓰는 중인지 확인한다.
++- 현재 dirty/untracked 파일은 사용자 작업으로 간주하며 삭제, stash, reset, restore하지 않는다.
++- `baseline/utils.py`, `baseline/baseline_greedy.py`, training data를 수정하지 않는다.
++- production `SubmissionConfig.from_defaults()`와 feature default를 바꾸지 않는다.
++- 과거 artifact를 수정하거나 현재 source의 증거로 재분류하지 않는다.
++
++## 3. 반드시 동결할 identity
++
++`identity.json`에 다음을 기록한다.
++
++1. UTC/KST, hostname, OS/architecture, logical/physical CPU, RAM
++2. Python/compiler/CMake/pybind11/Shapely/GEOS/Gurobi 버전과 Gurobi license 상태
++3. branch, `HEAD`, `git status --porcelain=v1`, tracked diff SHA-256, untracked source 목록
++4. solver Python 파일별 SHA-256와, native를 비교할 경우 extension binary SHA-256
++5. official checker와 greedy SHA-256
++6. dataset manifest 및 aggregate SHA-256, hard-10 manifest SHA-256
++7. variant config 전체와 canonical config hash
++8. budget, seed, instance, 실행 순서, outer timeout, checker reserve
++9. 1초 system CPU delta, `(PID, create_time)` measurement tree, pre-run qualification, runtime coverage/overlap와 atomic-pair fairness
++
++`HEAD`만으로 dirty source를 식별하지 않는다. tracked diff와 실행 대상 untracked source를 포함한 `source_snapshot_sha256`를 따로 계산한다.
++
++## 4. 순차 실행 절차
++
++### 0.1 Preflight
++
++1. repo root, branch, HEAD, status를 기록한다.
++2. `git diff --check`를 실행한다. 기존 오류와 phase가 만든 오류를 구분한다.
++3. 보호 파일 hash가 상위 계획의 checker hash와 일치하는지 확인한다.
++4. native extension이 있으면 import 경로와 실제 로드된 파일 hash를 기록한다. source와 binary가 맞는다는 추정은 금지한다.
++5. 현재 전체 test 수와 결과를 동결한다.
++
++권장 smoke 명령은 다음과 같다. worker는 실제 interpreter 절대경로를 `commands.json`에 기록한다.
++
++```bash
++cd baseline
++<python> -m unittest discover -s tests -p 'test_*.py'
++```
++
++### 0.2 Dataset 및 scenario manifest
++
++1. `benchmark_ogc_sage.py`의 dataset validation으로 공식 40개 파일과 hash를 검증한다.
++2. 기존 hard-10 manifest가 정확히 10개 unique instance를 가리키는지 검증한다.
++3. 다음 고정 scenario를 별도 manifest로 만든다.
++   - `prob_23` regression anchor: 120초, seed `20260710`, Python/native paired
++   - constructor gate: hard-10, 60초, seeds `20260710..20260712`
++   - integrated gate: hard-10, 60/180초, 같은 3 seeds
++   - final gate: all-40, Phase 8 문서의 budgets/seeds
++4. manifest에는 파일명뿐 아니라 instance SHA-256를 포함한다.
++
++### 0.3 CPU measurement 계약 검증
++
++1. raw per-PID `ps %CPU`는 diagnostic top contributor로만 기록하고 gate 입력에서 제외한다.
++2. 1초 cadence로 cumulative system CPU time delta를 수집하고 `logical_cores × wall_seconds`로 정규화한다. macOS Mach host tick 또는 `psutil.cpu_times()` native wrapper를 사용한다.
++3. `(PID, create_time)`와 전체 ancestry/descendant로 pair runner/solver/monitor measurement subtree를 식별하고 그 CPU seconds만 system busy에서 차감해 `external_busy_fraction`과 `available_external_capacity`를 계산한다.
++4. 나머지 process를 `competing_compute`, `os_background`, `controller_ui`, `unknown`으로 진단 분류한다. 이름은 aggregate allowlist가 아니며 measurement 이외의 모든 busy는 external aggregate에 남는다.
++5. 최대 300초 동안 10초 qualification window를 탐색한다. 평균 available capacity `>=70%`이고 어떤 5초 rolling window도 `<50%`가 아니면 `READY`다. 유효 window가 없으면 `PENDING_ENVIRONMENT`로 정상 종료한다.
++6. host tick/process-tree 권한·coverage 또는 measurement subtree 차감이 구조적으로 불가능할 때만 `BLOCKED`다. authoritative 문서 밖의 consecutive clean heartbeat 두-window 규칙은 금지한다.
++7. fixed-time run 전체를 같은 cadence로 감시한다. 평균 external busy `>30%`, 임의 5초 rolling `>50%`, known competing compute `>=0.5` core-equivalent 5초 연속, coverage `<95%`, sample gap `>2.5초`, measurement subtree 차감 실패 중 하나면 material overlap이다.
++8. process를 종료하거나 변경하지 않는다. 측정 권한/coverage 실패는 fail-closed다.
++
++### 0.4 Frozen Python baseline 생성
++
++1. 현재 production Python default를 explicit benchmark variant로 복제하되 solver 의미론은 바꾸지 않는다.
++2. hard-10 60초×3 seeds matrix의 각 fixed-time run을 runtime capacity monitor 아래 새 run ID로 실행한다. 시간이 부족하거나 runtime validity가 실패하면 일부 결과를 gate 증거로 승격하지 않는다.
++3. 모든 raw record에서 Stage 5, violations 0, component parity, trace monotonicity, exception/outer timeout을 확인한다.
++4. constructor와 ALNS telemetry가 이후 phase에 필요한 필드를 실제로 포함하는지 검사한다.
++5. 결과를 frozen baseline manifest로 가리키고 raw artifact를 immutable하게 둔다.
++
++### 0.5 `prob_23` 회귀 재검증
++
++1. 기존 `49,102,302` 대 `89,478,006` pair의 source/config/data/binary/CPU identity가 완전한지 먼저 감사한다.
++2. 한 항목이라도 없으면 이 수치는 **회귀 신호**로만 유지하고 승격/기각의 유일한 표본으로 사용하지 않는다.
++3. `READY` qualification 뒤 pair 1은 Python → native, pair 2는 native → Python 순으로 실행한다. pair 하나는 atomic unit이다.
++4. 양쪽 모두 동일 instance, 120초, seed, source snapshot, checker, reserve를 사용한다.
++5. objective와 함께 ALNS iterations, primal integral, repair calls, candidate rows, pairs, UNKNOWN, exact calls, boundary/finalize/fallback 시간을 기록한다.
++6. 두 run 평균 external busy 차이는 `<=5 percentage points`, 1초 sample p95 차이는 `<=10 points`여야 한다. 어느 한 run의 overlap/coverage/fairness가 실패하면 양쪽 모두 폐기하고 새 immutable pair ID로 전체 pair를 재실행한다.
++7. source/config/data/native binary/measurement contract가 바뀌면 전체 matrix와 모든 pair에 새 identity를 부여한다. 좋은 한쪽만 교체하지 않는다.
++
++### 0.6 Artifact 마감
++
++1. `identity.json`, `measurement-contract.json`, `commands.json`, `cpu-qualification.json`, run별 runtime capacity, pair fairness/disposition, raw/checker/comparison, `gate.json`을 생성한다.
++2. artifact root 내부 모든 regular file의 recursive `SHA256SUMS`를 생성하고 즉시 재검증한다.
++3. 이 문서의 `실행 기록`에 경로와 manifest SHA-256만 append한다.
++
++## 5. 필수 지표
++
++- correctness: completed/Stage/violations/parity/trace/timeout/exception
++- baseline quality: objective, `Z1/Z2/Z3`, per-instance/seed distribution
++- constructor: time, profiles, candidates, cap hit, fallback count/rate, initial objective
++- ALNS: iterations, attempted/accepted/new-best, first improvement, primal integral
++- repair: calls, rows, returned candidates, pairs, UNKNOWN, exact calls, phase seconds
++- environment: system busy/measurement subtraction/external busy/available capacity, process classification, temporal·permission coverage, gap, runtime material overlap, pair fairness
++
++## 6. 통과 기준
++
++다음을 모두 만족해야 `PASS`다.
++
++- 보호 hash 및 dataset/hard-10 manifest 검증 PASS
++- 전체 baseline tests PASS
++- frozen Python matrix가 전부 Stage 5, violations/exception/outer timeout/parity/trace regression 0
++- baseline source/config/data/environment hash가 완전함
++- `prob_23` 두 atomic pair가 runtime/fairness를 포함해 유효하게 재실행됨
++- artifact `SHA256SUMS` 검증 PASS
++
++상태는 다음 네 가지를 사용한다.
++
++- `READY`: identity/tests/scenario/measurement contract와 유효 10초 qualification이 완성되어 run 시작 가능
++- `PENDING_ENVIRONMENT`: 300초 안에 유효 qualification window가 없어 solver run 없이 정상 종료
++- `PASS`: 유효 matrix와 모든 atomic pair가 완성됨
++- `BLOCKED`: host tick/process-tree 측정 권한 또는 구조적 measurement subtraction 불가
++
++`PENDING_ENVIRONMENT`를 solver FAIL/BLOCKED로 위장하지 않고, `BLOCKED`를 단순 외부 busy에 사용하지 않는다. Phase 1은 Phase 0 `PASS` 후에만 허용한다.
++
++## 7. 실패 분기
++
++- identity 누락/비교 불공정 → 새 diagnose session에서 harness 계약 분석
++- Stage/parity/trace 실패 → correctness owner phase로 복귀, 품질 개선 금지
++- native import/binary mismatch → pybind/native diagnose session
++- 300초 capacity window 미획득 → 코드 수정 없이 `PENDING_ENVIRONMENT`
++- host tick/process-tree 권한·구조 실패 → `BLOCKED`
++- baseline 비결정성 → RNG/config/global state diagnose 후 fresh fix/retry
++
++## 8. 산출물
++
++```text
++artifacts/ogc_sage/quality-recovery/p0-<run-id>/
++  identity.json
++  scenarios.json
++  measurement-contract.json
++  commands.json
++  cpu-qualification.json
++  baseline/raw.jsonl
++  baseline/summary.json
++  baseline/runtime-capacity/*.json
++  prob23/pairs/<immutable-pair-id>/cpu-qualification.json
++  prob23/pairs/<immutable-pair-id>/run-*/run.json
++  prob23/pairs/<immutable-pair-id>/pair.json
++  prob23/python.json
++  prob23/native.json
++  comparison.json
++  gate.json
++  SHA256SUMS
++```
++
++## 9. Worker 실행 프롬프트
++
++```text
++역할: quality recovery Phase 0 baseline/regression worker.
++
++docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md,
++docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md,
++docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md를 전체로 읽고 이 문서만 실행하라.
++
++알고리즘과 production default를 변경하지 말라. 현재 dirty/untracked 작업을 보존하라. source/config/data/native binary/CPU measurement identity를 동결하고, 전체 tests와 frozen Python baseline을 검증하라. 최대 300초의 10초 system-capacity qualification이 READY일 때만 prob_23 120초 Python/native atomic alternating pair를 실행하고 fixed-time 전체를 1초 cadence로 감시하라. 모든 raw/checker/runtime capacity/pair fairness/comparison/gate/SHA256SUMS를 새 immutable artifact에 남기고 실행 기록을 append하라.
++
++비교 계약이 불완전하면 결과를 추정하지 말라. qualification timeout은 PENDING_ENVIRONMENT, 구조적 측정 불가는 BLOCKED로 구분하라. commit/push하지 말라.
++```
++
++## 10. 실행 기록
++
++아래 기존 기록의 per-PID `ps %CPU >=25%`와 2-snapshot 판정은 당시 artifact의 immutable historical fact일 뿐, §0.3의 현재 gate 입력이나 fresh retry 규칙이 아니다.
++
++### 2026-07-16 — p0-20260715T193411Z-302f9e8f-retry3
++
++판정: **BLOCKED**
++
++source/config/data/environment:
++
++- branch/HEAD: `codex/performance-optimization-plan` / `302f9e8f0d3cd5eba8f68f633d1a2ba9013396aa`; upstream 대비 behind/ahead `0/3`.
++- source snapshot SHA-256: `0462447baa88578c214630c9651d8650cb3f3fa6d480e3e2b2b175815a1546da`; 시작 전 tracked diff와 untracked 보호 목록은 `identity.json`에 별도로 구분했다.
++- frozen Python config SHA-256: `f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a`; production default Python, native prefilter/MIP/interlock OFF를 유지했다.
++- official daily-40 `40/40`, dataset SHA-256 `c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f`; hard-10 `10/10 unique`, manifest SHA-256 `5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7`.
++- macOS `26.5.2` arm64, physical/logical CPU `10/10`, RAM `25,769,803,776` bytes, CPython `3.12.13`, Shapely `2.1.2`, GEOS `3.13.1`, Gurobi `13.0.2` license available, vendored pybind11 `2.13.6`; CMake executable은 PATH에 없었다.
++- native comparison binary는 exact path에서 load됐고 SHA-256 `38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d`, scaffold API `1`, repair API `2`였다. 현재 gate로 실행하지 않았다.
++
++변경 범위:
++
++- measurement-only `experiments/ogc_sage/verify_quality_p0.py` 추가.
++- `experiments/ogc_sage/benchmark_ogc_sage.py`에 benchmark artifact parent override 옵션 추가.
++- solver algorithm, production config/default, checker, greedy, training data는 변경하지 않았다.
++
++tests:
++
++- full unittest `204/204 PASS`; `git diff --check` PASS.
++- 보호 hash와 dataset/hard-10 validation PASS.
++
++fixed-work: Phase 0 신규 fixed-work 없음. 기존 pybind artifact는 historical evidence로만 분류했다.
++
++fixed-time:
++
++- 결정 CPU snapshot 시작 간격 `2.510077916s`.
++- 동일 외부 PID `2362` `StorageManagementService`가 `82.8% -> 54.7%`로 두 snapshot 모두 `>=25%`였다. 어떤 process도 종료하거나 변경하지 않았다.
++- hard-10 Python 60초 x 3 seeds: planned `30`, executed `0`.
++- `prob_23` 120초 Python/native alternating 2 pairs: planned `4`, executed `0`.
++- 부분 matrix를 PASS로 승격하지 않았다. 재현 명령과 frozen scenario는 artifact에 완성했다.
++
++quality: 현재 pair가 없어 `INCONCLUSIVE / NOT RUN`; 과거 `49,102,302 vs 89,478,006`은 current identity 불완전으로 regression signal만 유지했다.
++
++artifact: `artifacts/ogc_sage/quality-recovery/p0-20260715T193411Z-302f9e8f-retry3`
++
++SHA256SUMS: `83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88` (17개 항목 전체 재검증 PASS)
++
++다음 단계 허용 여부: **불가**. 지속 외부 PID `>=25%`가 없는 window에서 fresh Phase 0 retry가 필요하다.
++
++준비 중 실패/무효 시도도 덮어쓰지 않고 별도 봉인했다: 최초 prepare FAIL `6f0b8ca404f2b7705c94cc5d7fff38ca4ebf6421efc64102136682fed2574cbf`, CPU 간격 초과 INCONCLUSIVE `821cfcbadca37e47a466ed93d71fffbd5e269b8af80ba520a0e6e9a45673bf7f`, identity 불완전 INCONCLUSIVE `9a05fb8a71113062ef0f17f43aed0066735b4fef12c5363efab370a1e68de259`.
++
++### 2026-07-16 — p0-20260715T195412Z-302f9e8f-retry
++
++판정: **BLOCKED**
++
++source/config/data/environment:
++
++- branch/HEAD는 `codex/performance-optimization-plan` / `302f9e8f0d3cd5eba8f68f633d1a2ba9013396aa`로 고정값과 일치했다.
++- source snapshot SHA-256 `0462447baa88578c214630c9651d8650cb3f3fa6d480e3e2b2b175815a1546da`, execution files aggregate `85792d7b66d56fa89942768fa4e7d11ba03037a5257e0bfdfbbe1c9a36d05d2d`, frozen Python config `f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a`가 exact match였다.
++- official daily-40 `40/40`, dataset SHA-256 `c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f`; hard-10 `10/10 unique`, manifest SHA-256 `5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7`; `prob_23` SHA-256 `1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738`가 모두 exact match였다.
++- native comparison binary SHA-256 `38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d`, scaffold API `1`, repair API `2`; benchmark harness `3f11bffd338491b3df09d6b933c51f24a1900e27e1db05d1b34ab9fad49e4b59`, retry harness `a4b6e6525a4ba971957a01c39243065f6422a33c6fd965a3ad9a0f9afa186599`가 exact match였다.
++- 시작 시 Phase 0 문서 SHA-256 `12b7b3f905891da45df36a0c090123eea1001a95cb63db75bb540331282d8680` 및 나머지 보호 hash가 dispatch 계약과 일치했다. retry harness의 `finalize-blocked`가 이전 실행 기록 append 전 문서 hash를 하드코딩해 `gate.json`의 `protected_hashes_pass`를 false로 기록하는 stale 판정은 `retry-contract-audit.json`에 실제 exact match와 함께 명시했다.
++
++변경 범위:
++
++- 새 immutable retry artifact 생성과 이 Phase 0 실행 기록 append만 수행했다.
++- solver/source/config/harness/tests/training data를 수정하지 않았고 기존 dirty/untracked 및 이전 artifact를 보존했다.
++
++tests:
++
++- full unittest `204/204 PASS`; `git diff --check` PASS.
++- dataset daily-40 및 hard-10 validation PASS.
++
++fixed-work: Phase 0 신규 fixed-work 없음.
++
++fixed-time:
++
++- 결정 CPU snapshot 시작 간격 `2.510076750011649s`.
++- 동일 외부 PID `2362` `StorageManagementService`가 `105.4% -> 88.6%`로 두 snapshot 모두 `>=25%`였다. process를 종료하거나 변경하지 않았다.
++- hard-10 Python 60초 x 3 seeds: planned `30`, executed `0`.
++- `prob_23` 120초 Python/native alternating 2 pairs: planned `4`, executed `0`.
++- CPU hard gate에 따라 solver run은 0이며 partial matrix를 PASS로 승격하지 않았다.
++
++quality: 현재 matrix/pair가 없어 `INCONCLUSIVE / NOT RUN`; gate 판정은 외부 CPU에 의한 `BLOCKED`다.
++
++artifact: `artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry`
++
++SHA256SUMS: `52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d` (19개 항목 전체 재검증 PASS)
++
++다음 단계 허용 여부: **불가**. 지속 외부 PID `>=25%`가 없는 window에서 fresh Phase 0 retry가 필요하다.
++
++### 2026-07-16 — p0-fix-20260716T010657Z-302f9e8f
++
++판정: **FIXED / PASS**
++
++source/config/data/environment:
++
++- branch/HEAD는 `codex/performance-optimization-plan` / `302f9e8f0d3cd5eba8f68f633d1a2ba9013396aa`로 유지됐다.
++- retry harness SHA-256은 `a4b6e6525a4ba971957a01c39243065f6422a33c6fd965a3ad9a0f9afa186599`에서 `8d62b2c9292c499e6b8b9275b5148b0e89529871e745674469256624040549ae`로 갱신됐다.
++- execution files aggregate SHA-256은 `9c3f951e0156b410534a3773474e805d5c2a02c49ded1df344dd9a6ceb144144`, source snapshot SHA-256은 `91086b0bade6e1314deeebe49f6aefeff4336cec14b3c55907505c3019ef4fc0`로 재계산했다. 이전 retry의 `85792d7b66d56fa89942768fa4e7d11ba03037a5257e0bfdfbbe1c9a36d05d2d` / `0462447baa88578c214630c9651d8650cb3f3fa6d480e3e2b2b175815a1546da`를 재사용하지 않았다.
++- frozen Python config `f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a`, dataset `c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f`, hard-10 manifest `5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7`, `prob_23` `1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738`, native binary `38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d`는 미변경이다.
++
++변경 범위:
++
++- `experiments/ogc_sage/verify_quality_p0.py` 한 줄만 수정했다. `finalize-blocked`의 Phase 0 문서 비교를 최초 pre-append 상수와의 비교에서, retry별 `identity-preflight.json` 동결 hash와 finalize 시점 현재 문서 hash의 비교로 변경했다.
++- checker, greedy, pybind 계획 문서의 절대 hash 비교는 유지했다. solver/native/config/default/benchmark/artifact schema/CPU gate는 변경하지 않았다.
++
++tests:
++
++- temporary fixture 6/6 PASS: D0 unchanged `true`, seal 후 append된 D1의 fresh preflight/unchanged finalize `true`, 같은 retry prepare-finalize 사이 Phase 0 문서 변경 `false`, checker/greedy/pybind plan 개별 변경은 각각 `false`.
++- canonical interpreter py_compile PASS; `git diff --check` PASS.
++- 기존 artifact 두 개의 `shasum -a 256 -c SHA256SUMS` 전체 PASS 및 self hash `83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88`, `52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d` 유지.
++
++fixed-work: focused harness fixture만 실행했다. solver fixed-work는 실행하지 않았다.
++
++fixed-time: CPU audit, fixed-time solver, hard-10, `prob_23`, Phase 0 retry, Phase 1은 실행하지 않았다.
++
++quality: 알고리즘/품질 판정 변경 없음. 이 fix는 dispatch-frozen Phase 0 문서 identity의 false-negative만 제거한다.
++
++artifact: `artifacts/ogc_sage/quality-recovery/p0-fix-20260716T010657Z-302f9e8f`
++
++SHA256SUMS: `cfb7fc57202a16d2ca2b93eeb38ee9ac889cfee5d4c531a584d962b06c05b229` (8개 항목 전체 재검증 PASS)
++
++다음 단계 허용 여부: **fresh Phase 0 retry 허용**. Phase 1은 아직 불가하며, fresh retry는 새 harness/execution/source identity를 사용해야 한다.
+diff --git a/experiments/ogc_sage/verify_quality_p0.py b/experiments/ogc_sage/verify_quality_p0.py
+--- /dev/null
++++ b/experiments/ogc_sage/verify_quality_p0.py
+@@ -0,0 +1,1624 @@
++#!/usr/bin/env python3
++"""Phase 0 baseline/regression contract harness.
++
++This harness records identity, tests, system-capacity qualification, continuous
++runtime evidence, atomic pair fairness, and explicit benchmark variants.  It
++never changes solver defaults or terminates processes.
++"""
++
++from __future__ import annotations
++
++import argparse
++import contextlib
++import copy
++import hashlib
++import importlib.metadata
++import io
++import json
++import math
++import os
++import platform
++import re
++import socket
++import subprocess
++import sys
++import threading
++import time
++from dataclasses import asdict, dataclass, replace
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Iterable, Mapping, Sequence
++from zoneinfo import ZoneInfo
++
++
++ROOT = Path(__file__).resolve().parents[2]
++BASELINE = ROOT / "baseline"
++for candidate in (ROOT, BASELINE):
++    if str(candidate) not in sys.path:
++        sys.path.insert(0, str(candidate))
++
++from baseline.solver.entry import solve  # noqa: E402
++from baseline.solver.native_repair import load_native_module, snapshot_digest  # noqa: E402
++from baseline.solver.runtime import RunTrace, SubmissionConfig  # noqa: E402
++from baseline.utils import check_feasibility  # noqa: E402
++from experiments.ogc_sage.benchmark_ogc_sage import (  # noqa: E402
++    HARD10_MANIFEST,
++    canonical_json,
++    hard10_instance_names,
++    reconstruct_snapshot,
++    sha256_bytes,
++    sha256_file,
++    validate_dataset,
++)
++from experiments.ogc_sage.verify_native_p7_fixed_time import (  # noqa: E402
++    aggregate_repair_telemetry,
++)
++
++
++KST = ZoneInfo("Asia/Seoul")
++SEEDS = (20260710, 20260711, 20260712)
++PROB23 = "prob_23.json"
++PROB23_SECONDS = 120.0
++CPU_CONTRACT_SCHEMA_VERSION = 2
++CPU_SAMPLE_CADENCE_SECONDS = 1.0
++CPU_QUALIFICATION_WINDOW_SECONDS = 10.0
++CPU_ACQUISITION_LIMIT_SECONDS = 300.0
++CPU_ROLLING_WINDOW_SECONDS = 5.0
++CPU_PRE_AVERAGE_AVAILABLE_MIN = 0.70
++CPU_PRE_ROLLING_AVAILABLE_MIN = 0.50
++CPU_RUNTIME_AVERAGE_EXTERNAL_MAX = 0.30
++CPU_RUNTIME_ROLLING_EXTERNAL_MAX = 0.50
++CPU_COMPETING_CORE_EQUIVALENT_MIN = 0.50
++CPU_COVERAGE_MIN = 0.95
++CPU_SAMPLE_GAP_MAX_SECONDS = 2.5
++PAIR_MEAN_EXTERNAL_BUSY_DELTA_MAX = 0.05
++PAIR_P95_EXTERNAL_BUSY_DELTA_MAX = 0.10
++NATIVE_BINARY = (
++    ROOT
++    / "artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native"
++    / "_ogc_native.cpython-312-darwin.so"
++)
++NATIVE_SHA256 = "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d"
++
++EXPECTED_CHECKER_SHA256 = "d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94"
++EXPECTED_GREEDY_SHA256 = "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b"
++EXPECTED_PYBIND_PLAN_SHA256 = "7c083a6238c11ed8c84712c22c879d26205094cd8048ca6ac3c4363bc3c6597d"
++
++PREEXISTING_TRACKED = (
++    "baseline/solver/alns.py",
++    "baseline/solver/construct.py",
++    "baseline/solver/entry.py",
++    "baseline/solver/neighborhoods.py",
++    "baseline/solver/runtime.py",
++    "docs/OGC2026_Problem_Analysis.md",
++    "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md",
++)
++PREEXISTING_UNTRACKED = (
++    "baseline/solver/native_repair.py",
++    "baseline/tests/test_native_import_fallback.py",
++    "baseline/tests/test_native_repair_integration.py",
++    "dist/",
++    "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
++    "docs/implementation/sol/quality-recovery/",
++    "experiments/ogc_sage/generate_native_repair_fixture.py",
++    "experiments/ogc_sage/verify_native_p3_fixture.py",
++    "experiments/ogc_sage/verify_native_p4_prefilter.py",
++    "experiments/ogc_sage/verify_native_p5_integration.py",
++    "experiments/ogc_sage/verify_native_p7_fix1.py",
++    "experiments/ogc_sage/verify_native_p7_fixed_time.py",
++    "native/",
++    "scripts/build_native_linux.sh",
++    "scripts/build_native_local.py",
++)
++
++
++@dataclass(frozen=True, order=True)
++class ProcessIdentity:
++    pid: int
++    create_time: float
++
++    @property
++    def key(self) -> str:
++        return f"{self.pid}@{self.create_time:.9f}"
++
++    @classmethod
++    def parse(cls, value: str) -> "ProcessIdentity":
++        pid, create_time = value.split("@", 1)
++        return cls(int(pid), float(create_time))
++
++
++@dataclass(frozen=True)
++class ProcessRecord:
++    identity: ProcessIdentity
++    ppid: int
++    name: str
++    executable: str
++    command: str
++    cpu_seconds: float
++    raw_ps_cpu_percent: float | None = None
++
++
++@dataclass(frozen=True)
++class CapacitySnapshot:
++    monotonic_seconds: float
++    epoch_seconds: float
++    logical_cores: int
++    system_cpu_times: Mapping[str, float]
++    processes: tuple[ProcessRecord, ...]
++    process_count_observed: int
++    process_count_accessible: int
++    permission_errors: tuple[str, ...] = ()
++
++    @property
++    def process_access_coverage(self) -> float:
++        if self.process_count_observed <= 0:
++            return 0.0
++        return min(1.0, self.process_count_accessible / self.process_count_observed)
++
++
++@dataclass(frozen=True)
++class CapacityInterval:
++    started_monotonic: float
++    ended_monotonic: float
++    wall_seconds: float
++    logical_cores: int
++    capacity_seconds: float
++    system_busy_seconds: float
++    measurement_cpu_seconds: float
++    external_busy_seconds: float
++    external_busy_fraction: float
++    available_external_capacity: float
++    competing_compute_core_equivalent: float
++    process_access_coverage: float
++    measurement_subtraction_complete: bool
++    classification_cpu_seconds: Mapping[str, float]
++    top_contributors: tuple[Mapping[str, Any], ...]
++    errors: tuple[str, ...] = ()
++
++
++def cpu_measurement_contract() -> dict[str, Any]:
++    return {
++        "schema_version": CPU_CONTRACT_SCHEMA_VERSION,
++        "gate_input": "cumulative_system_cpu_time_delta",
++        "raw_ps_cpu_percent_role": "diagnostic_top_contributors_only_never_gate_input",
++        "normalization": "logical_cores_x_wall_seconds",
++        "measurement_exclusion": "pid_create_time_identity_full_descendant_tree_only",
++        "classification": [
++            "measurement", "competing_compute", "os_background", "controller_ui", "unknown"
++        ],
++        "classification_is_allowlist": False,
++        "pre_run": {
++            "cadence_seconds": CPU_SAMPLE_CADENCE_SECONDS,
++            "qualification_window_seconds": CPU_QUALIFICATION_WINDOW_SECONDS,
++            "acquisition_limit_seconds": CPU_ACQUISITION_LIMIT_SECONDS,
++            "average_available_capacity_min_inclusive": CPU_PRE_AVERAGE_AVAILABLE_MIN,
++            "rolling_window_seconds": CPU_ROLLING_WINDOW_SECONDS,
++            "rolling_available_capacity_min_inclusive": CPU_PRE_ROLLING_AVAILABLE_MIN,
++        },
++        "runtime_material_overlap": {
++            "average_external_busy_max_exclusive": CPU_RUNTIME_AVERAGE_EXTERNAL_MAX,
++            "rolling_window_seconds": CPU_ROLLING_WINDOW_SECONDS,
++            "rolling_external_busy_max_exclusive": CPU_RUNTIME_ROLLING_EXTERNAL_MAX,
++            "competing_compute_core_equivalent_min_inclusive": CPU_COMPETING_CORE_EQUIVALENT_MIN,
++            "competing_compute_continuous_seconds": CPU_ROLLING_WINDOW_SECONDS,
++            "coverage_min_inclusive": CPU_COVERAGE_MIN,
++            "sample_gap_max_seconds_inclusive": CPU_SAMPLE_GAP_MAX_SECONDS,
++            "measurement_subtraction_required": True,
++        },
++        "pair": {
++            "orders": {"1": ["python", "native"], "2": ["native", "python"]},
++            "atomic": True,
++            "mean_external_busy_delta_max_inclusive": PAIR_MEAN_EXTERNAL_BUSY_DELTA_MAX,
++            "p95_external_busy_delta_max_inclusive": PAIR_P95_EXTERNAL_BUSY_DELTA_MAX,
++            "invalid_action": "discard_both_and_rerun_with_new_immutable_pair_id",
++        },
++        "liveness_states": ["READY", "PENDING_ENVIRONMENT", "PASS", "BLOCKED"],
++        "blocked_definition": "host_tick_or_process_tree_measurement_structurally_impossible",
++        "consecutive_clean_heartbeat_windows": "PROHIBITED",
++    }
++
++
++def _system_busy_total(cpu_times: Mapping[str, float]) -> float:
++    excluded = {"idle", "iowait", "guest", "guest_nice"}
++    return sum(float(value) for key, value in cpu_times.items() if key not in excluded)
++
++
++def normalize_cpu_delta(
++    *, system_busy_seconds: float, measurement_cpu_seconds: float,
++    logical_cores: int, wall_seconds: float,
++) -> dict[str, float]:
++    if logical_cores <= 0 or wall_seconds <= 0.0:
++        raise ValueError("logical_cores and wall_seconds must be positive")
++    if system_busy_seconds < 0.0 or measurement_cpu_seconds < 0.0:
++        raise ValueError("CPU deltas must be non-negative")
++    capacity_seconds = logical_cores * wall_seconds
++    external_busy_seconds = max(0.0, system_busy_seconds - measurement_cpu_seconds)
++    external_busy_fraction = min(1.0, external_busy_seconds / capacity_seconds)
++    return {
++        "capacity_seconds": capacity_seconds,
++        "external_busy_seconds": external_busy_seconds,
++        "external_busy_fraction": external_busy_fraction,
++        "available_external_capacity": 1.0 - external_busy_fraction,
++    }
++
++
++def _process_map(processes: Iterable[ProcessRecord]) -> dict[ProcessIdentity, ProcessRecord]:
++    return {process.identity: process for process in processes}
++
++
++def _pid_map(processes: Iterable[ProcessRecord]) -> dict[int, ProcessRecord]:
++    return {process.identity.pid: process for process in processes}
++
++
++def measurement_tree_identities(
++    processes: Iterable[ProcessRecord], roots: Iterable[ProcessIdentity],
++) -> set[ProcessIdentity]:
++    records = tuple(processes)
++    by_pid = _pid_map(records)
++    root_set = set(roots)
++    result: set[ProcessIdentity] = set()
++    for process in records:
++        current = process
++        visited: set[ProcessIdentity] = set()
++        while current.identity not in visited:
++            visited.add(current.identity)
++            if current.identity in root_set:
++                result.add(process.identity)
++                break
++            parent = by_pid.get(current.ppid)
++            if parent is None or parent.identity.create_time > current.identity.create_time + 1e-6:
++                break
++            current = parent
++    return result
++
++
++_OS_BACKGROUND_PATTERNS = re.compile(
++    r"windowserver|storagemanagement|applicationsstorageextension|kernel_task|"
++    r"\bmds\b|mdworker|corespotlightd|backupd|cloudd|bird|fseventsd",
++    re.IGNORECASE,
++)
++_CONTROLLER_UI_PATTERNS = re.compile(r"codex|chatgpt|electron", re.IGNORECASE)
++_COMPETING_COMPUTE_PATTERNS = re.compile(
++    r"solver|benchmark|verify_native|verify_quality|pytest|unittest|py-spy|profiler|"
++    r"\bperf\b|dtrace|instruments|\bclang\b|clang\+\+|\bgcc\b|\bg\+\+\b|cc1|"
++    r"\bcmake\b|\bninja\b|\bmake\b|xcodebuild|\bcargo\b|\brustc\b|\bgo build\b",
++    re.IGNORECASE,
++)
++
++
++def classify_process(
++    process: ProcessRecord, measurement_identities: set[ProcessIdentity],
++) -> str:
++    if process.identity in measurement_identities:
++        return "measurement"
++    diagnostic_text = " ".join((process.name, process.executable, process.command))
++    if _OS_BACKGROUND_PATTERNS.search(diagnostic_text):
++        return "os_background"
++    if _CONTROLLER_UI_PATTERNS.search(diagnostic_text):
++        return "controller_ui"
++    if _COMPETING_COMPUTE_PATTERNS.search(diagnostic_text):
++        return "competing_compute"
++    return "unknown"
++
++
++def derive_capacity_interval(
++    previous: CapacitySnapshot,
++    current: CapacitySnapshot,
++    measurement_roots: Iterable[ProcessIdentity],
++) -> CapacityInterval:
++    wall_seconds = current.monotonic_seconds - previous.monotonic_seconds
++    errors: list[str] = []
++    if wall_seconds <= 0.0:
++        raise ValueError("capacity snapshots must be monotonic")
++    if current.logical_cores != previous.logical_cores or current.logical_cores <= 0:
++        raise ValueError("logical core identity changed or is unavailable")
++    system_busy_seconds = _system_busy_total(current.system_cpu_times) - _system_busy_total(previous.system_cpu_times)
++    if system_busy_seconds < -1e-6:
++        errors.append("system_cpu_time_regressed")
++    system_busy_seconds = max(0.0, system_busy_seconds)
++
++    previous_by_identity = _process_map(previous.processes)
++    current_by_identity = _process_map(current.processes)
++    previous_measurement = measurement_tree_identities(previous.processes, measurement_roots)
++    current_measurement = measurement_tree_identities(current.processes, measurement_roots)
++    root_set = set(measurement_roots)
++    subtraction_complete = root_set.issubset(current_measurement)
++    if not subtraction_complete:
++        errors.append("measurement_root_missing_or_pid_reused")
++    vanished_measurement = previous_measurement - current_measurement
++    if vanished_measurement:
++        subtraction_complete = False
++        errors.append("measurement_descendant_disappeared_before_cpu_delta")
++
++    class_cpu: dict[str, float] = {
++        "measurement": 0.0,
++        "competing_compute": 0.0,
++        "os_background": 0.0,
++        "controller_ui": 0.0,
++        "unknown": 0.0,
++    }
++    contributors: list[dict[str, Any]] = []
++    for identity, process in current_by_identity.items():
++        prior = previous_by_identity.get(identity)
++        if prior is not None:
++            cpu_delta = process.cpu_seconds - prior.cpu_seconds
++        elif identity.create_time >= previous.epoch_seconds - 0.050:
++            cpu_delta = process.cpu_seconds
++        else:
++            continue
++        if cpu_delta < -1e-6:
++            errors.append(f"process_cpu_time_regressed:{identity.key}")
++            continue
++        cpu_delta = max(0.0, cpu_delta)
++        category = classify_process(process, current_measurement)
++        class_cpu[category] += cpu_delta
++        if cpu_delta > 0.0:
++            contributors.append({
++                "identity": identity.key,
++                "name": process.name,
++                "category": category,
++                "cpu_seconds": cpu_delta,
++                "core_equivalent": cpu_delta / wall_seconds,
++                "raw_ps_cpu_percent": process.raw_ps_cpu_percent,
++            })
++
++    measurement_cpu_seconds = class_cpu["measurement"]
++    if measurement_cpu_seconds > system_busy_seconds + max(0.05, 0.02 * current.logical_cores * wall_seconds):
++        subtraction_complete = False
++        errors.append("measurement_cpu_exceeds_system_busy_delta")
++    normalized = normalize_cpu_delta(
++        system_busy_seconds=system_busy_seconds,
++        measurement_cpu_seconds=measurement_cpu_seconds if subtraction_complete else 0.0,
++        logical_cores=current.logical_cores,
++        wall_seconds=wall_seconds,
++    )
++    access_coverage = min(previous.process_access_coverage, current.process_access_coverage)
++    if previous.permission_errors or current.permission_errors:
++        errors.append("process_tree_permission_or_coverage_error")
++    return CapacityInterval(
++        started_monotonic=previous.monotonic_seconds,
++        ended_monotonic=current.monotonic_seconds,
++        wall_seconds=wall_seconds,
++        logical_cores=current.logical_cores,
++        capacity_seconds=normalized["capacity_seconds"],
++        system_busy_seconds=system_busy_seconds,
++        measurement_cpu_seconds=measurement_cpu_seconds,
++        external_busy_seconds=normalized["external_busy_seconds"],
++        external_busy_fraction=normalized["external_busy_fraction"],
++        available_external_capacity=normalized["available_external_capacity"],
++        competing_compute_core_equivalent=class_cpu["competing_compute"] / wall_seconds,
++        process_access_coverage=access_coverage,
++        measurement_subtraction_complete=subtraction_complete,
++        classification_cpu_seconds=class_cpu,
++        top_contributors=tuple(sorted(contributors, key=lambda row: -float(row["cpu_seconds"]))[:20]),
++        errors=tuple(errors),
++    )
++
++
++def _tail_pieces(intervals: Sequence[CapacityInterval], seconds: float) -> list[tuple[CapacityInterval, float]]:
++    remaining = seconds
++    pieces: list[tuple[CapacityInterval, float]] = []
++    for interval in reversed(intervals):
++        if remaining <= 1e-9:
++            break
++        used = min(interval.wall_seconds, remaining)
++        pieces.append((interval, used))
++        remaining -= used
++    if remaining > 1e-6:
++        return []
++    pieces.reverse()
++    return pieces
++
++
++def rolling_weighted_values(
++    intervals: Sequence[CapacityInterval], field: str, window_seconds: float,
++) -> list[float]:
++    values: list[float] = []
++    for end in range(1, len(intervals) + 1):
++        pieces = _tail_pieces(intervals[:end], window_seconds)
++        if not pieces:
++            continue
++        values.append(sum(float(getattr(item, field)) * used for item, used in pieces) / window_seconds)
++    return values
++
++
++def rolling_min_values(
++    intervals: Sequence[CapacityInterval], field: str, window_seconds: float,
++) -> list[float]:
++    values: list[float] = []
++    for end in range(1, len(intervals) + 1):
++        pieces = _tail_pieces(intervals[:end], window_seconds)
++        if pieces:
++            values.append(min(float(getattr(item, field)) for item, _used in pieces))
++    return values
++
++
++def nearest_rank_percentile(values: Sequence[float], percentile: float) -> float:
++    if not values:
++        raise ValueError("percentile requires at least one value")
++    ordered = sorted(float(value) for value in values)
++    rank = max(1, math.ceil(percentile * len(ordered)))
++    return ordered[rank - 1]
++
++
++def summarize_capacity(intervals: Sequence[CapacityInterval]) -> dict[str, Any]:
++    if not intervals:
++        return {
++            "duration_seconds": 0.0,
++            "interval_count": 0,
++            "mean_external_busy_fraction": None,
++            "mean_available_external_capacity": None,
++            "p95_external_busy_fraction": None,
++            "coverage": 0.0,
++            "max_sample_gap_seconds": None,
++            "measurement_subtraction_complete": False,
++            "rolling_5s_external_busy": [],
++            "rolling_5s_available_capacity": [],
++            "rolling_5s_competing_min_core_equivalent": [],
++        }
++    duration = sum(item.wall_seconds for item in intervals)
++    mean_external = sum(item.external_busy_fraction * item.wall_seconds for item in intervals) / duration
++    access_coverage = sum(item.process_access_coverage * item.wall_seconds for item in intervals) / duration
++    expected_intervals = max(1, math.ceil(duration / CPU_SAMPLE_CADENCE_SECONDS - 1e-9))
++    temporal_coverage = min(1.0, len(intervals) / expected_intervals)
++    return {
++        "duration_seconds": duration,
++        "interval_count": len(intervals),
++        "mean_external_busy_fraction": mean_external,
++        "mean_available_external_capacity": 1.0 - mean_external,
++        "p95_external_busy_fraction": nearest_rank_percentile(
++            [item.external_busy_fraction for item in intervals], 0.95
++        ),
++        "coverage": min(access_coverage, temporal_coverage),
++        "process_access_coverage": access_coverage,
++        "temporal_coverage": temporal_coverage,
++        "max_sample_gap_seconds": max(item.wall_seconds for item in intervals),
++        "measurement_subtraction_complete": all(item.measurement_subtraction_complete for item in intervals),
++        "errors": sorted({error for item in intervals for error in item.errors}),
++        "rolling_5s_external_busy": rolling_weighted_values(
++            intervals, "external_busy_fraction", CPU_ROLLING_WINDOW_SECONDS
++        ),
++        "rolling_5s_available_capacity": rolling_weighted_values(
++            intervals, "available_external_capacity", CPU_ROLLING_WINDOW_SECONDS
++        ),
++        "rolling_5s_competing_min_core_equivalent": rolling_min_values(
++            intervals, "competing_compute_core_equivalent", CPU_ROLLING_WINDOW_SECONDS
++        ),
++    }
++
++
++def evaluate_prequalification(intervals: Sequence[CapacityInterval]) -> dict[str, Any]:
++    pieces = _tail_pieces(intervals, CPU_QUALIFICATION_WINDOW_SECONDS)
++    if not pieces:
++        return {"state": "PENDING_ENVIRONMENT", "ready": False, "reason": "qualification_window_incomplete"}
++    window = [replace(item, wall_seconds=used) if used != item.wall_seconds else item for item, used in pieces]
++    summary = summarize_capacity(window)
++    structural = (
++        not summary["measurement_subtraction_complete"]
++        or summary["coverage"] < CPU_COVERAGE_MIN
++        or bool(summary["errors"])
++    )
++    if structural:
++        return {
++            "state": "BLOCKED",
++            "ready": False,
++            "reason": "host_tick_or_process_tree_measurement_impossible",
++            "summary": summary,
++        }
++    rolling = summary["rolling_5s_available_capacity"]
++    ready = (
++        summary["mean_available_external_capacity"] >= CPU_PRE_AVERAGE_AVAILABLE_MIN
++        and bool(rolling)
++        and min(rolling) >= CPU_PRE_ROLLING_AVAILABLE_MIN
++        and summary["max_sample_gap_seconds"] <= CPU_SAMPLE_GAP_MAX_SECONDS
++    )
++    return {
++        "state": "READY" if ready else "PENDING_ENVIRONMENT",
++        "ready": ready,
++        "reason": "qualified_capacity_window" if ready else "capacity_window_not_qualified",
++        "summary": summary,
++    }
++
++
++def evaluate_runtime(intervals: Sequence[CapacityInterval]) -> dict[str, Any]:
++    summary = summarize_capacity(intervals)
++    reasons: list[str] = []
++    if not summary["measurement_subtraction_complete"]:
++        reasons.append("measurement_subtree_cpu_subtraction_unavailable")
++    if summary["coverage"] < CPU_COVERAGE_MIN:
++        reasons.append("coverage_below_95_percent")
++    if summary["max_sample_gap_seconds"] is None or summary["max_sample_gap_seconds"] > CPU_SAMPLE_GAP_MAX_SECONDS:
++        reasons.append("sample_gap_above_2_5_seconds")
++    if summary["mean_external_busy_fraction"] is None or summary["mean_external_busy_fraction"] > CPU_RUNTIME_AVERAGE_EXTERNAL_MAX:
++        reasons.append("run_average_external_busy_above_30_percent")
++    if any(value > CPU_RUNTIME_ROLLING_EXTERNAL_MAX for value in summary["rolling_5s_external_busy"]):
++        reasons.append("rolling_5s_external_busy_above_50_percent")
++    if any(
++        value >= CPU_COMPETING_CORE_EQUIVALENT_MIN
++        for value in summary["rolling_5s_competing_min_core_equivalent"]
++    ):
++        reasons.append("known_competing_compute_at_least_half_core_for_5_seconds")
++    if summary.get("errors"):
++        reasons.append("measurement_error_fail_closed")
++    return {
++        "valid": not reasons,
++        "material_overlap": bool(reasons),
++        "reasons": sorted(set(reasons)),
++        "summary": summary,
++    }
++
++
++def evaluate_pair_fairness(left: Mapping[str, Any], right: Mapping[str, Any]) -> dict[str, Any]:
++    left_summary = left["summary"]
++    right_summary = right["summary"]
++    mean_delta = abs(
++        float(left_summary["mean_external_busy_fraction"])
++        - float(right_summary["mean_external_busy_fraction"])
++    )
++    p95_delta = abs(
++        float(left_summary["p95_external_busy_fraction"])
++        - float(right_summary["p95_external_busy_fraction"])
++    )
++    passed = (
++        mean_delta <= PAIR_MEAN_EXTERNAL_BUSY_DELTA_MAX
++        and p95_delta <= PAIR_P95_EXTERNAL_BUSY_DELTA_MAX
++    )
++    return {
++        "passed": passed,
++        "mean_external_busy_delta": mean_delta,
++        "p95_external_busy_delta": p95_delta,
++        "mean_boundary_max": PAIR_MEAN_EXTERNAL_BUSY_DELTA_MAX,
++        "p95_boundary_max": PAIR_P95_EXTERNAL_BUSY_DELTA_MAX,
++    }
++
++
++def evaluate_atomic_pair(
++    *, pair_id: str, pair_ordinal: int, matrix_identity: str,
++    runs: Sequence[Mapping[str, Any]],
++) -> dict[str, Any]:
++    expected_order = ["python", "native"] if pair_ordinal == 1 else ["native", "python"]
++    identity_ok = all(
++        run.get("pair_id") == pair_id and run.get("matrix_identity") == matrix_identity
++        for run in runs
++    )
++    order_ok = [run.get("variant") for run in runs] == expected_order
++    runtime_ok = len(runs) == 2 and all(bool(run.get("runtime_capacity", {}).get("valid")) for run in runs)
++    fairness = (
++        evaluate_pair_fairness(runs[0]["runtime_capacity"], runs[1]["runtime_capacity"])
++        if len(runs) == 2 and runtime_ok else {"passed": False, "reason": "runtime_invalid"}
++    )
++    valid = len(runs) == 2 and identity_ok and order_ok and runtime_ok and fairness["passed"]
++    return {
++        "pair_id": pair_id,
++        "pair_ordinal": pair_ordinal,
++        "matrix_identity": matrix_identity,
++        "expected_order": expected_order,
++        "identity_unchanged": identity_ok,
++        "order_valid": order_ok,
++        "both_runtime_valid": runtime_ok,
++        "fairness": fairness,
++        "valid": valid,
++        "status": "VALID" if valid else "INVALID_DISCARD_BOTH",
++        "run_disposition": ["KEEP", "KEEP"] if valid else ["DISCARD", "DISCARD"],
++        "required_action": None if valid else "rerun_entire_pair_with_new_immutable_pair_id",
++    }
++
++
++def liveness_state(
++    *, identity_complete: bool, tests_complete: bool, scenario_complete: bool,
++    contract_complete: bool, qualification_state: str, valid_matrix_complete: bool,
++) -> str:
++    if qualification_state == "BLOCKED":
++        return "BLOCKED"
++    if qualification_state == "PENDING_ENVIRONMENT":
++        return "PENDING_ENVIRONMENT"
++    ready = all((identity_complete, tests_complete, scenario_complete, contract_complete))
++    if not ready:
++        raise ValueError("READY requires complete identity/tests/scenario/contract")
++    return "PASS" if valid_matrix_complete else "READY"
++
++
++def now() -> dict[str, str]:
++    value = datetime.now(timezone.utc)
++    return {"utc": value.isoformat(), "kst": value.astimezone(KST).isoformat()}
++
++
++def write_json_new(path: Path, value: object) -> None:
++    if path.exists():
++        raise SystemExit(f"refusing to overwrite {path}")
++    path.parent.mkdir(parents=True, exist_ok=True)
++    path.write_text(
++        json.dumps(value, indent=2, sort_keys=True, ensure_ascii=True) + "\n",
++        encoding="utf-8",
++    )
++
++
++def run(command: list[str], *, cwd: Path = ROOT, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
++    try:
++        return subprocess.run(
++            command,
++            cwd=cwd,
++            text=True,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            timeout=timeout,
++            check=False,
++        )
++    except FileNotFoundError as exc:
++        return subprocess.CompletedProcess(command, 127, "", f"{type(exc).__name__}: {exc}\n")
++
++
++def git(*args: str) -> str:
++    completed = run(["git", *args])
++    if completed.returncode:
++        raise RuntimeError(completed.stderr.strip() or "git command failed")
++    return completed.stdout.strip()
++
++
++def command_record(command: list[str], completed: subprocess.CompletedProcess[str]) -> dict[str, Any]:
++    return {
++        "argv": command,
++        "cwd": str(ROOT),
++        "returncode": completed.returncode,
++        "stdout": completed.stdout,
++        "stderr": completed.stderr,
++    }
++
++
++def sysctl(name: str) -> str | None:
++    completed = run(["sysctl", "-n", name])
++    return completed.stdout.strip() if completed.returncode == 0 else None
++
++
++def version_record() -> dict[str, Any]:
++    import shapely
++
++    try:
++        pybind_version = importlib.metadata.version("pybind11")
++    except importlib.metadata.PackageNotFoundError:
++        pybind_version = "vendored-2.13.6"
++
++    try:
++        import gurobipy as gp
++
++        gurobi_version = ".".join(str(item) for item in gp.gurobi.version())
++        env = gp.Env(empty=True)
++        env.setParam("OutputFlag", 0)
++        env.start()
++        env.dispose()
++        license_state = {"available": True, "error": None}
++    except Exception as exc:  # environment identity, not a solver fallback
++        gurobi_version = None
++        license_state = {"available": False, "error": f"{type(exc).__name__}: {exc}"}
++    cmake = run(["cmake", "--version"])
++    return {
++        "python_executable": sys.executable,
++        "python": platform.python_version(),
++        "python_compiler": platform.python_compiler(),
++        "cmake": cmake.stdout.splitlines()[0] if cmake.returncode == 0 else None,
++        "pybind11": pybind_version,
++        "shapely": shapely.__version__,
++        "geos": shapely.geos_version_string,
++        "gurobi": gurobi_version,
++        "gurobi_license": license_state,
++    }
++
++
++def aggregate_paths(paths: list[Path]) -> tuple[str, list[dict[str, str]]]:
++    rows = [
++        {"path": str(path.relative_to(ROOT)), "sha256": sha256_file(path)}
++        for path in sorted(set(paths))
++        if path.is_file()
++    ]
++    digest = sha256_bytes(
++        "".join(f"{row['sha256']}  {row['path']}\n" for row in rows).encode("utf-8")
++    )
++    return digest, rows
++
++
++def source_identity() -> dict[str, Any]:
++    preexisting_diff = run(["git", "diff", "--binary", "--", *PREEXISTING_TRACKED]).stdout
++    current_diff = run(["git", "diff", "--binary"]).stdout
++    solver_paths = list((ROOT / "baseline/solver").glob("*.py"))
++    native_paths = [path for path in (ROOT / "native").rglob("*") if path.is_file()]
++    harness_paths = [
++        ROOT / "experiments/ogc_sage/benchmark_ogc_sage.py",
++        Path(__file__).resolve(),
++        ROOT / "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
++        ROOT / "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md",
++        ROOT / "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md",
++    ]
++    aggregate, rows = aggregate_paths(solver_paths + native_paths + harness_paths)
++    snapshot_payload = {
++        "tracked_diff_sha256": sha256_bytes(current_diff.encode("utf-8")),
++        "execution_files_sha256": aggregate,
++        "head": git("rev-parse", "HEAD"),
++    }
++    return {
++        "branch": git("branch", "--show-current"),
++        "head": git("rev-parse", "HEAD"),
++        "upstream_left_right": git(
++            "rev-list", "--left-right", "--count",
++            "origin/codex/performance-optimization-plan...HEAD",
++        ),
++        "git_status_porcelain_v1": git("status", "--porcelain=v1").splitlines(),
++        "preexisting_tracked": list(PREEXISTING_TRACKED),
++        "preexisting_untracked": list(PREEXISTING_UNTRACKED),
++        "phase0_changes_at_prepare": [
++            "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
++            "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md",
++            "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md",
++            "experiments/ogc_sage/verify_quality_p0.py",
++        ],
++        "preexisting_tracked_diff_sha256": sha256_bytes(preexisting_diff.encode("utf-8")),
++        "current_tracked_diff_sha256": snapshot_payload["tracked_diff_sha256"],
++        "execution_files_sha256": aggregate,
++        "execution_files": rows,
++        "source_snapshot_sha256": sha256_bytes(canonical_json(snapshot_payload).encode("utf-8")),
++    }
++
++
++def native_import_record() -> dict[str, Any]:
++    if sha256_file(NATIVE_BINARY) != NATIVE_SHA256:
++        raise RuntimeError("native binary hash mismatch")
++    old = os.environ.get("OGC_NATIVE_MODULE_DIR")
++    os.environ["OGC_NATIVE_MODULE_DIR"] = str(NATIVE_BINARY.parent)
++    try:
++        module = load_native_module()
++        info = None if module is None else module.empty_kernel_info()
++        return {
++            "available": module is not None,
++            "requested_path": str(NATIVE_BINARY.resolve()),
++            "loaded_path": None if module is None else str(Path(module.__file__).resolve()),
++            "sha256": sha256_file(NATIVE_BINARY),
++            "size_bytes": NATIVE_BINARY.stat().st_size,
++            "api": info,
++            "repair_api_version": None if info is None else info.get("repair_api_version"),
++        }
++    finally:
++        if old is None:
++            os.environ.pop("OGC_NATIVE_MODULE_DIR", None)
++        else:
++            os.environ["OGC_NATIVE_MODULE_DIR"] = old
++
++
++def scenario_record() -> dict[str, Any]:
++    instances, dataset_sha = validate_dataset()
++    names = hard10_instance_names()
++    hard10 = [{"instance": name, "sha256": sha256_file(instances[name])} for name in names]
++    production = SubmissionConfig.from_defaults(seed=SEEDS[0]).as_dict()
++    native = replace(
++        SubmissionConfig.from_defaults(seed=SEEDS[0]),
++        repair_backend="native",
++        native_prefilter_enabled=True,
++    ).as_dict()
++    return {
++        "schema_version": 2,
++        "dataset": {
++            "count": len(instances),
++            "sha256": dataset_sha,
++            "instances": [
++                {"instance": name, "path": str(path.relative_to(ROOT)), "sha256": sha256_file(path)}
++                for name, path in instances.items()
++            ],
++        },
++        "hard10": {
++            "count": len(names),
++            "unique_count": len(set(names)),
++            "manifest": str(HARD10_MANIFEST.relative_to(ROOT)),
++            "manifest_sha256": sha256_file(HARD10_MANIFEST),
++            "instances": hard10,
++        },
++        "frozen_python": {
++            "instances": list(names),
++            "budget_seconds": 60.0,
++            "seeds": list(SEEDS),
++            "planned_run_count": len(names) * len(SEEDS),
++            "config": production,
++            "config_sha256": sha256_bytes(canonical_json(production).encode("utf-8")),
++            "outer_timeout_contract": "budget + max(5s, 2*checker_p95 + launcher_p95 + 1s)",
++        },
++        "prob23": {
++            "instance": PROB23,
++            "instance_sha256": sha256_file(instances[PROB23]),
++            "budget_seconds": PROB23_SECONDS,
++            "seed": SEEDS[0],
++            "orders": [["python", "native"], ["native", "python"]],
++            "planned_run_count": 4,
++            "python_config": production,
++            "python_config_sha256": sha256_bytes(canonical_json(production).encode("utf-8")),
++            "native_config": native,
++            "native_config_sha256": sha256_bytes(canonical_json(native).encode("utf-8")),
++            "checker_reserve": "SubmissionConfig/RunTrace production budget reserve; unchanged",
++            "atomic_pair_contract": cpu_measurement_contract()["pair"],
++        },
++        "integrated": {"instances": list(names), "budgets_seconds": [60.0, 180.0], "seeds": list(SEEDS)},
++        "final": {"instances": "official daily-40", "source": "Phase 8 contract"},
++        "cpu_measurement_contract": cpu_measurement_contract(),
++    }
++
++
++def matrix_identity(source: Mapping[str, Any], scenarios: Mapping[str, Any]) -> str:
++    payload = {
++        "source_snapshot_sha256": source["source_snapshot_sha256"],
++        "execution_files_sha256": source["execution_files_sha256"],
++        "config_sha256": scenarios["frozen_python"]["config_sha256"],
++        "dataset_sha256": scenarios["dataset"]["sha256"],
++        "hard10_manifest_sha256": scenarios["hard10"]["manifest_sha256"],
++        "prob23_sha256": scenarios["prob23"]["instance_sha256"],
++        "native_binary_sha256": NATIVE_SHA256,
++        "cpu_contract_sha256": sha256_bytes(
++            canonical_json(cpu_measurement_contract()).encode("utf-8")
++        ),
++    }
++    return sha256_bytes(canonical_json(payload).encode("utf-8"))
++
++
++def current_matrix_identity() -> str:
++    return matrix_identity(source_identity(), scenario_record())
++
++
++def command_prepare(args: argparse.Namespace) -> int:
++    import psutil
++
++    root = args.artifact_root.resolve()
++    if root.exists():
++        raise SystemExit(f"refusing to reuse artifact root {root}")
++    (root / "baseline").mkdir(parents=True)
++    (root / "prob23").mkdir()
++    commands: list[dict[str, Any]] = []
++    diff_command = ["git", "diff", "--check"]
++    diff = run(diff_command)
++    commands.append(command_record(diff_command, diff))
++    test_command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py", "-v"]
++    tests = run(test_command, cwd=BASELINE, timeout=300.0)
++    (root / "tests.stdout.txt").write_text(tests.stdout, encoding="utf-8")
++    (root / "tests.stderr.txt").write_text(tests.stderr, encoding="utf-8")
++    combined = tests.stdout + tests.stderr
++    match = re.search(r"Ran (\d+) tests", combined)
++    test_record = {
++        "argv": test_command,
++        "cwd": str(BASELINE),
++        "returncode": tests.returncode,
++        "count": None if match is None else int(match.group(1)),
++        "passed": tests.returncode == 0 and "\nOK\n" in combined,
++        "stdout_sha256": sha256_file(root / "tests.stdout.txt"),
++        "stderr_sha256": sha256_file(root / "tests.stderr.txt"),
++    }
++    commands.append(test_record)
++    scenarios = scenario_record()
++    source = source_identity()
++    frozen_matrix_identity = matrix_identity(source, scenarios)
++    identity = {
++        "schema_version": 2,
++        "recorded_at": now(),
++        "hostname": socket.gethostname(),
++        "os": platform.platform(),
++        "architecture": platform.machine(),
++        "cpu": {
++            "brand": sysctl("machdep.cpu.brand_string"),
++            "physical": psutil.cpu_count(logical=False),
++            "logical": psutil.cpu_count(logical=True),
++        },
++        "ram_bytes": psutil.virtual_memory().total,
++        "versions": version_record(),
++        "source": source,
++        "protected": {
++            "baseline/utils.py": sha256_file(ROOT / "baseline/utils.py"),
++            "baseline/baseline_greedy.py": sha256_file(ROOT / "baseline/baseline_greedy.py"),
++            "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md": sha256_file(ROOT / "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md"),
++            "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md": sha256_file(ROOT / "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md"),
++            "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md": sha256_file(ROOT / "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md"),
++            "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md": sha256_file(ROOT / "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"),
++        },
++        "native_binary": native_import_record(),
++        "dataset_sha256": scenarios["dataset"]["sha256"],
++        "hard10_manifest_sha256": scenarios["hard10"]["manifest_sha256"],
++        "config_sha256": scenarios["frozen_python"]["config_sha256"],
++        "config": scenarios["frozen_python"]["config"],
++        "matrix_identity_sha256": frozen_matrix_identity,
++        "cpu_contract_sha256": sha256_bytes(canonical_json(cpu_measurement_contract()).encode("utf-8")),
++        "fixed_time_cpu_measurement": "not_started",
++    }
++    write_json_new(root / "identity-preflight.json", identity)
++    write_json_new(root / "scenarios.json", scenarios)
++    write_json_new(root / "tests.json", test_record)
++    write_json_new(root / "native-import.json", identity["native_binary"])
++    write_json_new(root / "measurement-contract.json", cpu_measurement_contract())
++    write_json_new(root / "commands-preflight.json", commands)
++    print(canonical_json({"artifact_root": str(root), "tests": test_record, "source_snapshot_sha256": identity["source"]["source_snapshot_sha256"]}))
++    return 0 if diff.returncode == 0 and test_record["passed"] else 2
++
++
++def parse_ps_diagnostic(raw: str) -> list[dict[str, Any]]:
++    rows: list[dict[str, Any]] = []
++    for line in raw.splitlines():
++        parts = line.strip().split(None, 5)
++        if len(parts) != 6:
++            continue
++        try:
++            pid, ppid = int(parts[0]), int(parts[1])
++            cpu, memory = float(parts[2]), float(parts[3])
++        except ValueError:
++            continue
++        rows.append({
++            "pid": pid,
++            "ppid": ppid,
++            "cpu_percent": cpu,
++            "memory_percent": memory,
++            "elapsed": parts[4],
++            "command": parts[5][:2000],
++        })
++    return rows
++
++
++def diagnostic_ps_snapshot() -> dict[str, Any]:
++    started = time.monotonic()
++    completed = run(["ps", "-Ao", "pid=,ppid=,pcpu=,pmem=,etime=,command=", "-r"])
++    rows = parse_ps_diagnostic(completed.stdout) if completed.returncode == 0 else []
++    return {
++        "recorded_at": now(),
++        "monotonic_started": started,
++        "load_average": list(os.getloadavg()),
++        "role": "diagnostic_only_never_gate_input",
++        "top_processes": rows[:100],
++        "raw_ps_sha256": sha256_bytes(completed.stdout.encode("utf-8")),
++        "raw_ps_stdout": completed.stdout,
++        "raw_ps_stderr": completed.stderr,
++        "returncode": completed.returncode,
++    }
++
++
++def capture_capacity_snapshot() -> CapacitySnapshot:
++    import psutil
++
++    monotonic_seconds = time.monotonic()
++    epoch_seconds = time.time()
++    logical_cores = int(psutil.cpu_count(logical=True) or 0)
++    cpu_times = {key: float(value) for key, value in psutil.cpu_times()._asdict().items()}
++    try:
++        pids = psutil.pids()
++    except (psutil.Error, OSError) as exc:
++        return CapacitySnapshot(
++            monotonic_seconds, epoch_seconds, logical_cores, cpu_times, (), 0, 0,
++            (f"process_enumeration:{type(exc).__name__}:{exc}",),
++        )
++    records: list[ProcessRecord] = []
++    for pid in pids:
++        try:
++            process = psutil.Process(pid)
++            with process.oneshot():
++                create_time = float(process.create_time())
++                ppid = int(process.ppid())
++                cpu = process.cpu_times()
++                name = process.name() or ""
++            try:
++                executable = process.exe() or ""
++            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
++                executable = ""
++            try:
++                command = " ".join(process.cmdline())
++            except (psutil.AccessDenied, psutil.NoSuchProcess, OSError):
++                command = ""
++            records.append(ProcessRecord(
++                identity=ProcessIdentity(pid, create_time),
++                ppid=ppid,
++                name=name,
++                executable=executable,
++                command=command[:2000],
++                cpu_seconds=float(cpu.user) + float(cpu.system),
++            ))
++        except (psutil.AccessDenied, psutil.NoSuchProcess, psutil.ZombieProcess, OSError):
++            continue
++    return CapacitySnapshot(
++        monotonic_seconds=monotonic_seconds,
++        epoch_seconds=epoch_seconds,
++        logical_cores=logical_cores,
++        system_cpu_times=cpu_times,
++        processes=tuple(records),
++        process_count_observed=len(pids),
++        process_count_accessible=len(records),
++    )
++
++
++def current_process_identity() -> ProcessIdentity:
++    import psutil
++
++    process = psutil.Process(os.getpid())
++    return ProcessIdentity(process.pid, float(process.create_time()))
++
++
++def acquire_capacity_window(
++    *, acquisition_limit_seconds: float = CPU_ACQUISITION_LIMIT_SECONDS,
++) -> dict[str, Any]:
++    if acquisition_limit_seconds != CPU_ACQUISITION_LIMIT_SECONDS:
++        raise ValueError("production acquisition limit is fixed at 300 seconds")
++    root = current_process_identity()
++    intervals: list[CapacityInterval] = []
++    started = time.monotonic()
++    previous = capture_capacity_snapshot()
++    attempts = 0
++    last_evaluation: dict[str, Any] = {
++        "state": "PENDING_ENVIRONMENT", "ready": False, "reason": "qualification_window_incomplete"
++    }
++    while time.monotonic() - started < acquisition_limit_seconds:
++        target = previous.monotonic_seconds + CPU_SAMPLE_CADENCE_SECONDS
++        time.sleep(max(0.0, target - time.monotonic()))
++        current = capture_capacity_snapshot()
++        attempts += 1
++        try:
++            interval = derive_capacity_interval(previous, current, (root,))
++        except (ValueError, RuntimeError) as exc:
++            return {
++                "schema_version": CPU_CONTRACT_SCHEMA_VERSION,
++                "state": "BLOCKED",
++                "reason": f"host_tick_or_process_tree_measurement_impossible:{type(exc).__name__}:{exc}",
++                "attempts": attempts,
++                "elapsed_seconds": time.monotonic() - started,
++                "diagnostic_ps": diagnostic_ps_snapshot(),
++                "intervals": [asdict(item) for item in intervals],
++            }
++        intervals.append(interval)
++        last_evaluation = evaluate_prequalification(intervals)
++        if last_evaluation["state"] == "BLOCKED" or last_evaluation["ready"]:
++            break
++        previous = current
++    state = last_evaluation["state"]
++    if state != "READY" and state != "BLOCKED":
++        state = "PENDING_ENVIRONMENT"
++    return {
++        "schema_version": CPU_CONTRACT_SCHEMA_VERSION,
++        "state": state,
++        "reason": last_evaluation.get("reason"),
++        "attempts": attempts,
++        "elapsed_seconds": time.monotonic() - started,
++        "measurement_root": root.key,
++        "contract": cpu_measurement_contract(),
++        "evaluation": last_evaluation,
++        "diagnostic_ps": diagnostic_ps_snapshot(),
++        "intervals": [asdict(item) for item in intervals],
++        "processes_changed_or_terminated": False,
++    }
++
++
++class RuntimeCapacityMonitor:
++    def __init__(self, measurement_roots: Iterable[ProcessIdentity] | None = None) -> None:
++        self.roots = tuple(measurement_roots or (current_process_identity(),))
++        self.snapshots: list[CapacitySnapshot] = []
++        self.intervals: list[CapacityInterval] = []
++        self.errors: list[str] = []
++        self._stop = threading.Event()
++        self._thread: threading.Thread | None = None
++
++    def start(self) -> None:
++        if self._thread is not None:
++            raise RuntimeError("runtime capacity monitor already started")
++        self.snapshots.append(capture_capacity_snapshot())
++        self._thread = threading.Thread(target=self._sample_loop, name="p0-capacity-monitor", daemon=True)
++        self._thread.start()
++
++    def _sample_loop(self) -> None:
++        while not self._stop.wait(CPU_SAMPLE_CADENCE_SECONDS):
++            try:
++                self._append_snapshot(capture_capacity_snapshot())
++            except Exception as exc:  # fail-closed measurement evidence
++                self.errors.append(f"{type(exc).__name__}:{exc}")
++                return
++
++    def _append_snapshot(self, snapshot: CapacitySnapshot) -> None:
++        if self.snapshots:
++            self.intervals.append(derive_capacity_interval(self.snapshots[-1], snapshot, self.roots))
++        self.snapshots.append(snapshot)
++
++    def stop(self) -> dict[str, Any]:
++        self._stop.set()
++        if self._thread is not None:
++            self._thread.join(timeout=CPU_SAMPLE_GAP_MAX_SECONDS)
++        if not self.snapshots or time.monotonic() - self.snapshots[-1].monotonic_seconds >= 0.100:
++            try:
++                self._append_snapshot(capture_capacity_snapshot())
++            except Exception as exc:
++                self.errors.append(f"{type(exc).__name__}:{exc}")
++        evaluation = evaluate_runtime(self.intervals)
++        if self.errors:
++            evaluation = {
++                **evaluation,
++                "valid": False,
++                "material_overlap": True,
++                "reasons": sorted(set(evaluation["reasons"] + ["monitor_measurement_failure"])),
++                "monitor_errors": list(self.errors),
++            }
++        return {
++            **evaluation,
++            "schema_version": CPU_CONTRACT_SCHEMA_VERSION,
++            "measurement_roots": [root.key for root in self.roots],
++            "cadence_seconds": CPU_SAMPLE_CADENCE_SECONDS,
++            "intervals": [asdict(item) for item in self.intervals],
++            "diagnostic_ps": diagnostic_ps_snapshot(),
++        }
++
++
++def command_cpu_qualification(args: argparse.Namespace) -> int:
++    root = args.artifact_root.resolve()
++    output = root / "cpu-qualification.json"
++    if output.exists():
++        raise SystemExit(f"refusing to overwrite {output}")
++    record = acquire_capacity_window()
++    write_json_new(output, record)
++    print(canonical_json({
++        "state": record["state"],
++        "reason": record["reason"],
++        "elapsed_seconds": record["elapsed_seconds"],
++        "qualification": str(output),
++    }))
++    return 2 if record["state"] == "BLOCKED" else 0
++
++
++def objective_parity(objective: Mapping[str, Any] | None) -> float | None:
++    if objective is None:
++        return None
++    pairs = (("z1", "checker_z1"), ("z2", "checker_z2"), ("z3", "checker_z3"), ("total", "checker_total"))
++    return max(
++        abs(float(objective[left]) - float(objective[right]))
++        / max(1.0, abs(float(objective[left])), abs(float(objective[right])))
++        for left, right in pairs
++    )
++
++
++def command_prob23_run(args: argparse.Namespace) -> int:
++    output = args.output.resolve()
++    if output.exists():
++        raise SystemExit(f"refusing to overwrite {output}")
++    output.mkdir(parents=True)
++    qualification = json.loads(args.qualification.read_text(encoding="utf-8"))
++    if qualification.get("state") != "READY":
++        raise SystemExit("fixed-time run requires READY 10-second capacity qualification")
++    if qualification.get("measurement_root") != args.measurement_root:
++        raise SystemExit("qualification and runtime measurement tree roots differ")
++    preflight_identity = json.loads((args.artifact_root / "identity-preflight.json").read_text(encoding="utf-8"))
++    if args.matrix_identity != preflight_identity.get("matrix_identity_sha256"):
++        raise SystemExit("matrix identity changed after dispatch")
++    if current_matrix_identity() != args.matrix_identity:
++        raise SystemExit("source/config/data/binary/contract mutation invalidates the entire matrix")
++    expected_order = ("python", "native") if args.pair_ordinal == 1 else ("native", "python")
++    if args.variant != expected_order[args.order_ordinal - 1]:
++        raise SystemExit("variant does not match required alternating pair order")
++    instances, dataset_sha = validate_dataset()
++    instance = instances[PROB23]
++    production = SubmissionConfig.from_defaults(seed=SEEDS[0])
++    chosen = production
++    binary: dict[str, Any] | None = None
++    if args.variant == "native":
++        if sha256_file(NATIVE_BINARY) != NATIVE_SHA256:
++            raise SystemExit("native binary identity mismatch")
++        os.environ["OGC_NATIVE_MODULE_DIR"] = str(NATIVE_BINARY.parent)
++        chosen = replace(production, repair_backend="native", native_prefilter_enabled=True)
++        binary = {"path": str(NATIVE_BINARY.relative_to(ROOT)), "sha256": NATIVE_SHA256}
++    elif os.environ.get("OGC_NATIVE_MODULE_DIR"):
++        raise SystemExit("Python run refuses OGC_NATIVE_MODULE_DIR")
++    raw = json.loads(instance.read_text(encoding="utf-8"))
++    trace = RunTrace()
++    stdout, stderr = io.StringIO(), io.StringIO()
++    started = time.monotonic()
++    error = None
++    operations = checked = snapshot = None
++    pair_runner_root = ProcessIdentity.parse(args.measurement_root)
++    monitor = RuntimeCapacityMonitor((pair_runner_root,))
++    monitor.start()
++    try:
++        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
++            operations = solve(copy.deepcopy(raw), PROB23_SECONDS, config=chosen, trace=trace)
++        solve_elapsed = time.monotonic() - started
++        checked = check_feasibility(copy.deepcopy(raw), copy.deepcopy(operations))
++        snapshot = reconstruct_snapshot(raw, operations)
++    except Exception as exc:
++        solve_elapsed = time.monotonic() - started
++        error = f"{type(exc).__name__}: {exc}"
++    runtime_capacity = monitor.stop()
++    (output / "solve-stdout.txt").write_text(stdout.getvalue(), encoding="utf-8")
++    (output / "solve-stderr.txt").write_text(stderr.getvalue(), encoding="utf-8")
++    trace_dict = trace.as_dict()
++    invocations = trace_dict.get("lns_invocations", [])
++    objective = None
++    checker = None
++    solution = None
++    if operations is not None and checked is not None and snapshot is not None:
++        write_json_new(output / "solution.json", operations)
++        write_json_new(output / "checker.json", checked)
++        objective = {
++            "z1": snapshot.objective.z1, "z2": snapshot.objective.z2,
++            "z3": snapshot.objective.z3, "total": snapshot.objective.total,
++            "checker_z1": checked.get("obj1"), "checker_z2": checked.get("obj2"),
++            "checker_z3": checked.get("obj3"), "checker_total": checked.get("objective"),
++        }
++        checker = {"feasible": checked.get("feasible"), "stage": checked.get("stage"), "violations": checked.get("violations"), "sha256": sha256_file(output / "checker.json")}
++        solution = {"placement_sha256": snapshot_digest(snapshot), "serialization_sha256": sha256_bytes(canonical_json(operations).encode("utf-8")), "file_sha256": sha256_file(output / "solution.json")}
++    telemetry = aggregate_repair_telemetry(trace_dict)
++    record = {
++        "schema_version": 2,
++        "kind": "quality_recovery_p0_prob23_single_variant",
++        "variant": args.variant,
++        "pair_id": args.pair_id,
++        "pair_ordinal": args.pair_ordinal,
++        "matrix_identity": args.matrix_identity,
++        "order_ordinal": args.order_ordinal,
++        "source_snapshot_sha256": json.loads((args.artifact_root / "identity-preflight.json").read_text())["source"]["source_snapshot_sha256"],
++        "dataset_sha256": dataset_sha,
++        "instance": {"name": PROB23, "sha256": sha256_file(instance)},
++        "config": chosen.as_dict(),
++        "config_sha256": sha256_bytes(canonical_json(chosen.as_dict()).encode("utf-8")),
++        "binary": binary,
++        "budget_seconds": PROB23_SECONDS,
++        "seed": SEEDS[0],
++        "solve_elapsed_seconds": solve_elapsed,
++        "error": error,
++        "checker": checker,
++        "objective": objective,
++        "objective_parity_max_relative_error": objective_parity(objective),
++        "solution": solution,
++        "phase_timings": trace_dict.get("phase_times", {}),
++        "checker_timings": trace_dict.get("checker_durations", []),
++        "alns": {
++            "iterations": sum(int(item.get("iterations", 0)) for item in invocations),
++            "invocations": invocations,
++            "validated_best": trace_dict.get("validated_best", []),
++            "validated_best_events": trace_dict.get("validated_best_events", []),
++            "trace_non_increasing": all(right <= left + 1e-9 for left, right in zip(trace_dict.get("validated_best", []), trace_dict.get("validated_best", [])[1:])),
++        },
++        "native_telemetry": telemetry,
++        "pre_run_qualification": {
++            "path": str(args.qualification),
++            "sha256": sha256_file(args.qualification),
++            "state": qualification["state"],
++        },
++        "runtime_capacity": runtime_capacity,
++        "captured_stdout_sha256": sha256_file(output / "solve-stdout.txt"),
++        "captured_stderr_sha256": sha256_file(output / "solve-stderr.txt"),
++    }
++    write_json_new(output / "run.json", record)
++    print(canonical_json({"run": str(output / "run.json"), "variant": args.variant, "stage": None if checker is None else checker["stage"], "objective": None if objective is None else objective["total"], "error": error, "runtime_capacity_valid": runtime_capacity["valid"]}))
++    return 0 if error is None else 2
++
++
++def command_run_pair(args: argparse.Namespace) -> int:
++    artifact_root = args.artifact_root.resolve()
++    if not re.fullmatch(r"[A-Za-z0-9._-]+", args.pair_id):
++        raise SystemExit("pair id must be an immutable path-safe identifier")
++    pair_root = artifact_root / "prob23" / "pairs" / args.pair_id
++    if pair_root.exists():
++        raise SystemExit(f"refusing to reuse immutable pair id {args.pair_id}")
++    pair_root.mkdir(parents=True)
++    preflight = json.loads((artifact_root / "identity-preflight.json").read_text(encoding="utf-8"))
++    matrix_id = preflight["matrix_identity_sha256"]
++    if current_matrix_identity() != matrix_id:
++        write_json_new(pair_root / "pair.json", {
++            "schema_version": 2,
++            "pair_id": args.pair_id,
++            "pair_ordinal": args.pair_ordinal,
++            "matrix_identity": matrix_id,
++            "status": "INVALID_DISCARD_BOTH",
++            "reason": "matrix_identity_changed_before_pair",
++            "run_disposition": ["DISCARD", "DISCARD"],
++            "required_action": "new_matrix_identity_and_new_immutable_pair_ids",
++        })
++        return 3
++
++    qualification_path = pair_root / "cpu-qualification.json"
++    qualification = acquire_capacity_window()
++    write_json_new(qualification_path, qualification)
++    if qualification["state"] != "READY":
++        status = qualification["state"]
++        write_json_new(pair_root / "pair.json", {
++            "schema_version": 2,
++            "pair_id": args.pair_id,
++            "pair_ordinal": args.pair_ordinal,
++            "matrix_identity": matrix_id,
++            "status": status,
++            "solver_runs_started": 0,
++            "reason": qualification["reason"],
++            "required_action": (
++                "retry_later_with_new_immutable_pair_id"
++                if status == "PENDING_ENVIRONMENT"
++                else "repair_measurement_permission_or_structure_before_retry"
++            ),
++        })
++        return 2 if status == "BLOCKED" else 0
++
++    order = ("python", "native") if args.pair_ordinal == 1 else ("native", "python")
++    pair_runner_root = current_process_identity()
++    command_records: list[dict[str, Any]] = []
++    runs: list[dict[str, Any]] = []
++    for order_ordinal, variant in enumerate(order, 1):
++        output = pair_root / f"run-{order_ordinal}-{variant}"
++        command = [
++            sys.executable, str(Path(__file__).resolve()), "prob23-run",
++            "--artifact-root", str(artifact_root),
++            "--variant", variant,
++            "--pair-id", args.pair_id,
++            "--pair-ordinal", str(args.pair_ordinal),
++            "--order-ordinal", str(order_ordinal),
++            "--matrix-identity", matrix_id,
++            "--qualification", str(qualification_path),
++            "--measurement-root", pair_runner_root.key,
++            "--output", str(output),
++        ]
++        completed = run(command, timeout=PROB23_SECONDS + 60.0)
++        command_records.append(command_record(command, completed))
++        run_path = output / "run.json"
++        if run_path.exists():
++            runs.append(json.loads(run_path.read_text(encoding="utf-8")))
++        if completed.returncode != 0:
++            break
++    pair = evaluate_atomic_pair(
++        pair_id=args.pair_id,
++        pair_ordinal=args.pair_ordinal,
++        matrix_identity=matrix_id,
++        runs=runs,
++    )
++    pair.update({
++        "schema_version": 2,
++        "qualification_sha256": sha256_file(qualification_path),
++        "commands": command_records,
++        "run_files": [
++            {
++                "variant": run["variant"],
++                "path": str(pair_root / f"run-{index}-{run['variant']}" / "run.json"),
++                "sha256": sha256_file(pair_root / f"run-{index}-{run['variant']}" / "run.json"),
++            }
++            for index, run in enumerate(runs, 1)
++        ],
++    })
++    write_json_new(pair_root / "pair.json", pair)
++    print(canonical_json({
++        "pair": str(pair_root / "pair.json"),
++        "status": pair["status"],
++        "required_action": pair["required_action"],
++    }))
++    return 0 if pair["valid"] else 3
++
++
++def seal_manifest(root: Path) -> tuple[int, str]:
++    manifest = root / "SHA256SUMS"
++    if manifest.exists():
++        raise SystemExit("artifact is already sealed")
++    files = sorted(path for path in root.rglob("*") if path.is_file())
++    manifest.write_text(
++        "".join(f"{sha256_file(path)}  {path.relative_to(root)}\n" for path in files),
++        encoding="utf-8",
++    )
++    return len(files), sha256_file(manifest)
++
++
++def command_seal_failed_prepare(args: argparse.Namespace) -> int:
++    root = args.artifact_root.resolve()
++    write_json_new(root / "prepare-failure.json", {
++        "status": "FAILED_PREPARE_ATTEMPT",
++        "recorded_at": now(),
++        "error": args.error,
++        "fixed_time_started": False,
++        "files_overwritten_or_deleted": False,
++    })
++    write_json_new(root / "gate.json", {
++        "phase": 0,
++        "status": "FAIL",
++        "reason": "preflight harness environment probe failed before identity/CPU/fixed-time",
++        "next_phase_allowed": False,
++    })
++    count, digest = seal_manifest(root)
++    print(canonical_json({"sealed_failed_prepare": str(root), "manifest_files": count, "SHA256SUMS_sha256": digest}))
++    return 0
++
++
++def protected_hashes_pass(
++    preflight: Mapping[str, Any], current_hashes: Mapping[str, str] | None = None,
++) -> bool:
++    protected = preflight["protected"]
++    if current_hashes is None:
++        current_hashes = {
++            "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md": sha256_file(
++                ROOT / "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md"
++            ),
++            "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md": sha256_file(
++                ROOT / "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md"
++            ),
++            "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md": sha256_file(
++                ROOT / "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"
++            ),
++        }
++    checks = [
++        protected["baseline/utils.py"] == EXPECTED_CHECKER_SHA256,
++        protected["baseline/baseline_greedy.py"] == EXPECTED_GREEDY_SHA256,
++        protected["docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md"] == EXPECTED_PYBIND_PLAN_SHA256,
++        protected["docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"]
++        == current_hashes["docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"],
++    ]
++    for optional in (
++        "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
++        "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md",
++    ):
++        if optional in protected:
++            checks.append(protected[optional] == current_hashes[optional])
++    return all(checks)
++
++
++def _finalize_without_solver(args: argparse.Namespace, expected_state: str) -> int:
++    root = args.artifact_root.resolve()
++    qualification = json.loads((root / "cpu-qualification.json").read_text(encoding="utf-8"))
++    if qualification.get("state") != expected_state:
++        raise SystemExit(f"{expected_state} finalization requires matching qualification state")
++    scenarios = json.loads((root / "scenarios.json").read_text(encoding="utf-8"))
++    tests = json.loads((root / "tests.json").read_text(encoding="utf-8"))
++    preflight = json.loads((root / "identity-preflight.json").read_text(encoding="utf-8"))
++    pending = expected_state == "PENDING_ENVIRONMENT"
++    not_run_status = "NOT_RUN_PENDING_ENVIRONMENT" if pending else "NOT_RUN_MEASUREMENT_BLOCKED"
++    baseline_summary = {
++        "status": not_run_status,
++        "planned_run_count": scenarios["frozen_python"]["planned_run_count"],
++        "executed_run_count": 0,
++        "stage5_count": 0,
++        "tests_passed": tests["passed"],
++        "tests_count": tests["count"],
++        "partial_matrix_promoted": False,
++        "reason": qualification["reason"],
++    }
++    (root / "baseline/raw.jsonl").write_text("", encoding="utf-8")
++    write_json_new(root / "baseline/summary.json", baseline_summary)
++    not_run = {
++        "status": not_run_status,
++        "planned_pairs": 2,
++        "executed_run_count": 0,
++        "budget_seconds": PROB23_SECONDS,
++        "seed": SEEDS[0],
++        "reason": baseline_summary["reason"],
++        "atomic_pair_disposition": "NO_RUNS_CREATED",
++    }
++    write_json_new(root / "prob23/python.json", {**not_run, "variant": "python"})
++    write_json_new(root / "prob23/native.json", {**not_run, "variant": "native", "binary_sha256": NATIVE_SHA256})
++    comparison = {
++        "status": "INCONCLUSIVE_NOT_RUN",
++        "current_pair_count": 0,
++        "objective_delta": None,
++        "iteration_delta": None,
++        "historical_signal": {
++            "python_objective": 49102302,
++            "python_iterations": 50,
++            "native_objective": 89478006,
++            "native_iterations": 22,
++            "classification": "signal_only_identity_incomplete_for_current_contract",
++        },
++    }
++    write_json_new(root / "comparison.json", comparison)
++    write_json_new(root / "cpu-runtime-summary.json", {
++        "status": "NOT_APPLICABLE_NO_FIXED_TIME_STARTED",
++        "qualification_sha256": sha256_file(root / "cpu-qualification.json"),
++        "processes_changed_or_terminated": False,
++    })
++    preflight["fixed_time_cpu_measurement"] = {
++        "path": "cpu-qualification.json",
++        "sha256": sha256_file(root / "cpu-qualification.json"),
++        "state": expected_state,
++        "solver_runs_started": 0,
++    }
++    preflight["recorded_final_at"] = now()
++    write_json_new(root / "identity.json", preflight)
++    hard10_command = [
++        sys.executable, str(ROOT / "experiments/ogc_sage/benchmark_ogc_sage.py"), "run",
++        "--gate", "constructor", "--variant", "heuristic_lns", "--budgets", "60",
++        "--seeds", *[str(seed) for seed in SEEDS], "--instances", *hard10_instance_names(),
++        "--allow-dirty", "--artifact-root", str(root), "--run-id", "baseline",
++    ]
++    prob23_commands = [
++        [
++            sys.executable, str(Path(__file__).resolve()), "run-pair",
++            "--artifact-root", str(root), "--pair-id", f"<new-immutable-pair-{ordinal}-id>",
++            "--pair-ordinal", str(ordinal),
++        ]
++        for ordinal in (1, 2)
++    ]
++    commands = {
++        "preflight": json.loads((root / "commands-preflight.json").read_text(encoding="utf-8")),
++        "cpu_qualification": {
++            "argv": [sys.executable, str(Path(__file__).resolve()), "cpu-qualification", "--artifact-root", str(root)],
++            "returncode": 0,
++        },
++        "fixed_time": {
++            "status": not_run_status,
++            "frozen_python_matrix": hard10_command,
++            "frozen_python_runtime_requirement": "each fixed-time run must use the same 1-second runtime capacity monitor",
++            "prob23_atomic_alternating_pairs": prob23_commands,
++        },
++        "pre_harness_observation": {
++            "native_import_wrong_cwd": "ModuleNotFoundError: baseline (non-gating command setup error)",
++            "full_tests_then_passed": 204,
++        },
++    }
++    write_json_new(root / "commands.json", commands)
++    gate = {
++        "phase": 0,
++        "status": expected_state,
++        "reason": baseline_summary["reason"],
++        "protected_hashes_pass": protected_hashes_pass(preflight),
++        "dataset_manifest_pass": scenarios["dataset"]["count"] == 40,
++        "hard10_manifest_pass": scenarios["hard10"]["count"] == scenarios["hard10"]["unique_count"] == 10,
++        "full_tests_pass": tests["passed"],
++        "full_tests_count": tests["count"],
++        "frozen_python_matrix": "NOT_RUN",
++        "frozen_python_planned_runs": scenarios["frozen_python"]["planned_run_count"],
++        "frozen_python_completed_runs": 0,
++        "prob23_pair": "NOT_RUN",
++        "prob23_planned_runs": 4,
++        "prob23_completed_runs": 0,
++        "partial_matrix_promoted": False,
++        "cpu_contract_schema_version": CPU_CONTRACT_SCHEMA_VERSION,
++        "raw_ps_used_as_gate": False,
++        "consecutive_clean_heartbeat_windows_used": False,
++        "solver_algorithm_or_default_changed_by_phase0": False,
++        "production_default": "python",
++        "native_mip_interlock": "OFF",
++        "next_phase_allowed": False,
++        "fresh_phase0_retry_allowed": pending,
++        "required_state_change": (
++            "fresh Phase 0 retry may acquire a new 10-second qualified capacity window"
++            if pending
++            else "restore host tick and process-tree measurement permission/coverage"
++        ),
++    }
++    write_json_new(root / "gate.json", gate)
++    count, manifest_sha = seal_manifest(root)
++    print(canonical_json({"gate": expected_state, "artifact_root": str(root), "manifest_files": count, "SHA256SUMS_sha256": manifest_sha}))
++    return 0
++
++
++def command_finalize_pending_environment(args: argparse.Namespace) -> int:
++    return _finalize_without_solver(args, "PENDING_ENVIRONMENT")
++
++
++def command_finalize_blocked(args: argparse.Namespace) -> int:
++    return _finalize_without_solver(args, "BLOCKED")
++
++
++def parser() -> argparse.ArgumentParser:
++    result = argparse.ArgumentParser(description=__doc__)
++    commands = result.add_subparsers(dest="command", required=True)
++    prepare = commands.add_parser("prepare")
++    prepare.add_argument("--artifact-root", type=Path, required=True)
++    prepare.set_defaults(function=command_prepare)
++    qualification = commands.add_parser("cpu-qualification")
++    qualification.add_argument("--artifact-root", type=Path, required=True)
++    qualification.set_defaults(function=command_cpu_qualification)
++    prob23 = commands.add_parser("prob23-run")
++    prob23.add_argument("--artifact-root", type=Path, required=True)
++    prob23.add_argument("--variant", choices=("python", "native"), required=True)
++    prob23.add_argument("--pair-id", required=True)
++    prob23.add_argument("--pair-ordinal", type=int, choices=(1, 2), required=True)
++    prob23.add_argument("--order-ordinal", type=int, choices=(1, 2), required=True)
++    prob23.add_argument("--matrix-identity", required=True)
++    prob23.add_argument("--qualification", type=Path, required=True)
++    prob23.add_argument("--measurement-root", required=True)
++    prob23.add_argument("--output", type=Path, required=True)
++    prob23.set_defaults(function=command_prob23_run)
++    pair = commands.add_parser("run-pair")
++    pair.add_argument("--artifact-root", type=Path, required=True)
++    pair.add_argument("--pair-id", required=True)
++    pair.add_argument("--pair-ordinal", type=int, choices=(1, 2), required=True)
++    pair.set_defaults(function=command_run_pair)
++    finalize = commands.add_parser("finalize-blocked")
++    finalize.add_argument("--artifact-root", type=Path, required=True)
++    finalize.set_defaults(function=command_finalize_blocked)
++    pending = commands.add_parser("finalize-pending-environment")
++    pending.add_argument("--artifact-root", type=Path, required=True)
++    pending.set_defaults(function=command_finalize_pending_environment)
++    failed = commands.add_parser("seal-failed-prepare")
++    failed.add_argument("--artifact-root", type=Path, required=True)
++    failed.add_argument("--error", required=True)
++    failed.set_defaults(function=command_seal_failed_prepare)
++    return result
++
++
++def main() -> int:
++    args = parser().parse_args()
++    return int(args.function(args))
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

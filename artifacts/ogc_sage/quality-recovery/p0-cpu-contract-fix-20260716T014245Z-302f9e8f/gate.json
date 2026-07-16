@@ -1,0 +1,27 @@
+{
+  "all_checks_pass": true,
+  "checks": {
+    "all_four_files_have_fresh_hash": true,
+    "branch_unchanged": true,
+    "exact_four_file_scope": true,
+    "focused_synthetic_10_cases_pass": true,
+    "fresh_execution_hash": true,
+    "fresh_harness_hash": true,
+    "fresh_source_hash": true,
+    "full_tests_204_pass": true,
+    "git_diff_check_pass": true,
+    "head_unchanged": true,
+    "no_actual_qualification_or_fixed_time": true,
+    "old_artifacts_preserved": true,
+    "phase0_retry_and_phase1_not_run": true,
+    "py_compile_pass": true,
+    "unchanged_identities_pass": true
+  },
+  "fresh_phase0_retry_allowed": true,
+  "gate": "PASS",
+  "phase": 0,
+  "phase1_allowed": false,
+  "reason": "approved Phase 0 CPU measurement-contract replacement verified with synthetic evidence; fixed-time outcome remains for a fresh retry",
+  "role": "fix",
+  "status": "FIXED"
+}

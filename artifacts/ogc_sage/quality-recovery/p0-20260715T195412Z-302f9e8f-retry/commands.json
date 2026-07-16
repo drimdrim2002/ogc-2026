@@ -1,0 +1,144 @@
+{
+  "cpu_audit": {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+      "cpu-audit",
+      "--artifact-root",
+      "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry"
+    ],
+    "returncode": 0
+  },
+  "fixed_time": {
+    "frozen_python_matrix": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/benchmark_ogc_sage.py",
+      "run",
+      "--gate",
+      "constructor",
+      "--variant",
+      "heuristic_lns",
+      "--budgets",
+      "60",
+      "--seeds",
+      "20260710",
+      "20260711",
+      "20260712",
+      "--instances",
+      "prob_38.json",
+      "prob_23.json",
+      "prob_40.json",
+      "prob_25.json",
+      "prob_27.json",
+      "prob_39.json",
+      "prob_21.json",
+      "prob_33.json",
+      "prob_28.json",
+      "prob_24.json",
+      "--allow-dirty",
+      "--artifact-root",
+      "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+      "--run-id",
+      "baseline"
+    ],
+    "prob23_alternating": [
+      [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+        "prob23-run",
+        "--artifact-root",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+        "--variant",
+        "python",
+        "--repetition",
+        "1",
+        "--order-ordinal",
+        "1",
+        "--output",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry/prob23/r1-1-python"
+      ],
+      [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+        "prob23-run",
+        "--artifact-root",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+        "--variant",
+        "native",
+        "--repetition",
+        "1",
+        "--order-ordinal",
+        "2",
+        "--output",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry/prob23/r1-2-native"
+      ],
+      [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+        "prob23-run",
+        "--artifact-root",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+        "--variant",
+        "native",
+        "--repetition",
+        "2",
+        "--order-ordinal",
+        "3",
+        "--output",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry/prob23/r2-3-native"
+      ],
+      [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py",
+        "prob23-run",
+        "--artifact-root",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+        "--variant",
+        "python",
+        "--repetition",
+        "2",
+        "--order-ordinal",
+        "4",
+        "--output",
+        "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry/prob23/r2-4-python"
+      ]
+    ],
+    "status": "NOT_RUN_CPU_BLOCKED"
+  },
+  "pre_harness_observation": {
+    "full_tests_then_passed": 204,
+    "native_import_wrong_cwd": "ModuleNotFoundError: baseline (non-gating command setup error)"
+  },
+  "preflight": [
+    {
+      "argv": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+      "returncode": 0,
+      "stderr": "",
+      "stdout": ""
+    },
+    {
+      "argv": [
+        "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-p",
+        "test_*.py",
+        "-v"
+      ],
+      "count": 204,
+      "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/baseline",
+      "passed": true,
+      "returncode": 0,
+      "stderr_sha256": "5ae357eb93023f4b5351b31cc32a7350fd18c4527039f0c22ecbacb9a93581c9",
+      "stdout_sha256": "a760a6c4e41680f528dd3398fa7b9f3a042dba5b643be5b652810f7e62b5cc27"
+    }
+  ]
+}

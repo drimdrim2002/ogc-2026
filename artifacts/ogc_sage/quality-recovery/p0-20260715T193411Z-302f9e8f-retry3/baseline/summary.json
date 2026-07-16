@@ -1,0 +1,10 @@
+{
+  "executed_run_count": 0,
+  "partial_matrix_promoted": false,
+  "planned_run_count": 30,
+  "reason": "persistent external PID >=25% in both required CPU snapshots",
+  "stage5_count": 0,
+  "status": "NOT_RUN_CPU_BLOCKED",
+  "tests_count": 204,
+  "tests_passed": true
+}

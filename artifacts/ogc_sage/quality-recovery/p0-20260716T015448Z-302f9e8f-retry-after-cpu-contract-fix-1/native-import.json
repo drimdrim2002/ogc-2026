@@ -1,0 +1,13 @@
+{
+  "api": {
+    "api_version": 1,
+    "name": "ogc_native_empty_kernel",
+    "repair_api_version": 2
+  },
+  "available": true,
+  "loaded_path": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native/_ogc_native.cpython-312-darwin.so",
+  "repair_api_version": 2,
+  "requested_path": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native/_ogc_native.cpython-312-darwin.so",
+  "sha256": "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d",
+  "size_bytes": 282160
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 3,
+  "status": "PASS",
+  "gating_fields": {
+    "host_tick_valid": "structural BLOCKED when false",
+    "temporal_coverage": ">=0.95 qualification READY boundary; runtime below invalid",
+    "max_sample_gap_seconds": "<=2.5 qualification/runtime inclusive boundary",
+    "measurement_subtree_identity_complete": "structural BLOCKED when false",
+    "measurement_subtraction_complete": "structural BLOCKED when false"
+  },
+  "diagnostic_only_fields": {
+    "process_access_coverage": "accessible PID count / observed PID count",
+    "cpu_time_attribution_coverage": "accessible non-measurement CPU seconds / host-derived external busy seconds, clamped 0..1"
+  },
+  "process_error_taxonomy": [
+    "AccessDenied",
+    "NoSuchProcess",
+    "ZombieProcess",
+    "OSError"
+  ],
+  "system_tick_errors_separate": true,
+  "temporal_sampling_errors_separate": true,
+  "aggregate_external_busy_formula": "host cumulative busy seconds - measurement subtree CPU seconds",
+  "inaccessible_non_measurement_workload_excluded": false,
+  "raw_ps_role": "diagnostic_only_never_gate_input",
+  "thresholds_unchanged": {
+    "qualification_average_available_min_inclusive": 0.7,
+    "qualification_rolling_5s_available_min_inclusive": 0.5,
+    "runtime_average_external_max_exclusive": 0.3,
+    "runtime_rolling_5s_external_max_exclusive": 0.5,
+    "known_competing_compute_core_equivalent_min_inclusive": 0.5,
+    "pair_mean_external_delta_max_inclusive": 0.05,
+    "pair_p95_external_delta_max_inclusive": 0.1
+  }
+}

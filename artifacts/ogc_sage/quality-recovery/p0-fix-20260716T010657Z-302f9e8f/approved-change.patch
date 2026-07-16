@@ -1,0 +1,9 @@
+--- a/experiments/ogc_sage/verify_quality_p0.py
++++ b/experiments/ogc_sage/verify_quality_p0.py
+@@ -691,7 +691,7 @@
+             preflight["protected"]["baseline/utils.py"] == "d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94",
+             preflight["protected"]["baseline/baseline_greedy.py"] == "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b",
+             preflight["protected"]["docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md"] == "7c083a6238c11ed8c84712c22c879d26205094cd8048ca6ac3c4363bc3c6597d",
+-            preflight["protected"]["docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"] == "b1dddfa9fe5059574ef477f87f6468f1c8e5bd8a74e26eb51d1af9e1e81360fe",
++            preflight["protected"]["docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"] == sha256_file(ROOT / "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md"),
+         ]),

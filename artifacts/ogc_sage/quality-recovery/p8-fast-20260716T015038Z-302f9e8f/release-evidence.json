@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "run_id": "p8-fast-20260716T015038Z-302f9e8f",
+  "decision": "GO_WITH_DEADLINE_WAIVER",
+  "source": {
+    "head": "302f9e8f0d3cd5eba8f68f633d1a2ba9013396aa",
+    "working_tree_clean": false,
+    "solver_python_aggregate_sha256": "ec7fad6917ce977d1da598d332f0e9428f42236535753eeede7ad52270553fdc",
+    "production_config_sha256": "f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a",
+    "production_config": {
+      "assignment_enabled": true,
+      "constructor_enabled": true,
+      "constructor_selection_policy": "eager_regret",
+      "interlock_enabled": false,
+      "lns_enabled": true,
+      "mip_enabled": false,
+      "native_prefilter_enabled": false,
+      "neighborhood_policy": "legacy",
+      "repair_backend": "python",
+      "retime_enabled": true,
+      "retime_exact_z1_skip": false,
+      "seed": 20260710
+    }
+  },
+  "accepted_results": {
+    "provenance": "user_supplied",
+    "raw_artifact_available": false,
+    "budget_seconds": 120,
+    "user_asserted_feasible_and_stage_5": true,
+    "objective_arithmetic_verified_against_local_official_weights": true,
+    "rows": [
+      {"instance": "prob_21.json", "instance_sha256": "7026d83d43d479118c6edc918dcddc877c89c3e669163d7228d761912ce8f98b", "solver_seconds": 114.152, "objective": 37563115, "z1": 2775, "z2": 829, "z3": 3705},
+      {"instance": "prob_22.json", "instance_sha256": "798f79582b85ca8b312b70b5b6dcbedf4ab1610807c027b9fadf68af6b2d3d12", "solver_seconds": 114.167, "objective": 4703663, "z1": 259, "z2": 1872, "z3": 3112},
+      {"instance": "prob_23.json", "instance_sha256": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738", "solver_seconds": 114.142, "objective": 59034462, "z1": 4325, "z2": 541, "z3": 1940},
+      {"instance": "prob_24.json", "instance_sha256": "b236dc3e0a3326bf25af9762754fdb9ac8cd2277cc5eb030c37162c51d111e60", "solver_seconds": 114.102, "objective": 42703006, "z1": 3157, "z2": 1125, "z3": 2017},
+      {"instance": "prob_25.json", "instance_sha256": "bc05276709763260f8412c37742106d34f44991e0d6ecf163c5e183727057fb5", "solver_seconds": 114.127, "objective": 5892441, "z1": 8765, "z2": 226, "z3": 2298}
+    ]
+  },
+  "verification": {
+    "baseline_tests": {"passed": 204, "failed": 0},
+    "git_diff_check": "PASS",
+    "archive_zip_test": "PASS",
+    "clean_smoke_normal": {"feasible": true, "stage": 5, "stdout": "", "stderr": ""},
+    "clean_smoke_gurobi_absent": {"feasible": true, "stage": 5, "stdout": "", "stderr": ""}
+  },
+  "archive": {
+    "path": "archive/submission.zip",
+    "sha256": "bb519ad9c96bf8a4be96b2d5a1c9c4d96f5ea891e3b3ef51ba28fae659e357cb",
+    "size_bytes": 100851,
+    "member_count": 19
+  },
+  "waivers": [
+    "all-40 multi-budget multi-seed matrix not run",
+    "phase 0 through phase 7 sequential rerun not run",
+    "1800-second exploitation probe not run",
+    "user-supplied performance rows have no raw artifact or source identity",
+    "working tree is dirty; release identity is bound to archive and member hashes"
+  ]
+}

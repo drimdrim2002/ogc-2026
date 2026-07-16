@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "kind": "prepare_only_no_cpu_qualification",
+  "temporary_artifact_root": "/tmp/p0-process-coverage-prepare-smoke-20260716T022130Z",
+  "schema_version": 3,
+  "measurement_contract_sha256": "f09bdb21a2dae7215f675ee6ca746e26eee8d07f9fc0cb5843265b436484e45b",
+  "identity_preflight_sha256": "b9076691277684af2fde3a08547df6319f24b6edd1660b39b70a43fc77096893",
+  "tests_record_sha256": "1caeca23e22e405b7aba1a537d87e6b7e7e7c5ebf18e604affda2156fc70f7eb",
+  "source_snapshot_sha256": "236afdc81818d9d79af5da14624e70d826ea3096589b8f527920119c4497da8a",
+  "tests_count": 204,
+  "tests_passed": true,
+  "cpu_qualification_started": false
+}

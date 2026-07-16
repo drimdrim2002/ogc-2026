@@ -1,0 +1,59 @@
+{
+  "focused_synthetic": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "/tmp/test_quality_p0_cpu_contract.py"
+  ],
+  "full_tests": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "-m",
+    "unittest",
+    "discover",
+    "-s",
+    "tests",
+    "-p",
+    "test_*.py",
+    "-v"
+  ],
+  "git_diff_check": [
+    "git",
+    "diff",
+    "--check"
+  ],
+  "old_artifact_verification": [
+    [
+      "shasum",
+      "-a",
+      "256",
+      "-c",
+      "SHA256SUMS"
+    ],
+    [
+      "shasum",
+      "-a",
+      "256",
+      "-c",
+      "SHA256SUMS"
+    ],
+    [
+      "shasum",
+      "-a",
+      "256",
+      "-c",
+      "SHA256SUMS"
+    ]
+  ],
+  "prepare_only_cli_smoke": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "experiments/ogc_sage/verify_quality_p0.py",
+    "prepare",
+    "--artifact-root",
+    "/tmp/p0-cpu-contract-prepare-smoke-20260716T014245Z"
+  ],
+  "prohibited_commands_run": [],
+  "py_compile": [
+    "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+    "-m",
+    "py_compile",
+    "/Users/brown/workspace/ogc/sol-native-implementation/experiments/ogc_sage/verify_quality_p0.py"
+  ]
+}

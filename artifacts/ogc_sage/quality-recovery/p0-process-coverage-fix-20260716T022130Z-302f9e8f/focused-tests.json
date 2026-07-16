@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "passed": 13,
+  "failed": 0,
+  "fixture_path": "/tmp/test_quality_p0_process_coverage.py",
+  "fixture_sha256": "d0a4daa48221138414c79c9a6db632dc62340603499e5034c1f9a9ca8f72fbb2",
+  "cases": {
+    "latest_73_475_pid_fixture_ready": true,
+    "pid_reachability_50_75_100_diagnostic_only": true,
+    "unattributed_cpu_remains_external": true,
+    "temporal_and_gap_boundaries": true,
+    "qualification_state_taxonomy": true,
+    "runtime_temporal_gap_subtree_invalidation": true,
+    "categorized_process_errors_diagnostic": true,
+    "visible_competitor_half_core_5s": true,
+    "aggregate_70_50_30_boundaries": true,
+    "atomic_pair_and_fairness_boundaries": true,
+    "raw_ps_historical_fixture_diagnostic_only": true,
+    "protected_hash_contract_regressions": true,
+    "schema_v3_independent_axes": true
+  },
+  "actual_cpu_qualification_run": false,
+  "fixed_time_or_solver_run": false
+}

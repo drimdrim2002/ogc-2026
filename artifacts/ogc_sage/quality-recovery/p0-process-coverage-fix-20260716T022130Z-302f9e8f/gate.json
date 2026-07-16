@@ -1,0 +1,19 @@
+{
+  "phase": 0,
+  "role": "process_coverage_semantics_fix",
+  "status": "FIXED",
+  "gate": "PASS",
+  "approved_single_root_cause_fixed": true,
+  "exact_four_file_scope_pass": true,
+  "focused_tests": "13/13 PASS",
+  "prepare_only_schema_v3_smoke": "PASS",
+  "py_compile": "PASS",
+  "full_baseline_tests": "204/204 PASS",
+  "git_diff_check": "PASS",
+  "five_prior_artifacts_preserved": true,
+  "solver_default_config_data_native_benchmark_unchanged": true,
+  "actual_cpu_qualification_run": false,
+  "phase0_retry_run": false,
+  "phase1_allowed": false,
+  "fresh_phase0_retry_allowed": true
+}

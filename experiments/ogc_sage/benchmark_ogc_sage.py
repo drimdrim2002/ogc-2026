@@ -1153,9 +1153,13 @@ def command_run(args: argparse.Namespace) -> int:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = args.run_id or f"step9-{args.gate}-{timestamp}-{source_commit[:12]}-{digest[:12]}"
     artifact_root = (
-        PERFORMANCE_ARTIFACT_ROOT
-        if args.gate in {"baseline", "phase0"}
-        else ARTIFACT_ROOT
+        Path(args.artifact_root).resolve()
+        if args.artifact_root
+        else (
+            PERFORMANCE_ARTIFACT_ROOT
+            if args.gate in {"baseline", "phase0"}
+            else ARTIFACT_ROOT
+        )
     )
     run_dir = artifact_root / run_id
     raw_path = run_dir / RAW_NAME
@@ -1299,6 +1303,10 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--seeds", nargs="+", type=int, required=True)
     run.add_argument("--instances", nargs="+")
     run.add_argument("--run-id")
+    run.add_argument(
+        "--artifact-root",
+        help="benchmark-only override for the parent artifact directory",
+    )
     run.add_argument("--source-commit")
     run.add_argument("--allow-dirty", action="store_true")
     run.add_argument(

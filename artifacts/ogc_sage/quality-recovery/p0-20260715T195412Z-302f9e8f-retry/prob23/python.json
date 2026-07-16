@@ -1,0 +1,9 @@
+{
+  "budget_seconds": 120.0,
+  "executed_run_count": 0,
+  "planned_repetitions": 2,
+  "reason": "persistent external PID >=25% in both required CPU snapshots",
+  "seed": 20260710,
+  "status": "NOT_RUN_CPU_BLOCKED",
+  "variant": "python"
+}

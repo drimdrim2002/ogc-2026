@@ -1,0 +1,33 @@
+{
+  "all_checks_pass": true,
+  "checks": {
+    "benchmark_unchanged": true,
+    "branch_unchanged": true,
+    "checker_unchanged": true,
+    "config_unchanged": true,
+    "dataset_unchanged": true,
+    "focused_fixture_pass": true,
+    "fresh_execution_identity": true,
+    "fresh_harness_identity": true,
+    "fresh_source_identity": true,
+    "git_diff_check_pass": true,
+    "greedy_unchanged": true,
+    "hard10_unchanged": true,
+    "head_unchanged": true,
+    "native_binary_unchanged": true,
+    "old_artifacts_preserved": true,
+    "only_harness_execution_file_changed": true,
+    "phase0_pre_append_identity": true,
+    "prob23_unchanged": true,
+    "py_compile_pass": true,
+    "pybind_plan_unchanged": true,
+    "tracked_diff_unchanged": true
+  },
+  "fresh_phase0_retry_allowed": true,
+  "gate": "PASS",
+  "phase": 0,
+  "phase1_allowed": false,
+  "reason": "approved single-cause harness fix verified; final Phase 0 outcome remains for a fresh retry",
+  "role": "fix",
+  "status": "FIXED"
+}

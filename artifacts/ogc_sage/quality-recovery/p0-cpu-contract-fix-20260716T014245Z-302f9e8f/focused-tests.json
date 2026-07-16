@@ -1,0 +1,29 @@
+{
+  "actual_cpu_qualification_run": false,
+  "command": {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "/tmp/test_quality_p0_cpu_contract.py"
+    ],
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+    "returncode": 0
+  },
+  "result": {
+    "cases": {
+      "aggregate_and_rolling_boundaries": true,
+      "atomic_alternating_pair_invalidation": true,
+      "core_normalization_4_10_16": true,
+      "diagnostic_classification": true,
+      "dispatch_frozen_hash_contract": true,
+      "fairness_5pp_10pp_boundaries": true,
+      "historical_raw_ps_not_gate": true,
+      "liveness_states": true,
+      "runtime_fail_closed": true,
+      "tree_ancestry_and_pid_reuse": true
+    },
+    "passed": true
+  },
+  "solver_or_fixed_time_run": false,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stdout_sha256": "542c7324b4dbef60814b00babe77a2411c144c74bece9546b9c8cb2a5e09fac0"
+}

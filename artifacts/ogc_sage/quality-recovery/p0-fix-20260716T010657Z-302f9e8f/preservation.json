@@ -1,0 +1,70 @@
+{
+  "changed_execution_files_vs_prior_retry": [
+    "experiments/ogc_sage/verify_quality_p0.py"
+  ],
+  "checks": {
+    "benchmark_unchanged": true,
+    "branch_unchanged": true,
+    "checker_unchanged": true,
+    "config_unchanged": true,
+    "dataset_unchanged": true,
+    "focused_fixture_pass": true,
+    "fresh_execution_identity": true,
+    "fresh_harness_identity": true,
+    "fresh_source_identity": true,
+    "git_diff_check_pass": true,
+    "greedy_unchanged": true,
+    "hard10_unchanged": true,
+    "head_unchanged": true,
+    "native_binary_unchanged": true,
+    "old_artifacts_preserved": true,
+    "only_harness_execution_file_changed": true,
+    "phase0_pre_append_identity": true,
+    "prob23_unchanged": true,
+    "py_compile_pass": true,
+    "pybind_plan_unchanged": true,
+    "tracked_diff_unchanged": true
+  },
+  "old_artifacts": [
+    {
+      "all_entries_pass": true,
+      "expected_self_sha256": "83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88",
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260715T193411Z-302f9e8f-retry3",
+      "self_hash_pass": true,
+      "sha256sums_self_sha256": "83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88",
+      "verify_command": {
+        "argv": [
+          "shasum",
+          "-a",
+          "256",
+          "-c",
+          "SHA256SUMS"
+        ],
+        "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T193411Z-302f9e8f-retry3",
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "baseline/raw.jsonl: OK\nbaseline/summary.json: OK\ncommands-preflight.json: OK\ncommands.json: OK\ncomparison.json: OK\ncpu-audit-after.json: OK\ncpu-audit-before.json: OK\ngate.json: OK\nidentity-preflight.json: OK\nidentity.json: OK\nnative-import.json: OK\nprob23/native.json: OK\nprob23/python.json: OK\nscenarios.json: OK\ntests.json: OK\ntests.stderr.txt: OK\ntests.stdout.txt: OK\n"
+      }
+    },
+    {
+      "all_entries_pass": true,
+      "expected_self_sha256": "52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d",
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+      "self_hash_pass": true,
+      "sha256sums_self_sha256": "52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d",
+      "verify_command": {
+        "argv": [
+          "shasum",
+          "-a",
+          "256",
+          "-c",
+          "SHA256SUMS"
+        ],
+        "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "baseline/raw.jsonl: OK\nbaseline/summary.json: OK\ncommands-preflight.json: OK\ncommands.json: OK\ncomparison.json: OK\ncpu-audit-after.json: OK\ncpu-audit-before.json: OK\ncpu-audit-invocations.json: OK\ngate.json: OK\nidentity-preflight.json: OK\nidentity.json: OK\nnative-import.json: OK\nprob23/native.json: OK\nprob23/python.json: OK\nretry-contract-audit.json: OK\nscenarios.json: OK\ntests.json: OK\ntests.stderr.txt: OK\ntests.stdout.txt: OK\n"
+      }
+    }
+  ]
+}

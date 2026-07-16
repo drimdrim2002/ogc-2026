@@ -1,0 +1,90 @@
+{
+  "dataset_sha256": "c093fb98b17c714ea5b9c8c829d4bce24dd378f0b558196ce0961feb68b34e1f",
+  "frozen_config_sha256": "f18a0d3ee7a5f2c76ef59bad6f53c0144288b2134fc3252d59ac9dc477f5924a",
+  "hard10_manifest_sha256": "5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7",
+  "old_artifacts": [
+    {
+      "actual_sha256sums_self": "83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88",
+      "expected_sha256sums_self": "83ad801d22aa954e217a2dd833cd3fbea3349e1fcbc7bfbed0cf4477b764db88",
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260715T193411Z-302f9e8f-retry3",
+      "recursive_manifest_pass": true,
+      "self_hash_pass": true,
+      "verification": {
+        "argv": [
+          "shasum",
+          "-a",
+          "256",
+          "-c",
+          "SHA256SUMS"
+        ],
+        "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T193411Z-302f9e8f-retry3",
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "baseline/raw.jsonl: OK\nbaseline/summary.json: OK\ncommands-preflight.json: OK\ncommands.json: OK\ncomparison.json: OK\ncpu-audit-after.json: OK\ncpu-audit-before.json: OK\ngate.json: OK\nidentity-preflight.json: OK\nidentity.json: OK\nnative-import.json: OK\nprob23/native.json: OK\nprob23/python.json: OK\nscenarios.json: OK\ntests.json: OK\ntests.stderr.txt: OK\ntests.stdout.txt: OK\n"
+      }
+    },
+    {
+      "actual_sha256sums_self": "52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d",
+      "expected_sha256sums_self": "52ac85e2c9b87292154801e8517d394e05241253b1b8b6dd11189b8de6c2640d",
+      "path": "artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+      "recursive_manifest_pass": true,
+      "self_hash_pass": true,
+      "verification": {
+        "argv": [
+          "shasum",
+          "-a",
+          "256",
+          "-c",
+          "SHA256SUMS"
+        ],
+        "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-20260715T195412Z-302f9e8f-retry",
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "baseline/raw.jsonl: OK\nbaseline/summary.json: OK\ncommands-preflight.json: OK\ncommands.json: OK\ncomparison.json: OK\ncpu-audit-after.json: OK\ncpu-audit-before.json: OK\ncpu-audit-invocations.json: OK\ngate.json: OK\nidentity-preflight.json: OK\nidentity.json: OK\nnative-import.json: OK\nprob23/native.json: OK\nprob23/python.json: OK\nretry-contract-audit.json: OK\nscenarios.json: OK\ntests.json: OK\ntests.stderr.txt: OK\ntests.stdout.txt: OK\n"
+      }
+    },
+    {
+      "actual_sha256sums_self": "cfb7fc57202a16d2ca2b93eeb38ee9ac889cfee5d4c531a584d962b06c05b229",
+      "expected_sha256sums_self": "cfb7fc57202a16d2ca2b93eeb38ee9ac889cfee5d4c531a584d962b06c05b229",
+      "path": "artifacts/ogc_sage/quality-recovery/p0-fix-20260716T010657Z-302f9e8f",
+      "recursive_manifest_pass": true,
+      "self_hash_pass": true,
+      "verification": {
+        "argv": [
+          "shasum",
+          "-a",
+          "256",
+          "-c",
+          "SHA256SUMS"
+        ],
+        "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/artifacts/ogc_sage/quality-recovery/p0-fix-20260716T010657Z-302f9e8f",
+        "returncode": 0,
+        "stderr": "",
+        "stdout": "approved-change.patch: OK\ncommands.json: OK\nfocused-tests.json: OK\ngate.json: OK\nidentity.json: OK\nold-new-hashes.json: OK\npreservation.json: OK\nscope.json: OK\n"
+      }
+    }
+  ],
+  "old_artifacts_all_preserved": true,
+  "prob23_sha256": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+  "unchanged_actual": {
+    "artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native/_ogc_native.cpython-312-darwin.so": "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d",
+    "baseline/baseline_greedy.py": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b",
+    "baseline/utils.py": "d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94",
+    "data/train/prob_23.json": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+    "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md": "7c083a6238c11ed8c84712c22c879d26205094cd8048ca6ac3c4363bc3c6597d",
+    "docs/implementation/sol/performance/HARD10_MANIFEST.json": "5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7",
+    "docs/implementation/sol/quality-recovery/README.md": "3647d5f1363a8546624ee69520e642e16824753ba14e9b4c35b4dd581f203563",
+    "experiments/ogc_sage/benchmark_ogc_sage.py": "3f11bffd338491b3df09d6b933c51f24a1900e27e1db05d1b34ab9fad49e4b59"
+  },
+  "unchanged_all_pass": true,
+  "unchanged_expected": {
+    "artifacts/ogc_sage/step9/pybind-p7-fix1-macos-20260716/native/_ogc_native.cpython-312-darwin.so": "38352e2040e311822ffa591e6d98a0b7754299bc935cd521f9778b508692232d",
+    "baseline/baseline_greedy.py": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b",
+    "baseline/utils.py": "d45aaeafdce8bf80d59d097f655c43313a4951bed43b6628e3b1cf62d4876a94",
+    "data/train/prob_23.json": "1b0e48c383157c3140d4197f1bb3326f9e67e0ded0d8345bcc35d57186b94738",
+    "docs/implementation/sol/11_PYBIND_REPAIR_KERNEL_ACCELERATION_PLAN.md": "7c083a6238c11ed8c84712c22c879d26205094cd8048ca6ac3c4363bc3c6597d",
+    "docs/implementation/sol/performance/HARD10_MANIFEST.json": "5499cf993f5018dceca0464dfcaf0c328e129cb7ed4946c79cc4e1860127d3b7",
+    "docs/implementation/sol/quality-recovery/README.md": "3647d5f1363a8546624ee69520e642e16824753ba14e9b4c35b4dd581f203563",
+    "experiments/ogc_sage/benchmark_ogc_sage.py": "3f11bffd338491b3df09d6b933c51f24a1900e27e1db05d1b34ab9fad49e4b59"
+  }
+}

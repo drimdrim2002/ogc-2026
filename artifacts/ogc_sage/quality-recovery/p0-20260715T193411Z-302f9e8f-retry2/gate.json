@@ -1,0 +1,8 @@
+{
+  "cpu_audit_start_interval_seconds": 2.510076416976517,
+  "fixed_time_started": false,
+  "next_phase_allowed": false,
+  "phase": 0,
+  "reason": "identity incomplete: sandboxed sysctl left physical CPU and RAM null; fixed-time was not started",
+  "status": "INCONCLUSIVE"
+}

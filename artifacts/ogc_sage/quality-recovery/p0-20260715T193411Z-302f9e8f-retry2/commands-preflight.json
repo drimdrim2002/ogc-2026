@@ -1,0 +1,32 @@
+[
+  {
+    "argv": [
+      "git",
+      "diff",
+      "--check"
+    ],
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+  },
+  {
+    "argv": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "unittest",
+      "discover",
+      "-s",
+      "tests",
+      "-p",
+      "test_*.py",
+      "-v"
+    ],
+    "count": 204,
+    "cwd": "/Users/brown/workspace/ogc/sol-native-implementation/baseline",
+    "passed": true,
+    "returncode": 0,
+    "stderr_sha256": "71887703abf3395b7cfa630c14d887220f3b4153ee10828967c011b571d0564a",
+    "stdout_sha256": "a760a6c4e41680f528dd3398fa7b9f3a042dba5b643be5b652810f7e62b5cc27"
+  }
+]

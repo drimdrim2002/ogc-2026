@@ -1,0 +1,10 @@
+{
+  "error": "FileNotFoundError: cmake was not on PATH during version identity probe",
+  "files_overwritten_or_deleted": false,
+  "fixed_time_started": false,
+  "recorded_at": {
+    "kst": "2026-07-16T04:37:18.148886+09:00",
+    "utc": "2026-07-15T19:37:18.148886+00:00"
+  },
+  "status": "FAILED_PREPARE_ATTEMPT"
+}

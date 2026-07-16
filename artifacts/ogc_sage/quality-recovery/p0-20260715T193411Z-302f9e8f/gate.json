@@ -1,0 +1,6 @@
+{
+  "next_phase_allowed": false,
+  "phase": 0,
+  "reason": "preflight harness environment probe failed before identity/CPU/fixed-time",
+  "status": "FAIL"
+}

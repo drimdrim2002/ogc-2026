@@ -1,0 +1,14 @@
+{
+  "status": "PASS",
+  "canonical_interpreter": "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+  "py_compile": "PASS",
+  "full_baseline": {
+    "count": 204,
+    "passed": 204,
+    "failed": 0,
+    "returncode": 0
+  },
+  "git_diff_check": "PASS",
+  "actual_cpu_qualification_run": false,
+  "fixed_time_or_solver_run": false
+}

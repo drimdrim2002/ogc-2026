@@ -1,0 +1,15 @@
+{
+  "approved_cause": "finalize-blocked compared retry-frozen Phase 0 document identity to the original pre-append constant",
+  "artifact_schema_changed": false,
+  "checker_greedy_pybind_absolute_hashes_retained": true,
+  "cpu_gate_changed": false,
+  "fixed_time_or_cpu_audit_executed": false,
+  "new_tracked_test_or_source_created": false,
+  "phase0_retry_or_phase1_executed": false,
+  "semantic_change": "compare the retry-specific Phase 0 document SHA-256 frozen in identity-preflight.json with the Phase 0 document SHA-256 recalculated at finalize time",
+  "solver_or_benchmark_behavior_changed": false,
+  "source_files_modified": [
+    "experiments/ogc_sage/verify_quality_p0.py"
+  ],
+  "source_line": 694
+}

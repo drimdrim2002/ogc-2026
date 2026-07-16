@@ -1,0 +1,8 @@
+{
+  "cpu_audit_start_interval_seconds": 3.040743332996499,
+  "fixed_time_started": false,
+  "next_phase_allowed": false,
+  "phase": 0,
+  "reason": "CPU snapshot start interval 3.040743333s exceeded the required 2..3 second window",
+  "status": "INCONCLUSIVE"
+}

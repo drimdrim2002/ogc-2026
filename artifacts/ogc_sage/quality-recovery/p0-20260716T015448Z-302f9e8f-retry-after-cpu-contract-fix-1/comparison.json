@@ -1,0 +1,13 @@
+{
+  "current_pair_count": 0,
+  "historical_signal": {
+    "classification": "signal_only_identity_incomplete_for_current_contract",
+    "native_iterations": 22,
+    "native_objective": 89478006,
+    "python_iterations": 50,
+    "python_objective": 49102302
+  },
+  "iteration_delta": null,
+  "objective_delta": null,
+  "status": "INCONCLUSIVE_NOT_RUN"
+}

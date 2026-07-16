@@ -1,0 +1,22 @@
+{
+  "actual_cpu_qualification_or_fixed_time_executed": false,
+  "approved_single_cause": "replace Phase 0 fixed-time CPU measurement contract",
+  "artifact_files_are_evidence_not_solver_source": true,
+  "changed_file_count": 4,
+  "changed_files_exact": [
+    "docs/implementation/sol/12_SOLUTION_QUALITY_RECOVERY_PLAN.md",
+    "docs/implementation/sol/quality-recovery/SCHEDULER_PROTOCOL.md",
+    "docs/implementation/sol/quality-recovery/00_BASELINE_AND_REGRESSION_CONTRACT.md",
+    "experiments/ogc_sage/verify_quality_p0.py"
+  ],
+  "exact_diff_representation": {
+    "path": "exact-four-file-postimage.patch",
+    "postimage_identity": "full byte-exact postimage plus new SHA-256 per file",
+    "preimage_identity": "old SHA-256 per file",
+    "reason": "all four authorized files are pre-existing untracked workspace files, so git has no index preimage"
+  },
+  "new_tracked_source_or_test_files": [],
+  "phase0_retry_or_phase1_executed": false,
+  "role": "quality-p0-cpu-contract-fix-1",
+  "solver_algorithm_default_config_data_binary_benchmark_behavior_changed": false
+}

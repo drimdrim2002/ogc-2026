@@ -1,0 +1,26 @@
+{
+  "archive": "submission.zip",
+  "sha256": "bb519ad9c96bf8a4be96b2d5a1c9c4d96f5ea891e3b3ef51ba28fae659e357cb",
+  "size_bytes": 100851,
+  "members": [
+    "myalgorithm.py",
+    "utils.py",
+    "solver/__init__.py",
+    "solver/alns.py",
+    "solver/assignment.py",
+    "solver/budget.py",
+    "solver/construct.py",
+    "solver/entry.py",
+    "solver/fallback.py",
+    "solver/geometry.py",
+    "solver/instance.py",
+    "solver/interlock.py",
+    "solver/native_repair.py",
+    "solver/neighborhoods.py",
+    "solver/repair_mip.py",
+    "solver/retime.py",
+    "solver/runtime.py",
+    "solver/serialize.py",
+    "solver/state.py"
+  ]
+}

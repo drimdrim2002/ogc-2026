@@ -1,0 +1,15 @@
+{
+  "decision": "GO_WITH_DEADLINE_WAIVER",
+  "user_result_rows": 5,
+  "user_result_rows_feasible_stage_5": 5,
+  "objective_arithmetic_verified": 5,
+  "baseline_tests_passed": 204,
+  "baseline_tests_failed": 0,
+  "archive_integrity": "PASS",
+  "archive_size": "PASS",
+  "clean_import_normal": "PASS",
+  "clean_import_gurobi_absent": "PASS",
+  "public_silence": "PASS",
+  "solver_modified_by_fast_gate": false,
+  "deadline_waiver_required": true
+}
