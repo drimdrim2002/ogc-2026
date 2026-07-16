@@ -637,6 +637,7 @@ class RetimeWallPolicy:
         "wall_fraction_cap",
         "solve_timebox_seconds",
         "clock",
+        "_logical_reserved_seconds",
     )
 
     def __init__(
@@ -665,6 +666,7 @@ class RetimeWallPolicy:
         self.wall_fraction_cap = float(wall_fraction_cap)
         self.solve_timebox_seconds = float(solve_timebox_seconds)
         self.clock = clock
+        self._logical_reserved_seconds = 0.0
 
     def call_timebox(
         self,
@@ -699,6 +701,42 @@ class RetimeWallPolicy:
         if remaining_deadline > max_additional_retime + 1e-12:
             return None
         return min(self.solve_timebox_seconds, remaining_deadline)
+
+    def logical_call_timebox(
+        self,
+        trigger: RetimeTrigger,
+        budget: Budget | None,
+        *,
+        logical_elapsed: float,
+    ) -> float | None:
+        """Reserve a retime slot from deterministic logical progress.
+
+        The physical solve allowance remains clipped by the live wall-clock
+        deadline, but wall throughput cannot change which shared-prefix event
+        admits retime work.
+        """
+        if not isinstance(trigger, RetimeTrigger):
+            raise TypeError("trigger must be a RetimeTrigger")
+        if not math.isfinite(logical_elapsed) or logical_elapsed < 0.0:
+            raise ValueError("logical_elapsed must be finite and non-negative")
+        if budget is None:
+            return None
+        remaining_deadline = max(0.0, float(budget.remaining))
+        if remaining_deadline <= 0.0 or self.solve_timebox_seconds <= 0.0:
+            return None
+        logical_allowance = (
+            self.wall_fraction_cap
+            / (1.0 - self.wall_fraction_cap)
+            * float(logical_elapsed)
+        )
+        reservation = self.solve_timebox_seconds
+        if (
+            self._logical_reserved_seconds + reservation
+            > logical_allowance + 1e-12
+        ):
+            return None
+        self._logical_reserved_seconds += reservation
+        return min(reservation, remaining_deadline)
 
 
 def _validate_progress(progress: float) -> None:
@@ -1333,6 +1371,8 @@ def run_alns(
     retime_trigger: RetimeTrigger | None = None,
     retime_callback: RetimeCallback | None = None,
     retime_wall_policy: RetimeWallPolicy | None = None,
+    retime_publication_incumbent: VerifiedIncumbent | None = None,
+    retime_logical_admission: bool = False,
     timelimit_seconds: float = 0.0,
     elapsed_offset_seconds: float = 0.0,
     fault_hook: RunFaultHook | None = None,
@@ -1415,6 +1455,12 @@ def run_alns(
         raise ValueError("retime trigger and callback must be configured together")
     if retime_wall_policy is not None and retime_callback is None:
         raise ValueError("retime wall policy requires a retime callback")
+    if retime_publication_incumbent is not None and retime_callback is None:
+        raise ValueError("retime publication incumbent requires a retime callback")
+    if not isinstance(retime_logical_admission, bool):
+        raise TypeError("retime_logical_admission must be boolean")
+    if retime_logical_admission and retime_wall_policy is None:
+        raise ValueError("logical retime admission requires a wall policy")
     if (
         isinstance(initial_destroy_scale, bool)
         or not math.isfinite(initial_destroy_scale)
@@ -1634,6 +1680,8 @@ def run_alns(
                         retime_trigger,
                         retime_callback,
                         retime_wall_policy,
+                        retime_publication_incumbent,
+                        logical_admission=retime_logical_admission,
                         elapsed=elapsed,
                         metrics=metrics,
                         trace=trace,
@@ -1752,6 +1800,11 @@ def run_s3_extension(
     )
     original_anchor = checkpoint
     incumbent = VerifiedIncumbent.from_checkpoint(instance, checkpoint)
+    retime_publication_incumbent = (
+        VerifiedIncumbent.from_checkpoint(instance, checkpoint)
+        if retime_callback is not None
+        else None
+    )
     state = incumbent.snapshot_state()
     last_verified_checkpoint = incumbent.export_checkpoint()
     anchor_assignment = tuple(
@@ -1788,6 +1841,17 @@ def run_s3_extension(
     active_destroy_scale = 1.0
     active_restart_policy = "continue"
     active_batch_iterations = 0
+
+    def best_verified_checkpoint() -> VerifiedCheckpoint:
+        logical = incumbent.export_checkpoint()
+        if retime_publication_incumbent is None:
+            return logical
+        retimed = retime_publication_incumbent.export_checkpoint()
+        logical_objective = logical.checker_result.objective
+        retimed_objective = retimed.checker_result.objective
+        if logical_objective is None or retimed_objective is None:
+            raise AssertionError("verified S3 checkpoint objective disappeared")
+        return retimed if retimed_objective < logical_objective else logical
 
     while float(budget.remaining) > 0.0 and not abort_extension:
         try:
@@ -1926,6 +1990,8 @@ def run_s3_extension(
                     retime_trigger=retime_trigger,
                     retime_callback=retime_callback,
                     retime_wall_policy=retime_wall_policy,
+                    retime_publication_incumbent=retime_publication_incumbent,
+                    retime_logical_admission=retime_wall_policy is not None,
                     timelimit_seconds=profile.segment_seconds,
                     elapsed_offset_seconds=(
                         logical_segment_index * profile.segment_seconds
@@ -1942,14 +2008,14 @@ def run_s3_extension(
                     if segment_budget.remaining > 0.0
                     else "work_deadline"
                 )
-                last_verified_checkpoint = incumbent.export_checkpoint()
+                last_verified_checkpoint = best_verified_checkpoint()
                 state = incumbent.snapshot_state(template=state)
                 abort_extension = True
                 break
             except Exception as exc:
                 faults += 1
                 stopped_reason = f"fault:{type(exc).__name__}:{exc}"
-                last_verified_checkpoint = incumbent.export_checkpoint()
+                last_verified_checkpoint = best_verified_checkpoint()
                 state = incumbent.snapshot_state(template=state)
                 abort_extension = True
                 break
@@ -1971,7 +2037,7 @@ def run_s3_extension(
                 )
             iteration_offset += completed_iterations
             active_batch_iterations += completed_iterations
-            last_verified_checkpoint = incumbent.export_checkpoint()
+            last_verified_checkpoint = best_verified_checkpoint()
 
             try:
                 _assert_extension_assignment(
@@ -2017,7 +2083,7 @@ def run_s3_extension(
                 active_repair_weights = None
                 active_batch_iterations = 0
 
-        last_verified_checkpoint = incumbent.export_checkpoint()
+        last_verified_checkpoint = best_verified_checkpoint()
 
     anchor_objective = original_anchor.checker_result.objective
     final_objective = last_verified_checkpoint.checker_result.objective
@@ -2334,7 +2400,9 @@ def _run_guarded_retime(
     trigger: RetimeTrigger,
     callback: RetimeCallback | None,
     wall_policy: RetimeWallPolicy | None,
+    publication_incumbent: VerifiedIncumbent | None,
     *,
+    logical_admission: bool,
     elapsed: float,
     metrics: ALNSMetrics,
     trace: list[IncumbentTraceEntry],
@@ -2357,10 +2425,18 @@ def _run_guarded_retime(
         _inject_run_fault(fault_hook, "retime")
         call_timebox = math.inf
         if wall_policy is not None:
-            allowance = wall_policy.call_timebox(
-                trigger,
-                budget,
-                attempt_started_at=started,
+            allowance = (
+                wall_policy.logical_call_timebox(
+                    trigger,
+                    budget,
+                    logical_elapsed=elapsed,
+                )
+                if logical_admission
+                else wall_policy.call_timebox(
+                    trigger,
+                    budget,
+                    attempt_started_at=started,
+                )
             )
             if allowance is None:
                 metrics.retime_skips += 1
@@ -2388,6 +2464,14 @@ def _run_guarded_retime(
         metrics.full_checks += 1
         if not checked.feasible or checked.objective is None:
             metrics.checker_rejections += 1
+            return state.objective, False
+        if publication_incumbent is not None:
+            improved = state.objective > candidate.objective + acceptor.tolerance(
+                state.objective
+            )
+            if improved:
+                metrics.retime_improvements += 1
+            publication_incumbent.try_update(candidate)
             return state.objective, False
         with MoveTransaction(state, _detached_rng()) as transaction:
             for block_id in tuple(state.placements):

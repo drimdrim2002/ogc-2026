@@ -1275,6 +1275,90 @@ class S3ExtensionTests(unittest.TestCase):
         )
         self.assertEqual(short.trace, long.trace[: len(short.trace)])
 
+    def test_real_retime_path_jitter_cannot_contaminate_logical_state(self):
+        prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
+            current_exit=100
+        )
+        checkpoint = incumbent.export_checkpoint()
+        profile = self._profile(segment_seconds=1.0, iterations_per_batch=4)
+
+        def run(cadence):
+            clock = self.FakeClock()
+            trigger = alns.RetimeTrigger(
+                min_dirty=1,
+                dirty_fraction=0.01,
+                min_interval_fraction=0.0,
+            )
+            policy = alns.RetimeWallPolicy(
+                started_at=clock(),
+                wall_fraction_cap=0.5,
+                solve_timebox_seconds=1.0,
+                clock=clock,
+            )
+            backend_calls = 0
+            event_count = 0
+            backend_call_events = []
+
+            def retime(current, bay_id, active_budget, call_timebox):
+                nonlocal backend_calls
+                self.assertEqual(0, bay_id)
+                self.assertIsNotNone(active_budget)
+                self.assertGreater(call_timebox, 0.0)
+                backend_calls += 1
+                backend_call_events.append(event_count)
+                retime_exit = 50 if cadence < 0.2 else 60
+                candidate = SolutionState(
+                    current.instance,
+                    geom=current.geom,
+                    shape_catalog=current.shape_catalog,
+                )
+                for placement in current.placements.values():
+                    candidate.place(
+                        Placement(
+                            placement.block_id,
+                            placement.bay_id,
+                            placement.x,
+                            placement.y,
+                            placement.orient_idx,
+                            retime_exit - 1,
+                            retime_exit,
+                        )
+                    )
+                return candidate
+
+            def advance(_event):
+                nonlocal event_count
+                event_count += 1
+                clock.advance(cadence)
+
+            result = alns.run_s3_extension(
+                checkpoint,
+                Budget(3.0, clock=clock, reserve=0.0),
+                profile,
+                20260710,
+                {},
+                prob_info=prob_info,
+                registry=AcceptanceTests._scripted_registry(range(99, 70, -1)),
+                retime_trigger=trigger,
+                retime_callback=retime,
+                retime_wall_policy=policy,
+                on_event=advance,
+            )
+            return result, trigger, backend_calls, backend_call_events
+
+        fast, fast_trigger, fast_backend_calls, fast_call_events = run(0.15)
+        slow, slow_trigger, slow_backend_calls, slow_call_events = run(0.24)
+
+        self.assertGreater(fast_trigger.attempts, 0)
+        self.assertGreater(slow_trigger.attempts, 0)
+        self.assertGreater(fast_backend_calls + slow_backend_calls, 0)
+        common = min(len(fast.trace), len(slow.trace))
+        self.assertGreaterEqual(common, 2)
+        self.assertEqual(fast.trace[:common], slow.trace[:common])
+        self.assertEqual(fast_call_events, slow_call_events)
+        self.assertEqual(50.0, fast.checkpoint.checker_result.objective)
+        self.assertEqual(60.0, slow.checkpoint.checker_result.objective)
+
     def test_operational_boundary_resumes_partial_logical_batch(self):
         prob_info, _state, incumbent = AcceptanceTests._single_block_fixture(
             current_exit=100
