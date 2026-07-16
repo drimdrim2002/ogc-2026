@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from .s3_anytime_qualification import evaluate_s3_anytime_qualification
+
 
 def latest_summary(
     evidence_root: Path,

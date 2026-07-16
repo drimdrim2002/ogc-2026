@@ -12,7 +12,7 @@ from harness.cli import build_parser
 
 
 class HarnessSchemaTests(unittest.TestCase):
-    def test_all_eight_public_commands_parse(self):
+    def test_all_public_commands_parse(self):
         parser = build_parser()
         commands = (
             ["contract", "--suite", "semantic", "--instances", "synthetic"],
@@ -23,6 +23,7 @@ class HarnessSchemaTests(unittest.TestCase):
             ["gate", "--stage", "s0", "--latest-complete", "--commit", "HEAD"],
             ["report", "--stage", "s0", "--latest-complete"],
             ["submission-rehearsal", "--instances", "training,stress", "--timelimits", "5,60,300", "--seed", "20260710", "--isolated"],
+            ["qualify-s3-anytime", "--profile", "s3-anytime-fill-candidate", "--records", "synthetic.json"],
         )
 
         self.assertEqual(

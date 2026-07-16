@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "plan_id": "S3-AF",
+  "phase_id": "AF-04",
+  "status": "UNQUALIFIED_DRAFT",
+  "source_path": "benchmarks/manifests/s3-anytime-fill-candidate.json",
+  "base_manifest": "benchmarks/manifests/s3-anytime-fill-base.json",
+  "candidate": {
+    "profile": "s3-anytime-fill-candidate",
+    "features": {
+      "s3_anytime_fill": "true"
+    },
+    "public_default": false,
+    "source_identity": null,
+    "source_identity_owner": "AF-05"
+  },
+  "qualification_contract_sha256": "5d769ed2e1d7bc288084cbc1ef7b15097cbfd611711f68565c1bbff3f5ed76a2",
+  "qualification_contract": {
+    "expected_record_ids": [
+      "prob_21|tl=120",
+      "prob_22|tl=120",
+      "prob_23|tl=120",
+      "prob_24|tl=120",
+      "prob_25|tl=120",
+      "prob_21|tl=60",
+      "prob_21|tl=300"
+    ],
+    "seed": 20260710,
+    "jobs": 1,
+    "thresholds": {
+      "minimum_useful_fraction_of_work_deadline": 0.9,
+      "minimum_segments_per_record": 1,
+      "minimum_batches_per_record": 2,
+      "minimum_iterations_per_record": 1,
+      "scaling_short_timelimit_seconds": 60.0,
+      "scaling_long_timelimit_seconds": 300.0,
+      "late_improvements_minimum": 1,
+      "objective_relative_tolerance": 1e-09,
+      "objective_absolute_tolerance": 1e-06
+    },
+    "required_telemetry_fields": [
+      "run_id",
+      "commit",
+      "dirty_diff_hash",
+      "instance_id",
+      "instance_sha",
+      "seed",
+      "timelimit",
+      "wall_seconds",
+      "work_deadline_seconds",
+      "hard_deadline_seconds",
+      "anchor_seconds",
+      "anchor_objective",
+      "anchor_solution_sha256",
+      "s3_fill_seconds",
+      "s3_fill_useful_seconds",
+      "idle_seconds",
+      "finalization_seconds",
+      "s3_fill_segments",
+      "s3_fill_batches",
+      "s3_fill_iterations",
+      "s3_fill_accepted",
+      "s3_fill_improvements",
+      "s3_fill_restarts",
+      "s3_fill_deadlines",
+      "s3_fill_faults",
+      "s3_fill_stopped_reason",
+      "time_to_best_seconds",
+      "late_improvement_count",
+      "checker_stage",
+      "feasible",
+      "objective",
+      "obj1",
+      "obj2",
+      "obj3",
+      "final_solution_sha256",
+      "verification_count",
+      "termination_reason",
+      "fallback_reason"
+    ],
+    "required_evidence_fields": [
+      "record_id",
+      "complete",
+      "status",
+      "profile",
+      "features",
+      "incumbent_objective_trace",
+      "checker_solution_sha256"
+    ],
+    "time_accounting": {
+      "included_in_useful": [
+        "candidate",
+        "repair",
+        "retime",
+        "checker"
+      ],
+      "excluded_from_useful": [
+        "idle",
+        "no_op",
+        "sleep",
+        "serialization"
+      ],
+      "overlap_policy": "union wall intervals before summing"
+    },
+    "gates": [
+      "safety",
+      "time",
+      "scaling",
+      "quality"
+    ],
+    "decision_order": [
+      "INCOMPLETE",
+      "GATE_FAILED_SAFETY",
+      "GATE_FAILED_TIME",
+      "GATE_FAILED_SCALING",
+      "GATE_FAILED_QUALITY",
+      "CANDIDATE_PASS"
+    ],
+    "reason_codes": [
+      "RECORD_PLAN_MISMATCH",
+      "MISSING_FIELD",
+      "RECORD_NOT_PASSED",
+      "PROFILE_MISMATCH",
+      "FEATURE_MISMATCH",
+      "DIRTY_SOURCE",
+      "CHECKER_NOT_STAGE5",
+      "HARD_DEADLINE_OVERRUN",
+      "ANCHOR_REGRESSION",
+      "TRACE_INCREASED",
+      "EARLY_MAX_ITERATIONS",
+      "USEFUL_TIME_BELOW_MINIMUM",
+      "NO_SEGMENTS",
+      "INSUFFICIENT_BATCHES",
+      "NO_ITERATIONS",
+      "LONG_RUN_DID_NOT_SCALE",
+      "LONG_RUN_OBJECTIVE_REGRESSION",
+      "NO_LATE_IMPROVEMENT"
+    ]
+  },
+  "qualification": {
+    "command": null,
+    "command_status": "TO_BE_FROZEN_BY_AF-05",
+    "real_wall_clock_executed": false
+  }
+}

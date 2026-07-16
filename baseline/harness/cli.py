@@ -35,6 +35,12 @@ from .package import (
     run_isolated_package_case,
 )
 from .report import render_gate_report
+from .s3_anytime_qualification import (
+    CANDIDATE_MANIFEST_PATH,
+    CANDIDATE_PROFILE,
+    evaluate_s3_anytime_qualification,
+    load_candidate_manifest,
+)
 from .runner import (
     make_escalation_stress_ref,
     repository_provenance,
@@ -159,6 +165,12 @@ def build_parser() -> argparse.ArgumentParser:
     rehearsal.add_argument("--instances", required=True)
     rehearsal.add_argument("--timelimits", required=True)
     rehearsal.add_argument("--isolated", action="store_true")
+
+    qualify = subparsers.add_parser("qualify-s3-anytime")
+    _common(qualify)
+    qualify.add_argument("--profile", choices=(CANDIDATE_PROFILE.name,), required=True)
+    qualify.add_argument("--records", required=True)
+    qualify.add_argument("--manifest", default=CANDIDATE_MANIFEST_PATH.as_posix())
     return parser
 
 
@@ -193,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
             return _ab(args)
         if args.command == "submission-rehearsal":
             return _submission_rehearsal(args)
+        if args.command == "qualify-s3-anytime":
+            return _qualify_s3_anytime(args)
         raise SelectorError(f"unknown command: {args.command}")
     except KeyboardInterrupt:
         return 130
@@ -3426,6 +3440,57 @@ def _report(args: argparse.Namespace) -> int:
     print(markdown)
     print(f"evidence: {run.run_dir}")
     return EXIT_PASS if passed else EXIT_GATE_FAILURE
+
+
+def _qualify_s3_anytime(args: argparse.Namespace) -> int:
+    """Evaluate pre-captured candidate records; this command never runs a solver."""
+    if args.profile != CANDIDATE_PROFILE.name:
+        raise SelectorError(f"unknown frozen candidate profile: {args.profile}")
+    records_path = Path(args.records)
+    records_payload = json.loads(records_path.read_text(encoding="utf-8"))
+    records = (
+        records_payload.get("records", ())
+        if isinstance(records_payload, dict)
+        else records_payload
+    )
+    if not isinstance(records, list):
+        raise SelectorError("S3 anytime records input must be a JSON array")
+    manifest = load_candidate_manifest(Path(args.manifest))
+    report = evaluate_s3_anytime_qualification(records, manifest)
+    record_id = "s3-anytime-qualification"
+    run, _ = _start_stage_run(
+        args,
+        stage="s3-anytime-fill",
+        command="qualification-gate",
+        expected_record_ids=(record_id,),
+        metadata={
+            "profile": CANDIDATE_PROFILE.name,
+            "manifest": str(args.manifest),
+            "records_input": str(records_path),
+        },
+    )
+    run.append_record(
+        {
+            "record_id": record_id,
+            "status": "passed" if report["status"] == "passed" else "failed",
+            "complete": True,
+            "decision": report["decision"],
+            "decision_reasons": report["decision_reasons"],
+        }
+    )
+    (run.run_dir / "qualification.json").write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    run.finalize(
+        {
+            "command": "qualify-s3-anytime",
+            "stage": "s3-anytime-fill",
+            **report,
+        }
+    )
+    _announce(run, report)
+    return EXIT_PASS if report["status"] == "passed" else EXIT_GATE_FAILURE
 
 
 def _start_run(
