@@ -163,6 +163,10 @@ A solution is a dictionary of the form `{"operations": {date: [list of operation
 - [ ] File extensions that could be mistaken for malware (`.dll`, `.vb`, `.exe`, etc.) may be blocked by the email service → teams are responsible for ensuring safe delivery
 - [ ] The submission period start/end dates are announced on the website; submissions are unlimited during that period, but abuse of the submission system can lead to suspension or a ban.
 
+> **Project packaging note:** For this repository's C++/pybind11 submission,
+> follow the WSL2 pull, native build, final ZIP, and clean-extraction checks in
+> [Section 6.4.1](#641-project-procedure-build-the-native-submission-in-wsl2).
+
 ### 5.2 Submission Acceptance Lifecycle
 
 - Invalid submissions are rejected before evaluation. Accepted submissions pass preliminary **sanity checks**, but acceptance does not guarantee successful execution or correctness on the hidden problems.
@@ -243,6 +247,182 @@ def algorithm(prob_info, timelimit=60):
 - C/C++: **compile locally on Ubuntu 24.04** and include the `.so`/executable file in the zip (there is no server-side compilation).
 - Java: OpenJDK 17.0.18 is provided. .NET: 8.0.15 is provided.
 - For non-Python implementations, required binaries/libraries must be included in the zip and called from `myalgorithm.py`. They must be localized so they do not affect other teams, checked for compatibility with the server environment, and kept entirely under the team's responsibility.
+
+#### 6.4.1 Project Procedure: Build the Native Submission in WSL2
+
+The following is this repository's reproducible packaging procedure, not an
+additional organizer rule. It assumes that WSL2 already has the Conda
+environment defined by `ogc2026_env.yml`. Development may take place on macOS,
+but the final extension must be built inside **Ubuntu 24.04 on WSL2,
+amd64/x86_64, with the `ogc2026` Python 3.12 environment active**. Ubuntu ARM64
+is not a valid substitute for the evaluation target.
+
+Keep the repository in the WSL Linux filesystem (for example under `~/workspace`)
+rather than `/mnt/c`. This avoids Windows filesystem performance, permission,
+and symlink differences during CMake builds.
+
+1. Confirm the WSL2 distribution and architecture before building:
+
+   ```bash
+   grep -E '^(NAME|VERSION_ID)=' /etc/os-release
+   uname -r
+   uname -m
+   ```
+
+   The distribution must be Ubuntu 24.04, `uname -r` should identify the WSL2
+   kernel, and `uname -m` must report `x86_64`.
+
+2. Enter the repository, switch to the submission branch, and pull it:
+
+   ```bash
+   cd ~/path/to/ogc-2026
+   git switch codex/performance-optimization-plan
+   git pull --ff-only
+   ```
+
+   Use the actual WSL repository path in place of `~/path/to/ogc-2026`.
+
+3. Activate and verify the existing environment from `ogc2026_env.yml`:
+
+   ```bash
+   conda activate ogc2026
+
+   which python
+   python --version
+   python -c 'import platform, shapely; print(platform.machine(), shapely.__version__)'
+   ```
+
+   Python must report `3.12.x`, `platform.machine()` must report `x86_64`, and
+   Shapely must be at least 2.1. The environment already contains the Python
+   runtime and feasibility-checker dependencies, so do not create a separate
+   virtual environment or reinstall Shapely for this procedure. If `conda` is
+   not initialized in the WSL shell, source the `conda.sh` file from the
+   existing Miniforge/Conda installation before running `conda activate`.
+
+4. Install only the Ubuntu-native build tools and GEOS development package.
+   This is a one-time WSL setup:
+
+   ```bash
+   sudo apt-get update
+   sudo apt-get install -y \
+     build-essential cmake \
+     libgeos-dev patchelf binutils pkg-config \
+     zip unzip
+
+   cmake --version
+   geos-config --version
+   patchelf --version
+   ```
+
+   `ogc2026_env.yml` supplies Python and Shapely, but the C++ module must link
+   against the Ubuntu GEOS development/runtime libraries supplied by
+   `libgeos-dev`; it must not link against private libraries inside a Shapely
+   wheel. The native build uses the repository's vendored, checksum-locked
+   pybind11 source and does not download source code.
+
+5. With `ogc2026` still active, build into a fresh temporary directory. The
+   resulting extension filename must identify CPython 3.12 and x86_64 Linux.
+   The build script deliberately
+   refuses to reuse an existing extracted pybind11 tree or package directory:
+
+   ```bash
+   BUILD_DIR="$(mktemp -d /tmp/ogc-native-linux-release.XXXXXX)"
+
+   ./scripts/build_native_linux.sh \
+     "$BUILD_DIR" \
+     "$BUILD_DIR/package"
+   ```
+
+   A successful build prints the extension, package directory, intermediate
+   native package archive, and archive size. The package directory contains a
+   CPython 3.12 Linux extension plus its private GEOS runtime libraries.
+
+6. Create the final submission ZIP from that package directory:
+
+   ```bash
+   python scripts/build_submission_zip.py \
+     --native-package "$BUILD_DIR/package"
+
+   ZIP="dist/ogc2026_submission_$(TZ=Asia/Seoul date +%Y%m%d).zip"
+   ls -lh "$ZIP"
+   sha256sum "$ZIP"
+   unzip -l "$ZIP"
+   ```
+
+   The final ZIP, rather than the intermediate native package archive, is the
+   submission artifact. Its expected runtime layout is:
+
+   ```text
+   myalgorithm.py
+   utils.py
+   solver/*.py
+   solver/_ogc_native.cpython-312-<x86_64-linux-tag>.so
+   solver/lib/libgeos_c.so.1
+   solver/lib/libgeos.so.*
+   ```
+
+   Source files, build directories, tests, data, README/license files,
+   `SHA256SUMS`, and `THIRD_PARTY_LICENSES` must not appear in the final ZIP.
+
+7. Extract the actual ZIP into a clean directory and verify the import and
+   runtime library resolution without relying on the repository source tree:
+
+   ```bash
+   REPO_ROOT="$PWD"
+   SMOKE_DIR="$(mktemp -d /tmp/ogc-native-smoke.XXXXXX)"
+   unzip -q "$ZIP" -d "$SMOKE_DIR"
+   cd "$SMOKE_DIR"
+
+   python -I -c '
+   import sys
+   sys.path.insert(0, ".")
+   import solver._ogc_native as native
+   print(native.empty_kernel_info())
+   '
+
+   ldd solver/_ogc_native*.so
+   readelf -d solver/_ogc_native*.so | grep -E "NEEDED|RPATH|RUNPATH"
+   ```
+
+   `ldd` must contain no `not found` entries. The bundled GEOS dependencies
+   must resolve under `solver/lib`, and RPATH/RUNPATH must not contain absolute
+   development-machine paths.
+
+8. Run the tracked public example through `myalgorithm.algorithm()` and verify
+   the result with the `utils.py` extracted from the ZIP:
+
+   ```bash
+   python -I -c '
+   import json
+   import pathlib
+   import sys
+
+   sys.path.insert(0, ".")
+
+   from myalgorithm import algorithm
+   from solver.native_repair import native_module_status
+   from solver.runtime import SubmissionConfig
+   from utils import check_feasibility
+
+   problem = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+   module, reason = native_module_status()
+   assert module is not None, reason
+
+   config = SubmissionConfig.from_defaults()
+   assert config.repair_backend == "native"
+   assert config.native_exact_mode == "native"
+
+   solution = algorithm(problem, 2.0)
+   checked = check_feasibility(problem, solution)
+   print(checked)
+   assert checked["feasible"]
+   assert checked["stage"] == 5
+   ' "$REPO_ROOT/alg_tester/example/example_B2_b10.json"
+   ```
+
+Do not submit the archive if the extension does not import, a shared library is
+missing, an absolute RPATH/RUNPATH remains, feasibility does not reach Stage 5,
+or the final ZIP exceeds 15 MB.
 
 ### 6.5 Algorithm Tester & Visualization Tool
 
