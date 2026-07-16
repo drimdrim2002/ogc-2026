@@ -12,8 +12,10 @@ from numpy.random import Generator, PCG64
 from .alns import (
     RetimeTrigger,
     RetimeWallPolicy,
+    S3ExtensionProfile,
     StagnationController,
     run_anytime_epochs,
+    run_s3_extension,
 )
 from .budget import Budget
 from .config import DEFAULT_CONFIG
@@ -44,6 +46,7 @@ def solve(
     _retime_timebox: float | None = None,
     _retime_pilot: float | None = None,
     _alns: bool | None = None,
+    _s3_anytime_fill: bool | None = None,
     _alns_fault: str | None = None,
     _telemetry: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -54,6 +57,7 @@ def solve(
     intentionally outside the ordinary ``Exception`` armor.
     """
     incumbent: VerifiedIncumbent | None = None
+    final_solution: dict[str, Any] | None = None
     try:
         budget = Budget(timelimit)
         instance = ProblemInstance.parse(prob_info)
@@ -100,6 +104,11 @@ def solve(
         budget.checkpoint("post-constructor pipeline")
 
         alns_enabled = DEFAULT_CONFIG.alns if _alns is None else _alns
+        s3_anytime_fill_enabled = (
+            DEFAULT_CONFIG.s3_anytime_fill
+            if _s3_anytime_fill is None
+            else _s3_anytime_fill
+        )
         backend_calls = {
             "gurobi": retime_gurobi,
             "cpsat": retime_cpsat,
@@ -234,7 +243,11 @@ def solve(
                 current_state,
                 incumbent,
                 rng,
-                timelimit_seconds=budget.remaining,
+                timelimit_seconds=(
+                    min(budget.remaining, 60.0)
+                    if s3_anytime_fill_enabled
+                    else budget.remaining
+                ),
                 epoch_seconds=60.0,
                 iterations_per_epoch=300,
                 continuation_iterations_per_epoch=1,
@@ -250,6 +263,11 @@ def solve(
                     restart_after=18,
                 ),
                 fault_hook=alns_fault,
+            )
+            anchor_checkpoint = (
+                incumbent.export_checkpoint()
+                if s3_anytime_fill_enabled
+                else None
             )
             if _telemetry is not None:
                 _telemetry.update(
@@ -282,9 +300,30 @@ def solve(
                     alns_adaptive=DEFAULT_CONFIG.alns_adaptive,
                     alns_epoch_solutions=list(alns_result.epoch_solutions),
                 )
+            if anchor_checkpoint is not None:
+                final_checkpoint = anchor_checkpoint
+                if budget.remaining > 0.0:
+                    extension_result = run_s3_extension(
+                        anchor_checkpoint,
+                        budget,
+                        S3ExtensionProfile(
+                            acceptor_name=DEFAULT_CONFIG.alns_acceptor,
+                            adaptive=DEFAULT_CONFIG.alns_adaptive,
+                            safety_sample_interval=8,
+                        ),
+                        seed,
+                        _telemetry,
+                        prob_info=instance,
+                        retime_trigger=trigger,
+                        retime_callback=guarded_retime,
+                        retime_wall_policy=wall_policy,
+                        fault_hook=alns_fault,
+                    )
+                    final_checkpoint = extension_result.checkpoint
+                final_solution = final_checkpoint.solution_copy()
         if _telemetry is not None:
             _telemetry["incumbent_verification_count"] = incumbent.verification_count
-        return incumbent.solution
+        return incumbent.solution if final_solution is None else final_solution
     except Exception as exc:
         if incumbent is None or not incumbent.has_incumbent:
             raise
