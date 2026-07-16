@@ -1,20 +1,94 @@
 {
   "schema_version": 2,
   "plan_id": "S3-AF",
-  "phase_id": "AF-04",
-  "attempt_id": "20260716T042925Z-af04-recovery-01",
-  "status": "UNQUALIFIED_DRAFT",
+  "phase_id": "AF-05",
+  "attempt_id": "20260716T062856Z-af05-recovery-01",
+  "status": "FROZEN_UNQUALIFIED",
   "source_path": "benchmarks/manifests/s3-anytime-fill-candidate.json",
   "base_manifest": "benchmarks/manifests/s3-anytime-fill-base.json",
   "candidate": {
+    "identity_label": "B",
+    "candidate_identity": "85da9be5aba2529986d6f8cb6ea76e211d5005398df8b888013febfee1260c3a",
+    "candidate_identity_contract": {
+      "candidate_label": "B",
+      "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T062856Z-af05-recovery-01-q1",
+      "jobs": 1,
+      "package_archive_sha256": "2879ea06b07f6798fe95b82595c14799972d6964cc129d69eff9f6241a8a3372",
+      "package_manifest_sha256": "5e5d7d37445c784ae215582b9b242017b205e906b2e591e20f6a52a4c78ea1e8",
+      "profile": "s3-anytime-fill-candidate",
+      "q_run_id": "20260716T062856Z-af05-recovery-01-q1",
+      "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
+      "recovered_source_commit": "7809cad8df16a3fd0f7d88de7c9bbe0f2e6e2e8c",
+      "seed": 20260710,
+      "source_dirty_diff_hash": "clean",
+      "tier_s_identity": "20260716T062856Z-af05-recovery-01-s1"
+    },
+    "candidate_identity_contract_sha256": "85da9be5aba2529986d6f8cb6ea76e211d5005398df8b888013febfee1260c3a",
     "profile": "s3-anytime-fill-candidate",
     "features": {
       "s3_anytime_fill": "true"
     },
     "public_default": false,
-    "source_identity": null,
+    "source_identity": {
+      "algorithm_commit": "7809cad8df16a3fd0f7d88de7c9bbe0f2e6e2e8c",
+      "recovered_source_commit": "7809cad8df16a3fd0f7d88de7c9bbe0f2e6e2e8c",
+      "algorithm_dirty_diff_hash": "clean",
+      "algorithm_scope": [
+        "baseline/solver",
+        "baseline/myalgorithm.py",
+        "baseline/harness/cli.py",
+        "baseline/harness/runner.py",
+        "baseline/harness/s3_anytime_qualification.py",
+        "baseline/tests/test_s3_anytime_qualification.py"
+      ],
+      "algorithm_solver_tree_oid": "aa191e4efa5f3dd2edcb84431363eaa8720c123e",
+      "public_entry_blob_oid": "d296fc29c8824b090716cca30be64c360e286497",
+      "algorithm_repository_tree_oid": "aeed83fac80f40c4ea08ed4dc220ffa7382c5d6a",
+      "qualification_contract_commit": "7809cad8df16a3fd0f7d88de7c9bbe0f2e6e2e8c",
+      "qualification_contract_sha256": "8247ee30f665aa41e399d11d80456bdb6382493bf9e046695f44af4f1a7916de",
+      "qualification_contract_blob_oids": {
+        "baseline/harness/cli.py": "3867551b72d8a3246d77c250c8aaf82a69ef8afe",
+        "baseline/harness/runner.py": "e1cd814268dddcf1e38628219c9e2f1c358be8ce",
+        "baseline/harness/s3_anytime_qualification.py": "3120be424ad2d2b9027750f36cd819b9a26830be",
+        "baseline/tests/test_s3_anytime_qualification.py": "ff3a9e07646eb9190e6d642cd4f149c3fe0d36d4"
+      },
+      "tier_s_identity": "20260716T062856Z-af05-recovery-01-s1",
+      "tier_s_evidence_root": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01",
+      "freeze_parent_commit": "7809cad8df16a3fd0f7d88de7c9bbe0f2e6e2e8c",
+      "freeze_commit_message": "chore(anytime): freeze s3 deadline-fill candidate",
+      "freeze_commit_resolution": "AF-06 identity B must use a clean HEAD whose parent and exact message match this contract",
+      "manifest_sha256_before_freeze": "c92712a101d31534fec091c330e699b42ce758354800e97b904068b5663fca0f"
+    },
     "source_identity_owner": "AF-05-recovery"
   },
+  "superseded_identities": [
+    {
+      "identity_label": "A",
+      "freeze_commit": "5742bb108a67b98a0651344694a1aa24db736750",
+      "source_commit": "8b36b4d60e183e278ee3ca87ae77b93a9be216c7",
+      "af05_attempt_id": "20260716T033756Z-af05-01",
+      "af06_attempt_id": "20260716T040048Z-af06-01",
+      "q_run_id": "20260716T033756Z-af05-01-q1",
+      "q_outcome": "GATE_FAILED_TIME",
+      "q_execution_count": 1,
+      "q_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T033756Z-af05-01-q1",
+      "q_evidence_immutable": true,
+      "consumed": true,
+      "eligible_for_execution": false,
+      "automatic_resume": false,
+      "automatic_rerun": false,
+      "old_q_evidence_sha256": {
+        "records.jsonl": "0bf39578f7a9566887204f1407f4d41e90f7de279d7513f3559c3f9308834ff4",
+        "qualification.json": "7b394cd6097727458883592008ccc5bb46321ff7953052a3c32eb9a870f715b6",
+        "summary.json": "3836082017ce33bc85305ee146f4e243156510084ca39688ad364f1050f3b2bb",
+        "run.json": "a877d119feb01e20156bb1d3c466c922936196cd642e6a90ed1cf59ffd22c30f",
+        "command.txt": "eaf5cf6802dd0dd504f5d6ba8fb075fb9d6750803208a0751999fc467ec6b256",
+        "versions.json": "9055d045fd1461eb54d43fc5b703861ddad901ac61d4ecca26f162bc411b472c"
+      },
+      "af06_results_command_sha256_transcription_error_immutable": true,
+      "actual_command_txt_sha256": "eaf5cf6802dd0dd504f5d6ba8fb075fb9d6750803208a0751999fc467ec6b256"
+    }
+  ],
   "configuration": {
     "seed": 20260710,
     "jobs": 1,
@@ -65,12 +139,21 @@
   },
   "protected_files": {
     "baseline/utils.py": "d0347a3eafa14be68393638e9c35aab8d0618092bdc4f6d042a6d11bc6d06e75",
-    "baseline/baseline_greedy.py": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b"
+    "baseline/baseline_greedy.py": "8ec2cc816b35b6507a9407bc9f893140a9d1b5e0892af92a2dbac2f91b32103b",
+    "baseline/harness/s3_anytime_worker.py": "a135e5e8c28f0a6fc18034df06269cee26bf0ca1c337c04c8136f49c20a7a7f2"
+  },
+  "protected_git_oids": {
+    "baseline/solver": "aa191e4efa5f3dd2edcb84431363eaa8720c123e",
+    "baseline/myalgorithm.py": "d296fc29c8824b090716cca30be64c360e286497",
+    "baseline/harness/s3_anytime_worker.py": "cb5e984ecca97b5b5c2c9f4c4a04eeaf833a5bb4"
   },
   "tier_s": {
-    "status": "NOT_RUN",
-    "passing_identity": null,
-    "required_next_phase": "AF-05-recovery",
+    "status": "PASS",
+    "passing_identity": "20260716T062856Z-af05-recovery-01-s1",
+    "source_commit": "7809cad8df16a3fd0f7d88de7c9bbe0f2e6e2e8c",
+    "source_dirty_diff_hash": "clean",
+    "evidence_root": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01",
+    "required_next_phase": "AF-06-identity-B",
     "superseded_failures": [
       {
         "identity": "r1",
@@ -83,7 +166,7 @@
         "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-r2-failure.json"
       }
     ],
-    "superseded_previous_identity_results": [
+    "superseded_identity_a_results": [
       {
         "step": 1,
         "name": "affected S3/checkpoint/entry/harness/package tests",
@@ -141,15 +224,104 @@
         "remaining_processes": 0,
         "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/tier-s-09-processes.txt"
       }
+    ],
+    "results": [
+      {
+        "step": 1,
+        "name": "affected S3/checkpoint/entry/harness/package tests",
+        "tests_run": 68,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-01-affected.txt",
+        "evidence_sha256": "596498d876e8c7e5a7e94deae55285e1025874ed9f05d042cc0ebe5de56b786e"
+      },
+      {
+        "step": 2,
+        "name": "full unittest discovery",
+        "tests_run": 123,
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-02-full-discovery.txt",
+        "evidence_sha256": "eeb29b1f6acbf0022647a1b58effd31a933c6d35ff9e826f5ff571c76a919d35"
+      },
+      {
+        "step": 3,
+        "name": "Algorithm Tester-style public loader parity",
+        "exit_code": 0,
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-03-public-loader.txt",
+        "evidence_sha256": "5333a35344cab275ddb2c700a9c30a27226115cfc1d25d027d5cd7c774ce06e0"
+      },
+      {
+        "step": 4,
+        "name": "package allowlist and isolated extraction smoke",
+        "exit_code": 0,
+        "checker_stage": 5,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-04-package.txt",
+        "evidence_sha256": "7ed3081e3fc9f280410827483eb71dbc54591c0e03670be74952b6aea1094e97"
+      },
+      {
+        "step": 5,
+        "name": "feature-off tracked example parity",
+        "exit_code": 0,
+        "checker_stage": 5,
+        "solution_sha256": "50a8d7e6731fcbd7fbe9945e263e9a7c427eec64eb6803b0f093cf5fbf4f7cdc",
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-05-feature-off.txt",
+        "evidence_sha256": "86954bd1fceefeaaffed935d390ac61215194fc9293c02ec95487d77a780f43c"
+      },
+      {
+        "step": 6,
+        "name": "feature-on 5-second smoke and recovered timing/full-trace contract",
+        "exit_code": 0,
+        "checker_stage": 5,
+        "wall_seconds": 2.001525708998088,
+        "work_deadline_seconds": 2.0,
+        "total_useful_seconds": 2.001525708998088,
+        "logical_event_count": 2916,
+        "logical_event_trace_sha256": "10217e88a9af50a3e0268a535bc0206772e053c709f3c74f49c7259b658e1d72",
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-06-smoke-5s.txt",
+        "evidence_sha256": "62b46f8cfd7011a6d79d522763e6fb05f46c6edda4367f9b068cf09dde2d0d9a"
+      },
+      {
+        "step": 7,
+        "name": "feature-on 12-second smoke and recovered timing/full-trace contract",
+        "exit_code": 0,
+        "checker_stage": 5,
+        "wall_seconds": 9.001590250001755,
+        "work_deadline_seconds": 9.0,
+        "total_useful_seconds": 9.001590250001755,
+        "segments": 2,
+        "batches": 585,
+        "iterations": 14034,
+        "logical_event_count": 14333,
+        "logical_event_trace_sha256": "2179e44efa6b4c309983eacf9b63368c6998ac1d627d947063e676b7e59a2586",
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-07-smoke-12s.txt",
+        "evidence_sha256": "cd975c4ccdc2f18159b95cff1b15b631cfdb67713657f1eaf559b1f52de1cee5"
+      },
+      {
+        "step": 8,
+        "name": "official checker Stage 5, hard deadline, timing union and trace verification",
+        "exit_code": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-08-checker-deadline-contract.txt",
+        "evidence_sha256": "8a15a491ca9ecc4eb5d3fe586e6bb3b0db37ef13bdebd6872416816757a2157f"
+      },
+      {
+        "step": 9,
+        "name": "remaining child/worker/Q process count",
+        "exit_code": 0,
+        "remaining_processes": 0,
+        "q_execution_count": 0,
+        "evidence": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/tier-s-s1-09-processes.txt",
+        "evidence_sha256": "711e3d74a979a6c9e8c0c32f102680cd86cfd738e73450bd0a00bb2f1282a71c"
+      }
     ]
   },
   "package_preflight": {
-    "status": "SUPERSEDED_PREVIOUS_IDENTITY",
-    "required_next_phase": "AF-05-recovery",
-    "archive_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/package-preflight-r3/submission.zip",
+    "status": "PASS",
+    "tier_s_identity": "20260716T062856Z-af05-recovery-01-s1",
+    "required_next_phase": "AF-06-identity-B",
+    "archive_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/package-preflight-s1/submission.zip",
     "archive_sha256": "2879ea06b07f6798fe95b82595c14799972d6964cc129d69eff9f6241a8a3372",
     "archive_size_bytes": 61972,
-    "manifest_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T033756Z-af05-01/package-preflight-r3/submission-manifest.json",
+    "manifest_path": "benchmarks/evidence/s3-anytime-fill/af-05/20260716T062856Z-af05-recovery-01/package-preflight-s1/submission-manifest.json",
     "manifest_sha256": "5e5d7d37445c784ae215582b9b242017b205e906b2e591e20f6a52a4c78ea1e8",
     "entry_count": 20,
     "import_smoke_stage": 5,
@@ -296,9 +468,35 @@
     ]
   },
   "qualification": {
-    "command": null,
-    "command_status": "DRAFT_REQUIRES_AF05_RECOVERY_FREEZE",
-    "expected_evidence_directory": null,
+    "command": [
+      "/opt/homebrew/Caskroom/miniforge/base/envs/ogc-2026/bin/python",
+      "-m",
+      "baseline.harness.cli",
+      "qualify-s3-anytime",
+      "--profile",
+      "s3-anytime-fill-candidate",
+      "--manifest",
+      "benchmarks/manifests/s3-anytime-fill-candidate.json",
+      "--evidence-root",
+      "benchmarks/evidence/s3-anytime-fill",
+      "--run-id",
+      "20260716T062856Z-af05-recovery-01-q1",
+      "--seed",
+      "20260710",
+      "--jobs",
+      "1"
+    ],
+    "command_status": "FROZEN_NOT_EXECUTED",
+    "q_run_id": "20260716T062856Z-af05-recovery-01-q1",
+    "q_execution_count": 0,
+    "real_q_executed": false,
+    "expected_evidence_directory": "benchmarks/evidence/s3-anytime-fill/qualification/20260716T062856Z-af05-recovery-01-q1",
+    "expected_evidence_directory_confirmed_absent": true,
+    "candidate_identity": "85da9be5aba2529986d6f8cb6ea76e211d5005398df8b888013febfee1260c3a",
+    "candidate_identity_label": "B",
+    "execution_owner": "AF-06-identity-B",
+    "supersedes_q_run_id": "20260716T033756Z-af05-01-q1",
+    "superseded_q_run_eligible_for_execution": false,
     "automatic_resume": false,
     "automatic_rerun": false,
     "execution_order": "strictly sequential",
