@@ -19,6 +19,7 @@ CANDIDATE_MANIFEST_PATH = Path(
     "benchmarks/manifests/s3-anytime-fill-candidate.json"
 )
 FROZEN_STATUS = "FROZEN_UNQUALIFIED"
+QUALIFIED_STATUS = "QUALIFIED_CANDIDATE_PASS"
 S3_ANYTIME_TELEMETRY_FIELDS = (
     "run_id",
     "commit",
@@ -166,7 +167,7 @@ def load_candidate_manifest(
     *,
     require_frozen: bool = False,
 ) -> dict[str, Any]:
-    """Load the AF-04 draft or AF-05 freeze without executing qualification."""
+    """Load a draft, frozen pre-Q, or read-only qualified candidate manifest."""
     relative = CANDIDATE_MANIFEST_PATH if path is None else Path(path)
     absolute = relative if relative.is_absolute() else REPO_ROOT / relative
     payload = json.loads(absolute.read_text(encoding="utf-8"))
@@ -176,7 +177,7 @@ def load_candidate_manifest(
     if canonical_sha256(contract) != payload.get("qualification_contract_sha256"):
         raise ValueError("S3 anytime qualification contract hash mismatch")
     status = payload.get("status")
-    if status not in {"UNQUALIFIED_DRAFT", FROZEN_STATUS}:
+    if status not in {"UNQUALIFIED_DRAFT", FROZEN_STATUS, QUALIFIED_STATUS}:
         raise ValueError("unknown S3 anytime candidate manifest status")
     if require_frozen and status != FROZEN_STATUS:
         raise ValueError("AF-06 requires the AF-05 frozen candidate manifest")
@@ -205,7 +206,7 @@ def load_candidate_manifest(
             raise ValueError("AF-04 draft cannot claim a source identity")
         if qualification.get("command") is not None:
             raise ValueError("AF-04 draft cannot claim a qualification command")
-    else:
+    elif status == FROZEN_STATUS:
         if payload.get("phase_id") != "AF-05":
             raise ValueError("frozen candidate manifest must be owned by AF-05")
         if not isinstance(candidate.get("source_identity"), dict):
@@ -214,7 +215,146 @@ def load_candidate_manifest(
             raise ValueError("AF-05 qualification command is missing")
         if qualification.get("real_wall_clock_executed") is not False:
             raise ValueError("AF-05 must not claim real qualification execution")
+    else:
+        _validate_qualified_candidate(payload, candidate, qualification, contract)
     return payload
+
+
+def _validate_qualified_candidate(
+    payload: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    qualification: Mapping[str, Any],
+    contract: Mapping[str, Any],
+) -> None:
+    """Validate the immutable post-Q terminal state without making it runnable."""
+
+    def require(condition: bool, detail: str) -> None:
+        if not condition:
+            raise ValueError(f"qualified candidate {detail}")
+
+    require(
+        payload.get("phase_id") == "AF-05",
+        "must retain its AF-05 frozen-manifest ownership",
+    )
+    require(
+        isinstance(candidate.get("source_identity"), dict),
+        "source identity is missing",
+    )
+    require(
+        isinstance(qualification.get("command"), list)
+        and bool(qualification.get("command")),
+        "qualification command is missing",
+    )
+
+    identity_contract = candidate.get("candidate_identity_contract")
+    require(isinstance(identity_contract, dict), "candidate identity contract is missing")
+    identity_digest = canonical_sha256(identity_contract)
+    require(
+        candidate.get("candidate_identity_contract_sha256") == identity_digest
+        and candidate.get("candidate_identity") == identity_digest
+        and qualification.get("candidate_identity") == identity_digest,
+        "candidate identity self-check failed",
+    )
+    identity_label = candidate.get("identity_label")
+    require(
+        isinstance(identity_label, str)
+        and identity_label
+        and identity_contract.get("candidate_label") == identity_label
+        and qualification.get("candidate_identity_label") == identity_label,
+        "identity label metadata is inconsistent",
+    )
+    require(
+        identity_contract.get("profile") == candidate.get("profile")
+        and identity_contract.get("qualification_contract_sha256")
+        == payload.get("qualification_contract_sha256")
+        and candidate.get("source_identity", {}).get("qualification_contract_sha256")
+        == payload.get("qualification_contract_sha256"),
+        "identity contract metadata is inconsistent",
+    )
+    require(
+        qualification.get("freeze_owner") == candidate.get("candidate_identity_owner")
+        == candidate.get("source_identity_owner"),
+        "freeze ownership metadata is inconsistent",
+    )
+    require(
+        qualification.get("execution_owner") == f"AF-06-identity-{identity_label}",
+        "AF-06 execution ownership metadata is inconsistent",
+    )
+    require(
+        qualification.get("q_run_id") == identity_contract.get("q_run_id")
+        and qualification.get("expected_evidence_directory")
+        == identity_contract.get("expected_evidence_directory"),
+        "Q run metadata is inconsistent",
+    )
+
+    terminal_values = {
+        "command_status": "EXECUTED_ONCE_COMPLETE",
+        "real_q_executed": True,
+        "real_wall_clock_executed": True,
+        "actual_evidence_directory_present": True,
+        "expected_evidence_directory_confirmed_absent": False,
+        "automatic_resume": False,
+        "automatic_rerun": False,
+        "candidate_consumed": True,
+        "same_identity_rerun_allowed": False,
+        "q_evidence_immutable": True,
+        "decision": "CANDIDATE_PASS",
+    }
+    require(
+        all(qualification.get(key) == value for key, value in terminal_values.items()),
+        "terminal Q metadata is inconsistent",
+    )
+    require(
+        type(qualification.get("q_execution_count")) is int
+        and qualification.get("q_execution_count") == 1,
+        "Q execution count must be exactly one",
+    )
+
+    result = qualification.get("result")
+    require(isinstance(result, dict), "result metadata is missing")
+    expected_gates = {
+        "quality": "PASS",
+        "safety": "PASS",
+        "scaling": "PASS",
+        "time": "PASS",
+    }
+    expected_count = len(tuple(contract.get("expected_record_ids", ())))
+    require(
+        type(result.get("command_exit_code")) is int
+        and result.get("command_exit_code") == 0
+        and result.get("gates") == expected_gates
+        and result.get("records_evaluated") == expected_count
+        and result.get("records_passed") == expected_count
+        and result.get("official_checker_stage_5") == f"{expected_count}/{expected_count}"
+        and result.get("run_complete") is True
+        and result.get("run_interrupted") is False,
+        "CANDIDATE_PASS result metadata is inconsistent",
+    )
+    q_hashes = result.get("q_evidence_sha256")
+    required_q_files = {
+        "command.txt",
+        "qualification.json",
+        "records.jsonl",
+        "run.json",
+        "summary.json",
+        "versions.json",
+    }
+    require(
+        isinstance(q_hashes, dict)
+        and set(q_hashes) == required_q_files
+        and all(_hex_digest(value, 64) for value in q_hashes.values()),
+        "immutable Q evidence hashes are incomplete",
+    )
+
+    workload = qualification.get("workload")
+    require(isinstance(workload, list), "workload metadata is missing")
+    require(
+        tuple(str(row.get("record_id")) for row in workload)
+        == tuple(contract.get("expected_record_ids", ()))
+        and all(row.get("seed") == identity_contract.get("seed") for row in workload)
+        and all(row.get("jobs") == identity_contract.get("jobs") for row in workload),
+        "workload metadata differs from the qualified identity",
+    )
 
 
 def load_frozen_workload(

@@ -5,6 +5,8 @@ from __future__ import annotations
 from copy import deepcopy
 import hashlib
 import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from harness.cli import build_parser
@@ -44,6 +46,40 @@ EXPECTED_TELEMETRY_FIELDS = (
 
 
 class S3AnytimeQualificationTests(unittest.TestCase):
+    @staticmethod
+    def _qualified_manifest_payload() -> dict:
+        repo_root = Path(__file__).resolve().parents[2]
+        return json.loads(
+            (repo_root / CANDIDATE_MANIFEST_PATH).read_text(encoding="utf-8")
+        )
+
+    @staticmethod
+    def _load_manifest_payload(
+        payload: dict,
+        *,
+        require_frozen: bool = False,
+    ) -> dict:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "candidate.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            return load_candidate_manifest(path, require_frozen=require_frozen)
+
+    def _draft_manifest_payload(self) -> dict:
+        payload = self._qualified_manifest_payload()
+        payload["phase_id"] = "AF-04"
+        payload["status"] = "UNQUALIFIED_DRAFT"
+        payload["candidate"]["source_identity"] = None
+        payload["qualification"]["command"] = None
+        payload["qualification"]["real_wall_clock_executed"] = False
+        return payload
+
+    def _frozen_manifest_payload(self) -> dict:
+        payload = self._qualified_manifest_payload()
+        payload["phase_id"] = "AF-05"
+        payload["status"] = FROZEN_STATUS
+        payload["qualification"]["real_wall_clock_executed"] = False
+        return payload
+
     @staticmethod
     def _trace_sha256(trace: list[dict]) -> str:
         encoded = json.dumps(trace, sort_keys=True, separators=(",", ":")).encode()
@@ -214,27 +250,161 @@ class S3AnytimeQualificationTests(unittest.TestCase):
             CANDIDATE_MANIFEST_PATH.as_posix(),
         )
 
-    def test_candidate_manifest_is_hashed_and_never_claims_real_q(self):
-        manifest = load_candidate_manifest()
-        self.assertFalse(manifest["qualification"]["real_wall_clock_executed"])
-        self.assertEqual(
-            manifest["qualification_contract_sha256"],
-            canonical_sha256(manifest["qualification_contract"]),
+    def test_draft_frozen_and_qualified_manifest_states_are_distinct(self):
+        draft = self._load_manifest_payload(self._draft_manifest_payload())
+        self.assertEqual("UNQUALIFIED_DRAFT", draft["status"])
+        self.assertEqual("AF-04", draft["phase_id"])
+        self.assertIsNone(draft["candidate"]["source_identity"])
+        self.assertIsNone(draft["qualification"]["command"])
+
+        frozen = self._load_manifest_payload(
+            self._frozen_manifest_payload(), require_frozen=True
         )
-        if manifest["status"] == "UNQUALIFIED_DRAFT":
-            self.assertEqual("AF-04", manifest["phase_id"])
-            self.assertIsNone(manifest["candidate"]["source_identity"])
-            self.assertIsNone(manifest["qualification"]["command"])
-        else:
-            self.assertEqual(FROZEN_STATUS, manifest["status"])
-            self.assertEqual("AF-05", manifest["phase_id"])
-            self.assertIsInstance(manifest["candidate"]["source_identity"], dict)
-            self.assertIsInstance(manifest["qualification"]["command"], list)
-            workload = load_frozen_workload(manifest)
-            self.assertEqual(
-                tuple(manifest["qualification_contract"]["expected_record_ids"]),
-                tuple(f"{ref.instance_id}|tl={timelimit:g}" for ref, timelimit, _ in workload),
-            )
+        self.assertEqual(FROZEN_STATUS, frozen["status"])
+        self.assertEqual("AF-05", frozen["phase_id"])
+        self.assertIsInstance(frozen["candidate"]["source_identity"], dict)
+        self.assertIsInstance(frozen["qualification"]["command"], list)
+        self.assertFalse(frozen["qualification"]["real_wall_clock_executed"])
+
+        qualified = load_candidate_manifest()
+        self.assertEqual("QUALIFIED_CANDIDATE_PASS", qualified["status"])
+        self.assertEqual("AF-05", qualified["phase_id"])
+        self.assertEqual("AF-06-identity-D", qualified["qualification"]["execution_owner"])
+        self.assertTrue(qualified["qualification"]["real_wall_clock_executed"])
+        self.assertEqual("CANDIDATE_PASS", qualified["qualification"]["decision"])
+
+    def test_qualified_manifest_is_read_only_and_never_satisfies_frozen_pre_q(self):
+        with self.assertRaisesRegex(ValueError, "AF-06 requires.*frozen"):
+            load_candidate_manifest(require_frozen=True)
+        with self.assertRaisesRegex(ValueError, "frozen manifest"):
+            load_frozen_workload(load_candidate_manifest())
+
+    def test_draft_and_frozen_strict_invariants_reject_malformed_state(self):
+        draft_mutations = {
+            "phase": lambda payload: payload.__setitem__("phase_id", "AF-05"),
+            "source_identity": lambda payload: payload["candidate"].__setitem__(
+                "source_identity", {}
+            ),
+            "command": lambda payload: payload["qualification"].__setitem__(
+                "command", []
+            ),
+        }
+        for label, mutate in draft_mutations.items():
+            with self.subTest(state="draft", label=label):
+                payload = self._draft_manifest_payload()
+                mutate(payload)
+                with self.assertRaises(ValueError):
+                    self._load_manifest_payload(payload)
+
+        frozen_mutations = {
+            "phase": lambda payload: payload.__setitem__("phase_id", "AF-04"),
+            "source_identity": lambda payload: payload["candidate"].__setitem__(
+                "source_identity", None
+            ),
+            "command": lambda payload: payload["qualification"].__setitem__(
+                "command", None
+            ),
+            "real_wall_clock": lambda payload: payload["qualification"].__setitem__(
+                "real_wall_clock_executed", True
+            ),
+        }
+        for label, mutate in frozen_mutations.items():
+            with self.subTest(state="frozen", label=label):
+                payload = self._frozen_manifest_payload()
+                mutate(payload)
+                with self.assertRaises(ValueError):
+                    self._load_manifest_payload(payload)
+
+    def test_unknown_status_and_malformed_qualified_state_are_rejected(self):
+        unknown = self._qualified_manifest_payload()
+        unknown["status"] = "QUALIFIED_MAYBE"
+        with self.assertRaisesRegex(ValueError, "unknown.*status"):
+            self._load_manifest_payload(unknown)
+
+        mutations = {
+            "freeze_phase": lambda payload: payload.__setitem__("phase_id", "AF-06"),
+            "execution_owner": lambda payload: payload["qualification"].__setitem__(
+                "execution_owner", "AF-05"
+            ),
+            "decision": lambda payload: payload["qualification"].__setitem__(
+                "decision", "CANDIDATE_FAIL"
+            ),
+            "real_wall_clock": lambda payload: payload["qualification"].__setitem__(
+                "real_wall_clock_executed", False
+            ),
+            "q_count": lambda payload: payload["qualification"].__setitem__(
+                "q_execution_count", 2
+            ),
+            "result": lambda payload: payload["qualification"]["result"].__setitem__(
+                "command_exit_code", 1
+            ),
+            "gate": lambda payload: payload["qualification"]["result"]["gates"].__setitem__(
+                "quality", "FAIL"
+            ),
+            "consumed": lambda payload: payload["qualification"].__setitem__(
+                "candidate_consumed", False
+            ),
+            "rerun": lambda payload: payload["qualification"].__setitem__(
+                "same_identity_rerun_allowed", True
+            ),
+            "q_evidence": lambda payload: payload["qualification"].__setitem__(
+                "q_evidence_immutable", False
+            ),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                payload = self._qualified_manifest_payload()
+                mutate(payload)
+                with self.assertRaisesRegex(ValueError, "qualified candidate"):
+                    self._load_manifest_payload(payload)
+
+    def test_manifest_common_contract_invariants_remain_enforced(self):
+        mutations = {
+            "contract_hash": lambda payload: payload.__setitem__(
+                "qualification_contract_sha256", "0" * 64
+            ),
+            "source_path": lambda payload: payload.__setitem__(
+                "source_path", "elsewhere.json"
+            ),
+            "profile": lambda payload: payload["candidate"].__setitem__(
+                "profile", "public"
+            ),
+            "features": lambda payload: payload["candidate"].__setitem__(
+                "features", {"s3_anytime_fill": "false"}
+            ),
+            "public_default": lambda payload: payload["candidate"].__setitem__(
+                "public_default", True
+            ),
+            "record_ids": lambda payload: payload["qualification_contract"].__setitem__(
+                "expected_record_ids", []
+            ),
+            "thresholds": lambda payload: payload["qualification_contract"].__setitem__(
+                "thresholds", {}
+            ),
+            "telemetry": lambda payload: payload["qualification_contract"].__setitem__(
+                "required_telemetry_fields", []
+            ),
+            "evidence": lambda payload: payload["qualification_contract"].__setitem__(
+                "required_evidence_fields", []
+            ),
+        }
+        contract_mutations = {"record_ids", "thresholds", "telemetry", "evidence"}
+        for label, mutate in mutations.items():
+            with self.subTest(label=label):
+                payload = self._qualified_manifest_payload()
+                mutate(payload)
+                if label in contract_mutations:
+                    payload["qualification_contract_sha256"] = canonical_sha256(
+                        payload["qualification_contract"]
+                    )
+                with self.assertRaises(ValueError):
+                    self._load_manifest_payload(payload)
+
+    def test_qualified_candidate_identity_self_check_is_enforced(self):
+        payload = self._qualified_manifest_payload()
+        payload["candidate"]["candidate_identity_contract"]["candidate_label"] = "X"
+        with self.assertRaisesRegex(ValueError, "candidate identity"):
+            self._load_manifest_payload(payload)
 
     def test_candidate_cli_and_public_worker_profiles_are_explicit(self):
         parser = build_parser()
