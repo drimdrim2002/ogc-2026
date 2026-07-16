@@ -12,7 +12,7 @@ import random
 import time
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Any, Iterable
+from typing import Any, Iterable, Literal
 
 from .budget import Budget
 from .geometry import GeometryError, GeometryKernel, PairState
@@ -40,6 +40,13 @@ class ConstructorConfig:
     max_profiles: int = 6
     max_candidate_attempts: int | None = None
     selection_policy: str = "eager_regret"
+    # Phase 4 GO promoted the guarded native repair path to the production
+    # default. The Python path remains available as the automatic fallback and
+    # as an explicit reference mode.
+    repair_backend: str = "native"
+    candidate_backend: str | None = None
+    native_prefilter_enabled: bool = False
+    native_exact_mode: Literal["python", "shadow", "native"] = "native"
 
     def __post_init__(self) -> None:
         values = (
@@ -63,6 +70,22 @@ class ConstructorConfig:
             raise ValueError("candidate attempt cap must be a positive integer or None")
         if self.selection_policy not in {"eager_regret", "profile_priority"}:
             raise ValueError("unknown constructor selection policy")
+        requested = self.repair_backend
+        alias = self.candidate_backend
+        if not isinstance(requested, str) or (alias is not None and not isinstance(alias, str)):
+            raise TypeError("repair backend must be a string")
+        if alias is not None:
+            if requested != "native" and requested != alias:
+                raise ValueError("repair_backend and candidate_backend disagree")
+            requested = alias
+        if requested not in {"python", "native"}:
+            raise ValueError("repair backend must be 'python' or 'native'")
+        if not isinstance(self.native_prefilter_enabled, bool):
+            raise TypeError("native_prefilter_enabled must be a boolean")
+        if self.native_exact_mode not in {"python", "shadow", "native"}:
+            raise ValueError("unknown native exact mode")
+        object.__setattr__(self, "repair_backend", requested)
+        object.__setattr__(self, "candidate_backend", requested)
 
 
 @dataclass(frozen=True, slots=True)
@@ -649,7 +672,7 @@ def _commit_score(
     )
 
 
-def generate_insertion_candidates(
+def _generate_python_insertion_candidates(
     state: IndexedSolutionState,
     block_id: int,
     kernel: GeometryKernel,
@@ -658,16 +681,7 @@ def generate_insertion_candidates(
     current_placement: Placement | None = None,
     config: ConstructorConfig | None = None,
 ) -> tuple[CandidateScore, ...]:
-    """Public bounded insertion API used by transactional repair engines.
-
-    The candidate's current bay/time/position is included as a deterministic
-    anchor when supplied.  The input state is never mutated.
-    """
-    if block_id in state.block_ids:
-        raise ValueError(f"block {block_id} is already present in the repair state")
-    if current_placement is not None and current_placement.block_id != block_id:
-        raise ValueError("current_placement belongs to a different block")
-    config = config or ConstructorConfig(max_profiles=1)
+    """Reference implementation behind the P5 backend seam."""
     previous_kernel = state.kernel
     state.kernel = kernel
     try:
@@ -696,6 +710,79 @@ def generate_insertion_candidates(
         return tuple(options[:2]) + (current_score,)
     finally:
         state.kernel = previous_kernel
+
+
+def generate_insertion_candidates(
+    state: IndexedSolutionState,
+    block_id: int,
+    kernel: GeometryKernel,
+    budget: Budget,
+    *,
+    current_placement: Placement | None = None,
+    config: ConstructorConfig | None = None,
+    backend_session: Any | None = None,
+) -> tuple[CandidateScore, ...]:
+    """Return bounded candidates through explicit Python/native selection.
+
+    ``native`` is the guarded production default after the Phase 4 GO release
+    gate. UNKNOWN geometry fallback, rollback, transactional commit and all
+    serializer/checker decisions remain on the reference Python path.
+    """
+    if block_id in state.block_ids:
+        raise ValueError(f"block {block_id} is already present in the repair state")
+    if current_placement is not None and current_placement.block_id != block_id:
+        raise ValueError("current_placement belongs to a different block")
+    config = config or ConstructorConfig(max_profiles=1)
+
+    def python_reference() -> tuple[CandidateScore, ...]:
+        return _generate_python_insertion_candidates(
+            state,
+            block_id,
+            kernel,
+            budget,
+            current_placement=current_placement,
+            config=config,
+        )
+
+    if backend_session is not None:
+        return tuple(
+            backend_session.generate(
+                state,
+                block_id,
+                kernel,
+                budget,
+                current_placement,
+                attempt_cap=config.max_candidate_attempts,
+                escalated_time_cap=config.escalated_time_cap,
+                exact_mode=config.native_exact_mode,
+                python_reference=python_reference,
+            )
+        )
+    if config.repair_backend == "native":
+        # Direct callers get the same safe seam; repair owns the longer-lived
+        # session so it can reuse packed states and expose aggregate telemetry.
+        from .native_repair import NativeRepairSession
+
+        session = NativeRepairSession(
+            state.instance,
+            kernel,
+            requested_backend="native",
+            prefilter_enabled=config.native_prefilter_enabled,
+        )
+        return tuple(
+            session.generate(
+                state,
+                block_id,
+                kernel,
+                budget,
+                current_placement,
+                attempt_cap=config.max_candidate_attempts,
+                escalated_time_cap=config.escalated_time_cap,
+                exact_mode=config.native_exact_mode,
+                python_reference=python_reference,
+            )
+        )
+    return python_reference()
 
 
 def commit_insertion_candidate(

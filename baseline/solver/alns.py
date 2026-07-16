@@ -209,6 +209,9 @@ class AlnsMetrics:
     densify_reason: str | None = None
     per_destroy_size: tuple[DestroySizeMetrics, ...] = ()
     destroy_growth_events: tuple[tuple[tuple[str, Any], ...], ...] = ()
+    # P5 repair-session evidence is bounded to one item per ALNS iteration.
+    # It is observational only and does not participate in acceptance.
+    repair_events: tuple[tuple[tuple[str, Any], ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,6 +437,7 @@ def run_lns(
     phase_time = {"destroy": 0.0, "repair": 0.0, "retime": 0.0, "checker": 0.0}
     engine_stats: dict[str, list[float]] = {}
     mip_events: list[dict[str, Any]] = []
+    repair_events: list[dict[str, Any]] = []
     retime_events: list[dict[str, Any]] = []
     cache_before = context.kernel.cache_info()
     started = context.clock()
@@ -701,6 +705,15 @@ def run_lns(
                 mip_event["repair_total_seconds"] = repair_duration
                 mip_event["repair_status"] = repaired.status
                 mip_event["repair_objective_delta"] = repaired.objective_delta
+            if repaired.telemetry and len(repair_events) < 256:
+                event = dict(repaired.telemetry)
+                event.update(
+                    selected_engine=selected_engine_name,
+                    result_engine=repaired.engine,
+                    repair_status=repaired.status,
+                    repair_objective_delta=repaired.objective_delta,
+                )
+                repair_events.append(event)
             if repaired.engine == "mip_fallback":
                 engine_stats[selected_engine_name][2] += 1
             if not repaired.feasible:
@@ -1035,6 +1048,7 @@ def run_lns(
         destroy_growth_events=tuple(
             tuple(event.items()) for event in growth_events
         ),
+        repair_events=tuple(tuple(event.items()) for event in repair_events),
     )
     return AlnsResult(
         snapshot=best_store.snapshot,

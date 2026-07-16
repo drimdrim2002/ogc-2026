@@ -11,7 +11,7 @@ import dataclasses
 import math
 import time
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 
 VARIANTS = (
@@ -42,6 +42,11 @@ class SubmissionConfig:
     retime_exact_z1_skip: bool = False
     constructor_selection_policy: str = "eager_regret"
     neighborhood_policy: str = "legacy"
+    # Phase 4 GO promotes guarded native repair/exact decisions. Optional
+    # prefilter, MIP, and interlock features remain independently disabled.
+    repair_backend: str = "native"
+    native_prefilter_enabled: bool = False
+    native_exact_mode: Literal["python", "shadow", "native"] = "native"
 
     def __post_init__(self) -> None:
         if isinstance(self.seed, bool) or not isinstance(self.seed, int):
@@ -54,6 +59,7 @@ class SubmissionConfig:
             self.mip_enabled,
             self.interlock_enabled,
             self.retime_exact_z1_skip,
+            self.native_prefilter_enabled,
         )
         if any(not isinstance(value, bool) for value in flags):
             raise TypeError("submission feature flags must be booleans")
@@ -68,6 +74,12 @@ class SubmissionConfig:
             raise ValueError("unknown constructor selection policy")
         if self.neighborhood_policy not in {"legacy", "portfolio"}:
             raise ValueError("unknown neighborhood policy")
+        if not isinstance(self.repair_backend, str):
+            raise TypeError("repair backend must be a string")
+        if self.repair_backend not in {"python", "native"}:
+            raise ValueError("repair backend must be 'python' or 'native'")
+        if self.native_exact_mode not in {"python", "shadow", "native"}:
+            raise ValueError("unknown native exact mode")
 
     @classmethod
     def from_defaults(cls, *, seed: int = 20260710) -> "SubmissionConfig":

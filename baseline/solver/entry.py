@@ -158,6 +158,13 @@ def load_optional_phase(
                     kernel=geometry,
                     raw=raw,
                     checker=checker,
+                    repair_config=ConstructorConfig(
+                        seed=chosen.seed,
+                        max_profiles=1,
+                        repair_backend=chosen.repair_backend,
+                        native_prefilter_enabled=chosen.native_prefilter_enabled,
+                        native_exact_mode=chosen.native_exact_mode,
+                    ),
                     repair_engines=repair_engines,
                 )
                 result = run_lns(

@@ -38,6 +38,11 @@ class PackagingContractTests(unittest.TestCase):
         self.assertFalse(after.interlock_enabled)
         self.assertEqual("eager_regret", after.constructor_selection_policy)
         self.assertEqual("legacy", after.neighborhood_policy)
+        self.assertEqual("native", after.repair_backend)
+        self.assertEqual("native", after.native_exact_mode)
+        self.assertFalse(after.native_prefilter_enabled)
+        self.assertFalse(after.mip_enabled)
+        self.assertFalse(after.interlock_enabled)
         with self.assertRaises(FrozenInstanceError):
             after.lns_enabled = False
 

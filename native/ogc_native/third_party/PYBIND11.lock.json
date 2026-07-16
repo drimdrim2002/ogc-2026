@@ -1,0 +1,9 @@
+{
+  "name": "pybind11",
+  "version": "2.13.6",
+  "source": "pybind11-2.13.6.tar.gz",
+  "sha256": "ba6af10348c12b24e92fa086b39cfba0eff619b61ac77c406167d813b096d39a",
+  "license": "BSD-3-Clause",
+  "license_file_in_source": "LICENSE",
+  "source_url": "https://files.pythonhosted.org/packages/source/p/pybind11/pybind11-2.13.6.tar.gz"
+}

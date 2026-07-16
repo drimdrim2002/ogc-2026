@@ -18,6 +18,7 @@ from .construct import (
 )
 from .geometry import GeometryKernel, PairState
 from .instance import Instance
+from .native_repair import NativeRepairSession
 from .state import IndexedSolutionState, Placement, SolutionSnapshot, compute_objective
 
 
@@ -577,9 +578,38 @@ def heuristic_repair(
     """Repair on a fresh indexed state; any failure returns input identity."""
     if regret_depth not in (2, 3):
         raise ValueError("regret_depth must be 2 or 3")
+    backend = NativeRepairSession(
+        context.instance,
+        context.kernel,
+        requested_backend=context.repair_config.repair_backend,
+        prefilter_enabled=context.repair_config.native_prefilter_enabled,
+    )
+    backend.record_anchor(current)
+
+    def finish(
+        snapshot: SolutionSnapshot,
+        status: str,
+        destroyed_ids: tuple[int, ...],
+        changed_ids: frozenset[int],
+        candidates_generated: int,
+        objective_delta: float,
+        diagnostics: tuple[str, ...] = (),
+    ) -> RepairResult:
+        backend.record_final(snapshot)
+        return RepairResult(
+            snapshot,
+            status,
+            destroyed_ids,
+            changed_ids,
+            candidates_generated,
+            objective_delta,
+            diagnostics,
+            telemetry=backend.telemetry(),
+        )
+
     draft = destroy_snapshot(current, destroyed)
     if not destroyed:
-        return RepairResult(current, "FEASIBLE", (), frozenset(), 0, 0.0)
+        return finish(current, "FEASIBLE", (), frozenset(), 0, 0.0)
     original_by_id = _by_id(current)
     state = IndexedSolutionState(
         context.instance,
@@ -594,7 +624,7 @@ def heuristic_repair(
     try:
         while remaining:
             if not budget.can_start(0.0, margin=0.0001):
-                return RepairResult(
+                return finish(
                     current,
                     "BUDGET",
                     destroyed,
@@ -612,10 +642,11 @@ def heuristic_repair(
                     budget,
                     current_placement=original_by_id[block_id],
                     config=context.repair_config,
+                    backend_session=backend,
                 )
                 generated += len(options)
                 if not options:
-                    return RepairResult(
+                    return finish(
                         current,
                         "NO_CANDIDATE",
                         destroyed,
@@ -640,7 +671,7 @@ def heuristic_repair(
                 )
             _, block_id, candidate = min(choices, key=lambda item: item[0])
             if not commit_insertion_candidate(state, candidate, context.kernel):
-                return RepairResult(
+                return finish(
                     current,
                     "STALE_CANDIDATE",
                     destroyed,
@@ -656,7 +687,7 @@ def heuristic_repair(
             compute_objective(context.instance, candidate)
         )
         if not locally_feasible(candidate, context):
-            return RepairResult(
+            return finish(
                 current,
                 "LOCAL_REJECTED",
                 destroyed,
@@ -667,12 +698,29 @@ def heuristic_repair(
         before = current.objective or compute_objective(context.instance, current)
         after = candidate.objective
         assert after is not None
+        # The native opt-in is never allowed to replace the frozen repair
+        # anchor with a worse snapshot.  Python-default ALNS acceptance keeps
+        # its existing behavior; this guard applies only to the new seam.
+        if (
+            context.repair_config.repair_backend == "native"
+            and after.total > before.total + 1e-9
+        ):
+            backend.reject_dominance_loss()
+            return finish(
+                current,
+                "DOMINANCE_REJECTED",
+                destroyed,
+                frozenset(),
+                generated,
+                0.0,
+                ("native result was worse than frozen repair anchor",),
+            )
         changed = frozenset(
             block_id
             for block_id in destroyed
             if original_by_id[block_id] != _by_id(candidate)[block_id]
         )
-        return RepairResult(
+        return finish(
             candidate,
             "FEASIBLE",
             destroyed,
@@ -681,7 +729,7 @@ def heuristic_repair(
             after.total - before.total,
         )
     except Exception as exc:
-        return RepairResult(
+        return finish(
             current,
             "ERROR",
             destroyed,
